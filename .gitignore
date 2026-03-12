@@ -1,0 +1,39 @@
+# Ephemeral files generated during evolution
+ISSUES_TODAY.md
+ISSUE_RESPONSE.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary
+/tmp/
+*.tmp
+
+# Node (if project is JS/TS)
+node_modules/
+dist/
+.next/
+
+# Python (if project is Python)
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Rust (if project is Rust)
+target/
+
+# Go (if project is Go)
+/bin/
+
+# Env files
+.env
+.env.local
+.env.*.local
