@@ -8,7 +8,8 @@ import { runCommand } from './commands/run';
 import { statusCommand } from './commands/status';
 import { ejectCommand } from './commands/eject';
 
-const binName = path.basename(process.argv[1]);
+const rawName = path.basename(process.argv[1]);
+const binName = rawName === 'ce' ? 'ce' : 'code-evolve';
 const program = new Command();
 
 program
