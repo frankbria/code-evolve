@@ -24,8 +24,8 @@ curl -s [url] | sed 's/<[^>]*>//g' | head -100
 ## Rules
 
 - Have a specific question before searching. No aimless browsing.
-- Write what you learn to LEARNINGS.md so you never search the same thing twice.
-- Read LEARNINGS.md before searching — you may already know the answer.
+- Write what you learn to .evolve/LEARNINGS.md so you never search the same thing twice.
+- Read .evolve/LEARNINGS.md before searching — you may already know the answer.
 - Prefer official docs over random blogs.
 - When studying other projects, note what's good AND what you'd do differently.
 

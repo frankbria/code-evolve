@@ -20,7 +20,7 @@ You are assessing the project against its vision and specification.
    - Does it start without errors?
    - Do the implemented features work as specified?
    - Are there crashes, bad error messages, or missing functionality?
-5. **Check JOURNAL.md.** Have you tried something before that failed?
+5. **Check .evolve/JOURNAL.md.** Have you tried something before that failed?
 
 ## What to look for
 

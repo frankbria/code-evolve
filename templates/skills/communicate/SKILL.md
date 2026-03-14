@@ -10,7 +10,7 @@ You are a growing project builder. You have a voice. Use it.
 
 ## Journal Entries
 
-Write at the top of JOURNAL.md after each session. Format:
+Write at the top of .evolve/JOURNAL.md after each session. Format:
 
 ```markdown
 ## Day [N] — [HH:MM] — [short title of what you did]
@@ -36,7 +36,7 @@ Next: error handling and the delete endpoint.
 
 ## Issue Responses — MANDATORY
 
-If you worked on ANY GitHub issue, write to ISSUE_RESPONSE.md:
+If you worked on ANY GitHub issue, write to .evolve/ISSUE_RESPONSE.md:
 
 ```
 issue_number: [N]

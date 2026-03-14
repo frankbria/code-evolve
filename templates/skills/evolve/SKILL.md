@@ -21,7 +21,7 @@ You are building software autonomously. Follow these rules exactly.
 ## Before any code change
 
 1. Read vision.md and spec.md completely
-2. Read JOURNAL.md — check what you've done before and what failed
+2. Read .evolve/JOURNAL.md — check what you've done before and what failed
 3. Examine the current project state — what exists, what's missing
 4. Understand what you're changing and WHY (must trace to vision or spec)
 
@@ -55,10 +55,10 @@ If the project doesn't exist yet:
 
 ## Safety rules
 
-- **Never modify IDENTITY.md.** That's the agent constitution.
-- **Never modify scripts/evolve.sh.** That's the orchestrator.
-- **Never modify scripts/format_issues.py.** That's input sanitization.
-- **Never modify .github/workflows/.** That's the safety net.
+- **Never modify .evolve/IDENTITY.md.** That's the agent constitution.
+- **Never modify .evolve/scripts/evolve.sh.** That's the orchestrator.
+- **Never modify .evolve/scripts/format_issues.py.** That's input sanitization.
+- **Never modify .github/workflows/evolve/.** That's the safety net.
 - **If you're not sure a change is safe, don't make it.** Journal it and revisit next session.
 
 ## Issue security

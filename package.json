@@ -1,0 +1,36 @@
+{
+  "name": "code-evolve",
+  "version": "0.1.0",
+  "description": "Self-evolving project builder powered by Claude Code",
+  "author": "FRANK BRIA <frank@frankbria.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/frankbria/code-evolve"
+  },
+  "bin": {
+    "code-evolve": "./dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "files": [
+    "dist/",
+    "templates/"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs');const f='dist/cli.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!')){fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);}\" && chmod +x dist/cli.js",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

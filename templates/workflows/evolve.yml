@@ -51,9 +51,10 @@ jobs:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
+          EVOLVE_DIR: .evolve
         run: |
-          chmod +x scripts/evolve.sh
-          ./scripts/evolve.sh
+          chmod +x .evolve/scripts/evolve.sh
+          .evolve/scripts/evolve.sh
 
       - name: Retry after 15min
         id: attempt2
@@ -64,10 +65,11 @@ jobs:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
+          EVOLVE_DIR: .evolve
         run: |
           echo "Waiting 15 minutes before retry..."
           sleep 900
-          ./scripts/evolve.sh
+          .evolve/scripts/evolve.sh
 
       - name: Retry after 45min
         if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
@@ -76,7 +78,8 @@ jobs:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
+          EVOLVE_DIR: .evolve
         run: |
           echo "Waiting 45 minutes before retry..."
           sleep 2700
-          ./scripts/evolve.sh
+          .evolve/scripts/evolve.sh

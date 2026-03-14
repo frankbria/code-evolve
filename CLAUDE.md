@@ -4,86 +4,70 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## What This Is
 
-A self-evolving project builder. Given a `vision.md` (the "why") and a `spec.md`
-(the "how"), it autonomously builds the project from scratch and continues
-improving it session after session.
+An npm CLI package (`code-evolve`) that turns any project into a self-evolving
+codebase. Users run `npx code-evolve init` in their project, fill in `vision.md`
+and `spec.md`, and the framework autonomously builds and improves the project
+session after session using Claude Code CLI.
 
-The evolution loop runs every 4 hours via GitHub Actions (`scripts/evolve.sh`),
-which invokes Claude Code CLI in non-interactive mode to read the vision/spec,
-assess current state, implement features, verify the build, and commit.
-
-## How It Works
-
-1. `scripts/evolve.sh` orchestrates each evolution session
-2. It reads `vision.md`, `spec.md`, current project state, and GitHub issues
-3. Claude Code implements the next highest-priority work
-4. Build verification runs (auto-detected from project stack)
-5. Journal entry is written, issue responses posted
-6. Changes are committed, tagged, and pushed
-
-## Project Structure
+## Repository Structure
 
 ```
-code-evolve/
-├── vision.md              # Project vision (the "why" and "what")
-├── spec.md                # Technical spec (the "how", with feature checklist)
-├── IDENTITY.md            # Agent constitution (DO NOT MODIFY)
-├── JOURNAL.md             # Evolution log (append at top, never delete)
-├── LEARNINGS.md           # Cached knowledge from research
-├── DAY_COUNT              # Current evolution day
-├── scripts/
-│   ├── evolve.sh          # Master orchestrator (DO NOT MODIFY)
-│   ├── format_issues.py   # Issue sanitization (DO NOT MODIFY)
-│   └── detect_stack.sh    # Stack detection for build verification
-├── skills/                # Agent behavior definitions
-│   ├── evolve/            # Self-modification rules
-│   ├── self-assess/       # Gap analysis
-│   ├── communicate/       # Journal and issue responses
-│   ├── research/          # Web research
-│   └── plan/              # Planning from vision/spec
-├── .github/workflows/
-│   ├── evolve.yml         # Cron trigger (every 4h)
-│   └── ci.yml             # Build verification on push/PR
-└── src/                   # THE PROJECT (built by the agent)
+code-evolve/                  # npm package source
+├── package.json              # npm package config (bin: code-evolve)
+├── tsconfig.json             # TypeScript config
+├── src/                      # CLI source (TypeScript)
+│   ├── cli.ts                # Entrypoint (commander)
+│   ├── commands/
+│   │   ├── init.ts           # code-evolve init
+│   │   ├── run.ts            # code-evolve run
+│   │   ├── status.ts         # code-evolve status
+│   │   └── eject.ts          # code-evolve eject
+│   └── utils/
+│       ├── paths.ts          # Path resolution
+│       ├── checks.ts         # Dependency checking
+│       └── output.ts         # TTY/JSON output
+├── templates/                # Files installed by `init`
+│   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py
+│   ├── skills/               # Agent behavior definitions (5 SKILL.md files)
+│   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, DAY_COUNT
+│   ├── workflows/            # GitHub Actions (evolve.yml, ci.yml)
+│   ├── vision.md             # Template
+│   └── spec.md               # Template
+├── dist/                     # Compiled output (gitignored)
+└── .github/workflows/        # CI for this package
 ```
 
-## Running Locally
+## Development
 
 ```bash
-# Run a full evolution cycle
-ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh
-
-# Run with a specific model
-ANTHROPIC_API_KEY=sk-... MODEL=claude-opus-4-6 ./scripts/evolve.sh
-
-# Force run (bypass schedule gate)
-ANTHROPIC_API_KEY=sk-... FORCE_RUN=true ./scripts/evolve.sh
+npm install           # Install dependencies
+npm run build         # Compile TypeScript to dist/
+npm run dev           # Watch mode
+npm run lint          # Type-check without emitting
 ```
 
-## Safety Rules
+## How It Works (User Perspective)
 
-These files are protected and must never be modified by the agent:
-- `IDENTITY.md` — agent constitution
-- `scripts/evolve.sh` — orchestrator
-- `scripts/format_issues.py` — input sanitization
-- `.github/workflows/` — CI/CD safety net
+1. User runs `code-evolve init` in their project
+2. Creates `.evolve/` with scripts, skills, state files
+3. Copies `vision.md` and `spec.md` templates to project root
+4. User fills in vision and spec
+5. `code-evolve run` executes one evolution cycle via `.evolve/scripts/evolve.sh`
+6. `evolve.sh` invokes Claude Code CLI to read vision/spec, build features, verify, commit
+7. Optionally: `--with-ci` installs GitHub Actions for auto-evolution every 4 hours
 
-## Getting Started
+## Key Design Decisions
 
-1. Edit `vision.md` with your project vision
-2. Edit `spec.md` with technical specification and feature checklist
-3. Set `ANTHROPIC_API_KEY` in GitHub repository secrets
-4. Push to GitHub — the evolution workflow will start building automatically
-5. Or run locally: `ANTHROPIC_API_KEY=sk-... ./scripts/evolve.sh`
+- **`.evolve/` namespace**: All framework files live in `.evolve/` to avoid polluting the project root
+- **`PROJECT_DIR=.`**: The project being built IS the repo root (not a subdirectory)
+- **`EVOLVE_DIR` env var**: All paths in `evolve.sh` are relative to this variable
+- **Templates shipped with npm package**: `init` copies from `node_modules/code-evolve/templates/`
+- **vision.md and spec.md at root**: User-facing files stay visible at project root
 
-## State Files
+## Protected Files (in templates)
 
-| File | Purpose | Mutability |
-|------|---------|-----------|
-| vision.md | North star | Human-edited |
-| spec.md | Blueprint with checklist | Human + agent (checkboxes) |
-| JOURNAL.md | Session log | Append-only (top) |
-| LEARNINGS.md | Cached knowledge | Append (new sections) |
-| DAY_COUNT | Evolution day | Written each run |
-| ISSUES_TODAY.md | Fetched issues | Generated (gitignored) |
-| ISSUE_RESPONSE.md | Issue responses | Generated (gitignored) |
+These must not be modified by the evolution agent:
+- `.evolve/IDENTITY.md` — agent constitution
+- `.evolve/scripts/evolve.sh` — orchestrator
+- `.evolve/scripts/format_issues.py` — input sanitization
+- `.github/workflows/evolve/` — CI/CD safety net
