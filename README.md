@@ -40,6 +40,8 @@ npx code-evolve start
 
 That's it. The engine starts building.
 
+> **Tip:** After installing globally (`npm install -g code-evolve`), you can use `ce` as a shorthand — `ce init`, `ce start`, `ce status`, etc. All commands work identically with either name.
+
 ## How the Evolution Loop Works
 
 Each cycle is autonomous and self-correcting:
@@ -72,6 +74,8 @@ Each cycle is autonomous and self-correcting:
 The journal is the agent's memory across sessions. It reads its own history to avoid repeating mistakes and to build on what worked.
 
 ## Commands
+
+All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 
 | Command | What it does |
 |---------|-------------|
@@ -191,12 +195,13 @@ The agent is powerful but constrained:
 ```bash
 npm update -g code-evolve
 code-evolve init --force     # updates engine, preserves your evolution history
+# or: ce init --force
 ```
 
 ## Ejecting
 
 ```bash
-code-evolve eject
+code-evolve eject    # or: ce eject
 ```
 
 Stops the engine, removes `.evolve/` and workflows. Everything the agent built — your code, tests, docs — stays exactly where it is.
