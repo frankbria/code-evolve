@@ -1,10 +1,10 @@
 #!/bin/bash
 # .evolve/scripts/evolve.sh — One evolution cycle for code-evolve.
-# Reads vision.md + spec.md, builds/improves the project, verifies, commits.
+# Reads .evolve/vision.md + .evolve/spec.md, builds/improves the project, verifies, commits.
 #
 # Adapted from yoyo-evolve's evolve.sh. Key differences:
 # - Uses Claude Code CLI (`claude`) as the agent executor
-# - Reads vision.md + spec.md instead of src/main.rs
+# - Reads $EVOLVE_DIR/vision.md + $EVOLVE_DIR/spec.md
 # - Adaptive build verification (detects stack from project files)
 # - Language/framework agnostic
 #
@@ -244,7 +244,7 @@ After making changes, run these commands to verify:"
 else
     VERIFY_INSTRUCTIONS="## Build Verification
 No build system detected yet. If this is the bootstrap session, set up the project
-with appropriate build tooling as specified in spec.md. After creating the project,
+with appropriate build tooling as specified in \$EVOLVE_DIR/spec.md. After creating the project,
 verify it builds and tests pass before committing."
 fi
 
@@ -264,8 +264,8 @@ Today is Day $DAY ($DATE $SESSION_TIME).
 
 You are code-evolve, an autonomous project builder. Read these files in order:
 1. $EVOLVE_DIR/IDENTITY.md (who you are and your rules)
-2. vision.md (the project vision — your north star)
-3. spec.md (the technical specification — your blueprint)
+2. $EVOLVE_DIR/vision.md (the project vision — your north star)
+3. $EVOLVE_DIR/spec.md (the technical specification — your blueprint)
 4. $EVOLVE_DIR/JOURNAL.md (your recent history — avoid repeating mistakes)
 5. $EVOLVE_DIR/ISSUES_TODAY.md (community requests)
 
@@ -298,7 +298,7 @@ $VERIFY_INSTRUCTIONS
 
 === PHASE 1: Assess Current State ===
 
-Read vision.md and spec.md completely. Then examine the current project state.
+Read $EVOLVE_DIR/vision.md and $EVOLVE_DIR/spec.md completely. Then examine the current project state.
 Determine what exists vs what's specified. Identify the gap.
 
 If this is Day 0 (bootstrap): Plan the project structure and set up scaffolding.
@@ -318,7 +318,7 @@ You are autonomous. Pick the highest-impact work:
 Priority:
 0. Fix CI failures (if any — overrides everything else)
 1. Bootstrap the project (if Day 0 or project doesn't exist yet)
-2. Implement the next unfinished spec feature (follow priority order in spec.md)
+2. Implement the next unfinished spec feature (follow priority order in $EVOLVE_DIR/spec.md)
 3. Fix bugs or failing tests
 4. Community issues (up to 3 max)
 5. Polish and documentation
@@ -335,10 +335,10 @@ For each improvement:
 
 === PHASE 5: Update Spec Progress ===
 
-After implementing features from spec.md, update the checkboxes:
+After implementing features from $EVOLVE_DIR/spec.md, update the checkboxes:
 - [ ] → [x] for completed features
 - [ ] → [~] for partially completed features
-Commit: git add spec.md && git commit -m "Day $DAY ($SESSION_TIME): update spec progress"
+Commit: git add $EVOLVE_DIR/spec.md && git commit -m "Day $DAY ($SESSION_TIME): update spec progress"
 
 === PHASE 6: Journal (MANDATORY — DO NOT SKIP) ===
 

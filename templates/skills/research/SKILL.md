@@ -33,6 +33,6 @@ curl -s [url] | sed 's/<[^>]*>//g' | head -100
 
 - You're implementing something from the spec that you're unfamiliar with
 - You hit an error you don't understand
-- You want to see best practices for the tech stack specified in spec.md
+- You want to see best practices for the tech stack specified in .evolve/spec.md
 - A community issue references a concept you don't know
 - You're choosing between multiple approaches
