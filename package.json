@@ -9,7 +9,8 @@
     "url": "https://github.com/frankbria/code-evolve"
   },
   "bin": {
-    "code-evolve": "./dist/cli.js"
+    "code-evolve": "./dist/cli.js",
+    "ce": "./dist/cli.js"
   },
   "main": "dist/cli.js",
   "files": [
