@@ -31,8 +31,8 @@ Day 14 — Your project works. You barely touched a keyboard.
 npx code-evolve init
 
 # Write your vision and spec (the only part that requires a human)
-# vision.md  → what you're building and why
-# spec.md    → tech stack, architecture, prioritized feature list
+# .evolve/vision.md  → what you're building and why
+# .evolve/spec.md    → tech stack, architecture, prioritized feature list
 
 export ANTHROPIC_API_KEY=sk-...
 npx code-evolve start
@@ -107,9 +107,9 @@ code-evolve start --model claude-opus-4-6  # use a different model
 
 ```
 my-project/
-├── vision.md              ← you write this
-├── spec.md                ← you write this
 ├── .evolve/
+│   ├── vision.md          ← you write this
+│   ├── spec.md            ← you write this
 │   ├── scripts/           ← orchestration engine (protected)
 │   ├── skills/            ← agent behaviors (protected)
 │   ├── IDENTITY.md        ← agent constitution (protected)
@@ -124,7 +124,7 @@ my-project/
 
 ## The Spec Is the Source of Truth
 
-Your `spec.md` drives everything. Features are a prioritized checklist:
+Your `.evolve/spec.md` drives everything. Features are a prioritized checklist:
 
 ```markdown
 ## Features (Priority Order)
@@ -196,6 +196,7 @@ The agent is powerful but constrained:
 npm update -g code-evolve
 code-evolve init --force     # updates engine, preserves your evolution history
 # or: ce init --force
+# Note: --force migrates root-level vision.md/spec.md into .evolve/ automatically
 ```
 
 ## Ejecting
@@ -204,7 +205,7 @@ code-evolve init --force     # updates engine, preserves your evolution history
 code-evolve eject    # or: ce eject
 ```
 
-Stops the engine, removes `.evolve/` and workflows. Everything the agent built — your code, tests, docs — stays exactly where it is.
+Stops the engine, removes `.evolve/` and workflows. Your `vision.md` and `spec.md` are copied to the project root. Everything the agent built — your code, tests, docs — stays exactly where it is.
 
 ## Requirements
 

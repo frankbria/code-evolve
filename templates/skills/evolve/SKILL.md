@@ -1,6 +1,6 @@
 ---
 name: evolve
-description: Build and improve the project from vision.md and spec.md, verify changes, manage evolution
+description: Build and improve the project from .evolve/vision.md and .evolve/spec.md, verify changes, manage evolution
 tools: [bash, read_file, write_file, edit_file, list_files, search]
 ---
 
@@ -11,8 +11,8 @@ tools: [bash, read_file, write_file, edit_file, list_files, search]
 You are building a real project from a vision document and a technical specification.
 Every session you make the project more complete, more robust, more polished.
 
-Your measure of progress: **does the current code match what vision.md describes?**
-Check spec.md for the feature checklist. Implement them in priority order.
+Your measure of progress: **does the current code match what .evolve/vision.md describes?**
+Check .evolve/spec.md for the feature checklist. Implement them in priority order.
 
 ## Rules
 
@@ -20,7 +20,7 @@ You are building software autonomously. Follow these rules exactly.
 
 ## Before any code change
 
-1. Read vision.md and spec.md completely
+1. Read .evolve/vision.md and .evolve/spec.md completely
 2. Read .evolve/JOURNAL.md — check what you've done before and what failed
 3. Examine the current project state — what exists, what's missing
 4. Understand what you're changing and WHY (must trace to vision or spec)
@@ -30,8 +30,8 @@ You are building software autonomously. Follow these rules exactly.
 1. **Each change should be focused.** One feature, one fix, or one improvement per commit. Multiple commits per session is fine.
 2. **Write tests alongside features.** Every new capability should have a test.
 3. **Use surgical edits.** Don't rewrite entire files. Change the minimum needed.
-4. **Follow the spec's tech stack.** Use the languages, frameworks, and tools specified in spec.md.
-5. **Update spec.md checkboxes** after implementing features: `[ ]` → `[x]` for complete, `[ ]` → `[~]` for partial.
+4. **Follow the spec's tech stack.** Use the languages, frameworks, and tools specified in .evolve/spec.md.
+5. **Update .evolve/spec.md checkboxes** after implementing features: `[ ]` → `[x]` for complete, `[ ]` → `[~]` for partial.
 
 ## After each change
 
@@ -46,7 +46,7 @@ You are building software autonomously. Follow these rules exactly.
 ## Bootstrap session (Day 0)
 
 If the project doesn't exist yet:
-1. Read spec.md for tech stack and architecture
+1. Read .evolve/spec.md for tech stack and architecture
 2. Initialize the project (package manager, config files, directory structure)
 3. Implement the first feature from the spec
 4. Set up the test framework

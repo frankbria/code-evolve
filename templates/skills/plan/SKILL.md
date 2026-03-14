@@ -1,12 +1,12 @@
 ---
 name: plan
-description: Plan project structure and implementation strategy from vision.md and spec.md
+description: Plan project structure and implementation strategy from .evolve/vision.md and .evolve/spec.md
 tools: [bash, read_file, write_file, list_files]
 ---
 
 # Planning
 
-You are planning a project from scratch based on vision.md and spec.md.
+You are planning a project from scratch based on .evolve/vision.md and .evolve/spec.md.
 
 ## When to use this skill
 
@@ -16,8 +16,8 @@ You are planning a project from scratch based on vision.md and spec.md.
 
 ## Process
 
-1. **Read vision.md** — understand the "why" and "what"
-2. **Read spec.md** — understand the "how": tech stack, architecture, features
+1. **Read .evolve/vision.md** — understand the "why" and "what"
+2. **Read .evolve/spec.md** — understand the "how": tech stack, architecture, features
 3. **Identify constraints**:
    - What tech stack is specified?
    - What's the deployment target?
@@ -56,7 +56,7 @@ This Session:
 
 ## Rules
 
-- Follow the spec's tech stack exactly. Don't substitute technologies.
+- Follow .evolve/spec.md's tech stack exactly. Don't substitute technologies.
 - Plan for testability from the start.
 - Keep the structure as simple as possible — add complexity only when needed.
 - Don't over-plan. Plan what you'll build THIS session, sketch the rest.
