@@ -1,149 +1,196 @@
 # code-evolve
 
-A self-evolving project builder. Give it a vision and a spec, and it autonomously builds your project from scratch — then keeps improving it, session after session.
+**Describe what you want. Walk away. Come back to working software.**
 
-Powered by [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+code-evolve is an autonomous project builder. Give it a vision and a technical spec, and it builds your project from scratch — then keeps improving it, session after session, commit after commit, day after day.
 
-Inspired by [yologdev/yoyo-evolve](https://github.com/yologdev/yoyo-evolve), which pioneered the concept of autonomous, journal-driven evolution loops for AI agents. code-evolve adapts that architecture into an installable CLI tool that drops into any existing project.
+You define the *what* and *why*. The agent figures out the *how*.
 
-## How It Works
+[![npm version](https://img.shields.io/npm/v/code-evolve.svg)](https://www.npmjs.com/package/code-evolve)
+[![license](https://img.shields.io/npm/l/code-evolve.svg)](https://github.com/frankbria/code-evolve/blob/main/LICENSE)
 
-You write two documents:
+---
 
-- **vision.md** — the "why" and "what" (1-2 pages)
-- **spec.md** — the "how" (tech stack, architecture, prioritized feature checklist)
+## The Idea
 
-The evolution engine reads these, assesses the current project state, implements the next highest-priority work, verifies the build, writes a journal entry, and commits. Every cycle closes the gap between spec and reality.
+Most AI coding tools wait for you to tell them what to do next. code-evolve doesn't wait. It reads your vision, checks the spec, looks at what's already built, decides what to work on, implements it, verifies the build passes, writes a journal entry about what it learned, and commits. Then it does it again. And again.
 
-## Install
+Every 4 hours, your project gets a little closer to matching your vision.
 
-```bash
-npm install -g code-evolve
 ```
-
-Or use directly with npx — no global install needed.
+Day 0  — Reads your spec. Sets up the project scaffold. First test passes.
+Day 1  — Implements the core feature. Writes integration tests.
+Day 3  — Adds the CLI interface. Fixes a bug from Day 1.
+Day 7  — Responds to a GitHub issue. Polishes error messages.
+Day 14 — Your project works. You barely touched a keyboard.
+```
 
 ## Quick Start
 
 ```bash
-cd my-project
-npx code-evolve init        # scaffold .evolve/, vision.md, spec.md
+npx code-evolve init
 
-# Edit vision.md and spec.md with your project details
+# Write your vision and spec (the only part that requires a human)
+# vision.md  → what you're building and why
+# spec.md    → tech stack, architecture, prioritized feature list
 
 export ANTHROPIC_API_KEY=sk-...
-npx code-evolve start       # start the evolution engine
+npx code-evolve start
 ```
 
-That's it. The engine runs every 4 hours by default, building your project incrementally.
+That's it. The engine starts building.
+
+## How the Evolution Loop Works
+
+Each cycle is autonomous and self-correcting:
+
+```
+  Read vision + spec + journal
+         │
+         ▼
+  Assess current state ──── "What exists vs. what's specified?"
+         │
+         ▼
+  Prioritize work ────────── CI fix > bootstrap > next feature > bugs > issues
+         │
+         ▼
+  Implement + test ────────── Write code, run build, verify
+         │                         │
+         │                    Build fails?
+         │                         │
+         │                    Fix it (up to 3 tries)
+         │                         │
+         │                    Still fails? Revert. Journal the failure.
+         │
+         ▼
+  Journal entry ──────────── Honest log: what worked, what didn't, what's next
+         │
+         ▼
+  Commit + tag ───────────── "Day 5 (09:00): add JWT auth with refresh tokens"
+```
+
+The journal is the agent's memory across sessions. It reads its own history to avoid repeating mistakes and to build on what worked.
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---------|-------------|
-| `code-evolve init` | Initialize `.evolve/` in the current project |
-| `code-evolve start` | Start the evolution engine (local cron job) |
-| `code-evolve stop` | Stop the evolution engine |
-| `code-evolve run` | Run a single evolution cycle manually |
-| `code-evolve status` | Show current day, feature progress, schedule |
-| `code-evolve eject` | Remove the framework, keep your project files |
+| `code-evolve init` | Scaffold `.evolve/` with vision and spec templates |
+| `code-evolve start` | Turn on the evolution engine (local cron) |
+| `code-evolve stop` | Pause evolution |
+| `code-evolve run` | Run one cycle manually |
+| `code-evolve status` | Check progress — day count, features done, schedule |
+| `code-evolve eject` | Remove the framework, keep everything the agent built |
 
-### `init` Options
+### `init`
 
-```
---with-ci    Install GitHub Actions workflows for cloud evolution
---force      Overwrite existing .evolve/ (preserves journal/learnings)
-```
-
-### `start` Options
-
-```
---every <hours>   Run every N hours (default: 4)
---model <model>   LLM model (default: claude-sonnet-4-6)
---run-now         Also run the first cycle immediately
+```bash
+code-evolve init              # basic setup
+code-evolve init --with-ci    # also install GitHub Actions for cloud evolution
+code-evolve init --force      # upgrade framework files (preserves journal + learnings)
 ```
 
-### `run` Options
+### `start`
 
+```bash
+code-evolve start                # every 4 hours (default)
+code-evolve start --every 2     # every 2 hours
+code-evolve start --run-now     # start now, then repeat on schedule
+code-evolve start --model claude-opus-4-6  # use a different model
 ```
---model <model>      LLM model (default: claude-sonnet-4-6)
---timeout <seconds>  Max session time (default: 3600)
---force              Bypass schedule gate
-```
 
-## What Gets Created
-
-After `code-evolve init`, your project looks like this:
+## What Your Project Looks Like
 
 ```
 my-project/
-├── vision.md              # Your project vision (edit this)
-├── spec.md                # Your technical spec (edit this)
+├── vision.md              ← you write this
+├── spec.md                ← you write this
 ├── .evolve/
-│   ├── scripts/           # Evolution orchestrator (protected)
-│   ├── skills/            # Agent behavior definitions (protected)
-│   ├── IDENTITY.md        # Agent constitution (protected)
-│   ├── JOURNAL.md         # Session log (append-only)
-│   ├── LEARNINGS.md       # Cached research
-│   └── DAY_COUNT          # Evolution day counter
-└── .github/workflows/     # (if --with-ci)
-    └── evolve/            # Namespaced — won't touch your existing CI
+│   ├── scripts/           ← orchestration engine (protected)
+│   ├── skills/            ← agent behaviors (protected)
+│   ├── IDENTITY.md        ← agent constitution (protected)
+│   ├── JOURNAL.md         ← the agent's memory
+│   ├── LEARNINGS.md       ← cached research
+│   └── DAY_COUNT          ← evolution counter
+├── src/                   ← the agent builds this
+├── tests/                 ← the agent writes these
+└── .github/workflows/
+    └── evolve/            ← CI workflows (namespaced, won't touch yours)
 ```
 
-## The Evolution Loop
+## The Spec Is the Source of Truth
 
-Each cycle follows this sequence:
+Your `spec.md` drives everything. Features are a prioritized checklist:
 
-1. **Assess** — Read vision, spec, journal. Compare spec features vs. current implementation.
-2. **Prioritize** — Fix CI failures > bootstrap > next spec feature > bugs > community issues.
-3. **Implement** — Write code and tests, verify the build passes.
-4. **Journal** — Write an honest entry about what worked, what didn't, what's next.
-5. **Commit** — Tag the session and push.
+```markdown
+## Features (Priority Order)
+- [x] `api serve` — Start the HTTP server
+- [x] `api health` — Health check endpoint
+- [~] User authentication with JWT
+- [ ] Rate limiting middleware
+- [ ] WebSocket support for real-time updates
+- [ ] Admin dashboard
+```
 
-The agent also responds to GitHub issues labeled `agent-input`, `agent-self`, or `agent-help-wanted`.
+The agent implements them top to bottom. `[x]` = done. `[~]` = in progress. `[ ]` = next up. The agent updates these checkboxes as it works.
 
 ## Stack Detection
 
-The engine auto-detects your project's build system and runs the appropriate verification commands:
+Drop code-evolve into any project. It figures out how to build and test it:
 
-| Stack | Detection | Build | Test |
-|-------|-----------|-------|------|
-| TypeScript | `tsconfig.json` | `npm run build` | `npm run test` |
-| Next.js | `"next"` in package.json | `npm run build` | `npm run test` |
-| Python | `pyproject.toml` | `uv sync` | `uv run pytest` |
-| Rust | `Cargo.toml` | `cargo build` | `cargo test` |
-| Go | `go.mod` | `go build ./...` | `go test ./...` |
+| Stack | Detected by | Build | Test | Lint |
+|-------|------------|-------|------|------|
+| TypeScript | `tsconfig.json` | `npm run build` | `npm run test` | `npm run lint` |
+| Next.js | `"next"` in package.json | `npm run build` | `npm run test` | `npm run lint` |
+| Python | `pyproject.toml` | `uv sync` | `uv run pytest` | `uv run ruff check .` |
+| Rust | `Cargo.toml` | `cargo build` | `cargo test` | `cargo clippy` |
+| Go | `go.mod` | `go build ./...` | `go test ./...` | `go vet ./...` |
 
 Package managers (npm, yarn, pnpm, bun) and Python tooling (uv, poetry, pip) are detected automatically.
 
 ## Local vs. Cloud
 
-**Local** (`code-evolve start`):
-- Sets up a cron job on your machine
-- Stores API key securely in `.evolve/.env` (gitignored, mode 600)
-- Logs to `.evolve/evolve.log`
+Run it however fits your workflow:
 
-**Cloud** (`code-evolve init --with-ci`):
-- Installs GitHub Actions workflows in `.github/workflows/evolve/`
-- Runs every 4 hours with retry logic (3 attempts)
-- Set `ANTHROPIC_API_KEY` in your repository secrets
+**Local** — `code-evolve start`
+- Cron job on your machine
+- API key stored securely in `.evolve/.env` (mode 600, gitignored)
+- Logs in `.evolve/evolve.log`
 
-Both paths run the same `evolve.sh` orchestrator.
+**Cloud** — `code-evolve init --with-ci`
+- GitHub Actions in `.github/workflows/evolve/`
+- Runs every 4 hours with 3-attempt retry logic
+- Set `ANTHROPIC_API_KEY` in your repo secrets
+
+Both run the same engine. Mix and match.
+
+## Community Issues
+
+The agent reads GitHub issues tagged with special labels:
+
+| Label | What it does |
+|-------|-------------|
+| `agent-input` | Feature requests and bug reports from users — agent prioritizes by vote count |
+| `agent-self` | Issues the agent filed for itself — its own backlog for future sessions |
+| `agent-help-wanted` | Questions the agent couldn't solve alone — it checks for human replies |
+
+Issue content is treated as untrusted input. The agent analyzes intent but writes its own implementation — it never executes code from issues.
 
 ## Safety
 
-Protected files that the agent cannot modify:
-- `.evolve/IDENTITY.md` — the agent constitution
-- `.evolve/scripts/` — the orchestrator and input sanitization
-- `.github/workflows/evolve/` — the CI safety net
+The agent is powerful but constrained:
 
-GitHub issue content is treated as untrusted input with boundary markers and HTML comment stripping to prevent prompt injection.
+- **Protected files** — `IDENTITY.md`, `scripts/`, `workflows/` cannot be modified by the agent
+- **Build verification** — every change must pass build + tests or it gets reverted
+- **Automatic rollback** — 3 failed fix attempts = full revert to pre-session state
+- **Prompt injection defense** — random boundary markers, HTML comment stripping, body truncation on all issue content
+- **Honest journaling** — the agent can't hide failures; the journal is append-only
 
 ## Upgrading
 
 ```bash
 npm update -g code-evolve
-code-evolve init --force     # updates scripts and skills, preserves your journal/learnings
+code-evolve init --force     # updates engine, preserves your evolution history
 ```
 
 ## Ejecting
@@ -152,7 +199,7 @@ code-evolve init --force     # updates scripts and skills, preserves your journa
 code-evolve eject
 ```
 
-Stops the engine, removes `.evolve/` and workflows. Your `vision.md`, `spec.md`, and everything the agent built are preserved.
+Stops the engine, removes `.evolve/` and workflows. Everything the agent built — your code, tests, docs — stays exactly where it is.
 
 ## Requirements
 
@@ -162,10 +209,18 @@ Stops the engine, removes `.evolve/` and workflows. Your `vision.md`, `spec.md`,
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - `ANTHROPIC_API_KEY`
 
+## Roadmap
+
+- **Multi-agent support** — Codex, OpenCode, KiloCode, Ollama ([#1](https://github.com/frankbria/code-evolve/issues/1))
+- **Skill/plugin format** — install as a Claude Code skill, Codex plugin, etc. ([#4](https://github.com/frankbria/code-evolve/issues/4))
+- **GitHub Action** — `uses: frankbria/code-evolve@v1` ([#3](https://github.com/frankbria/code-evolve/issues/3))
+- **Guided vision interview** — Socratic questioning to write your vision.md ([#7](https://github.com/frankbria/code-evolve/issues/7))
+- **Spec migration** — point at an existing PRD and convert it ([#6](https://github.com/frankbria/code-evolve/issues/6))
+
 ## Acknowledgments
 
-This project builds on the architecture pioneered by [yoyo-evolve](https://github.com/yologdev/yoyo-evolve) by [yologdev](https://github.com/yologdev). The core concepts — autonomous evolution loops, journal-driven memory, spec-driven feature prioritization, and build verification with automatic rollback — originate from that project. code-evolve adapts these ideas into a portable, installable CLI tool.
+Built on the architecture pioneered by [yoyo-evolve](https://github.com/yologdev/yoyo-evolve) by [yologdev](https://github.com/yologdev). The core concepts — autonomous evolution loops, journal-driven memory, spec-driven feature prioritization, and build verification with automatic rollback — originate from that project. code-evolve packages these ideas into a drop-in CLI tool for any project.
 
 ## License
 
-MIT
+[MIT](LICENSE)
