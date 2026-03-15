@@ -86,6 +86,7 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 | `code-evolve status` | Check progress — day count, features done, schedule |
 | `code-evolve eject` | Remove the framework, keep everything the agent built |
 | `code-evolve migrate` | Convert an existing spec/vision document into code-evolve format |
+| `code-evolve vision` | Guided Socratic interview to generate `.evolve/vision.md` |
 
 ### `init`
 
@@ -112,6 +113,15 @@ code-evolve migrate spec ./PRD.md --ai                # AI-powered conversion vi
 code-evolve migrate vision ./docs/overview.md         # convert to vision.md format
 code-evolve migrate spec ./README.md --ai --yes       # skip confirmation prompt
 ```
+
+### `vision`
+
+```bash
+code-evolve vision           # guided interview to create .evolve/vision.md
+code-evolve vision --refine  # revisit and improve an existing vision.md
+```
+
+Five rounds of Socratic questions draw out your project vision — what you're building, who it's for, what problem it solves, and what success looks like. Answers are assembled into a structured `vision.md` with your approval.
 
 ## What Your Project Looks Like
 

@@ -8,6 +8,7 @@ import { runCommand } from './commands/run';
 import { statusCommand } from './commands/status';
 import { ejectCommand } from './commands/eject';
 import { migrateCommand } from './commands/migrate';
+import { visionCommand } from './commands/vision';
 
 const rawName = path.basename(process.argv[1]);
 const binName = rawName === 'ce' ? 'ce' : 'code-evolve';
@@ -25,5 +26,6 @@ program.addCommand(runCommand);
 program.addCommand(statusCommand);
 program.addCommand(ejectCommand);
 program.addCommand(migrateCommand);
+program.addCommand(visionCommand);
 
 program.parse();
