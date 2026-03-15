@@ -25,22 +25,99 @@ Day 7  — Responds to a GitHub issue. Polishes error messages.
 Day 14 — Your project works. You barely touched a keyboard.
 ```
 
-## Quick Start
+---
+
+## Getting Started: New Project
+
+Starting from scratch? Three steps:
+
+### 1. Initialize
 
 ```bash
 npx code-evolve init
-
-# Write your vision and spec (the only part that requires a human)
-# .evolve/vision.md  → what you're building and why
-# .evolve/spec.md    → tech stack, architecture, prioritized feature list
-
-export ANTHROPIC_API_KEY=sk-...
-npx code-evolve start
 ```
 
-That's it. The engine starts building.
+This creates `.evolve/` with templates for your vision and spec.
 
-> **Tip:** After installing globally (`npm install -g code-evolve`), you can use `ce` as a shorthand — `ce init`, `ce start`, `ce status`, etc. All commands work identically with either name.
+### 2. Define your vision and spec
+
+You have three options — pick the one that fits:
+
+**Option A: Guided interview** (recommended for first-timers)
+
+```bash
+code-evolve vision
+```
+
+Five rounds of Socratic questions draw out your project vision — what you're building, who it's for, what problem it solves, and what success looks like. Your answers are assembled into `.evolve/vision.md` with your approval.
+
+Then write `.evolve/spec.md` by hand — define your tech stack, architecture, and a prioritized feature checklist.
+
+**Option B: Write both files directly**
+
+Edit `.evolve/vision.md` and `.evolve/spec.md` using the templates as a guide. The templates include examples and comments explaining what each section needs.
+
+### 3. Start building
+
+```bash
+export ANTHROPIC_API_KEY=sk-...    # or the key for your chosen agent
+code-evolve start
+```
+
+The engine runs on a schedule (every 4 hours by default) and starts building your project autonomously.
+
+> **Tip:** After installing globally (`npm install -g code-evolve`), you can use `ce` as a shorthand — `ce init`, `ce start`, `ce status`, etc.
+
+---
+
+## Getting Started: Existing Project
+
+Already have a codebase and docs? code-evolve can adopt your project.
+
+### 1. Initialize
+
+```bash
+cd your-project
+npx code-evolve init
+```
+
+### 2. Import your existing documents
+
+If you already have a PRD, technical spec, or README with features listed:
+
+```bash
+# Convert an existing spec document into code-evolve format
+code-evolve migrate spec ./docs/technical-spec.md
+
+# AI-powered conversion (deeper analysis, cross-references your codebase)
+code-evolve migrate spec ./PRD.md --ai
+
+# Convert an existing overview into vision format
+code-evolve migrate vision ./docs/overview.md
+```
+
+The `migrate` command extracts features, tech stack, and architecture from your existing docs and formats them for code-evolve. Use `--ai` for smarter conversion that checks which features are already implemented.
+
+You can also run the guided interview to refine an existing vision:
+
+```bash
+code-evolve vision --refine
+```
+
+This loads your current `.evolve/vision.md` and walks you through each section, showing your previous answers so you can update or keep them.
+
+### 3. Review and start
+
+Check the generated files in `.evolve/`, make any adjustments, then:
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+code-evolve start
+```
+
+The agent picks up where your project left off — it reads the codebase, checks which spec features are already implemented, and starts working on what's missing.
+
+---
 
 ## How the Evolution Loop Works
 
@@ -48,27 +125,27 @@ Each cycle is autonomous and self-correcting:
 
 ```
   Read vision + spec + journal
-         │
-         ▼
-  Assess current state ──── "What exists vs. what's specified?"
-         │
-         ▼
-  Prioritize work ────────── CI fix > bootstrap > next feature > bugs > issues
-         │
-         ▼
-  Implement + test ────────── Write code, run build, verify
-         │                         │
-         │                    Build fails?
-         │                         │
-         │                    Fix it (up to 3 tries)
-         │                         │
-         │                    Still fails? Revert. Journal the failure.
-         │
-         ▼
-  Journal entry ──────────── Honest log: what worked, what didn't, what's next
-         │
-         ▼
-  Commit + tag ───────────── "Day 5 (09:00): add JWT auth with refresh tokens"
+         |
+         v
+  Assess current state ---- "What exists vs. what's specified?"
+         |
+         v
+  Prioritize work ---------- CI fix > bootstrap > next feature > bugs > issues
+         |
+         v
+  Implement + test ---------- Write code, run build, verify
+         |                         |
+         |                    Build fails?
+         |                         |
+         |                    Fix it (up to 3 tries)
+         |                         |
+         |                    Still fails? Revert. Journal the failure.
+         |
+         v
+  Journal entry ------------ Honest log: what worked, what didn't, what's next
+         |
+         v
+  Commit + tag ------------- "Day 5 (09:00): add JWT auth with refresh tokens"
 ```
 
 The journal is the agent's memory across sessions. It reads its own history to avoid repeating mistakes and to build on what worked.
@@ -80,30 +157,28 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 | Command | What it does |
 |---------|-------------|
 | `code-evolve init` | Scaffold `.evolve/` with vision and spec templates |
+| `code-evolve vision` | Guided Socratic interview to generate `.evolve/vision.md` |
+| `code-evolve migrate` | Convert an existing spec/vision document into code-evolve format |
 | `code-evolve start` | Turn on the evolution engine (local cron) |
 | `code-evolve stop` | Pause evolution |
 | `code-evolve run` | Run one cycle manually |
 | `code-evolve status` | Check progress — day count, features done, schedule |
 | `code-evolve eject` | Remove the framework, keep everything the agent built |
-| `code-evolve migrate` | Convert an existing spec/vision document into code-evolve format |
-| `code-evolve vision` | Guided Socratic interview to generate `.evolve/vision.md` |
 
 ### `init`
 
 ```bash
-code-evolve init              # basic setup (uses Claude Code by default)
-code-evolve init --agent codex  # use Codex CLI instead
-code-evolve init --with-ci    # also install GitHub Actions for cloud evolution
-code-evolve init --force      # upgrade framework files (preserves journal + learnings)
+code-evolve init                    # basic setup (uses Claude Code by default)
+code-evolve init --agent codex      # use Codex CLI instead
+code-evolve init --with-ci          # also install GitHub Actions for cloud evolution
+code-evolve init --force            # upgrade framework files (preserves journal + learnings)
 ```
 
-### `start`
+### `vision`
 
 ```bash
-code-evolve start                # every 4 hours (default)
-code-evolve start --every 2     # every 2 hours
-code-evolve start --run-now     # start now, then repeat on schedule
-code-evolve start --model claude-opus-4-6  # use a different model
+code-evolve vision           # guided interview to create .evolve/vision.md
+code-evolve vision --refine  # revisit and improve an existing vision.md
 ```
 
 ### `migrate`
@@ -115,22 +190,23 @@ code-evolve migrate vision ./docs/overview.md         # convert to vision.md for
 code-evolve migrate spec ./README.md --ai --yes       # skip confirmation prompt
 ```
 
-### `vision`
+### `start`
 
 ```bash
-code-evolve vision           # guided interview to create .evolve/vision.md
-code-evolve vision --refine  # revisit and improve an existing vision.md
+code-evolve start                # every 4 hours (default)
+code-evolve start --every 2     # every 2 hours
+code-evolve start --run-now     # start now, then repeat on schedule
+code-evolve start --model claude-opus-4-6  # use a different model
 ```
-
-Five rounds of Socratic questions draw out your project vision — what you're building, who it's for, what problem it solves, and what success looks like. Answers are assembled into a structured `vision.md` with your approval.
 
 ## What Your Project Looks Like
 
 ```
 my-project/
 ├── .evolve/
-│   ├── vision.md          ← you write this
-│   ├── spec.md            ← you write this
+│   ├── vision.md          ← you write this (or use `code-evolve vision`)
+│   ├── spec.md            ← you write this (or use `code-evolve migrate`)
+│   ├── config.json        ← agent and model settings
 │   ├── scripts/           ← orchestration engine (protected)
 │   ├── skills/            ← agent behaviors (protected)
 │   ├── IDENTITY.md        ← agent constitution (protected)
@@ -177,6 +253,8 @@ code-evolve start --agent opencode    # schedule with OpenCode
 ```
 
 The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run` and `start` commands read from config automatically. You can override with `--agent` on any command.
+
+The default model adapts to your agent (e.g., `llama3` for Ollama, `o4-mini` for Codex). Override with `--model`.
 
 ## Stack Detection
 
@@ -230,6 +308,19 @@ The agent is powerful but constrained:
 - **Prompt injection defense** — random boundary markers, HTML comment stripping, body truncation on all issue content
 - **Honest journaling** — the agent can't hide failures; the journal is append-only
 
+## Review Before You Ship
+
+code-evolve is powered by AI, and AI-generated code requires human oversight before production use. The agent does its best — it writes tests, verifies builds, and journals its decisions — but it can introduce bugs, security vulnerabilities, or architectural choices that don't fit your context.
+
+**Before deploying or publishing anything the agent built:**
+- Review the code changes (`git log`, `git diff`)
+- Run your own security review, especially for auth, input handling, and data access
+- Test edge cases the agent may not have considered
+- Check dependency choices — the agent may pull in packages you haven't vetted
+- Read the journal (`.evolve/JOURNAL.md`) to understand *why* decisions were made
+
+The evolution engine is a powerful accelerator, not a replacement for engineering judgment. Treat its output the way you'd treat a pull request from a junior developer: assume good intent, verify thoroughly.
+
 ## Upgrading
 
 ```bash
@@ -257,11 +348,9 @@ Stops the engine, removes `.evolve/` and workflows. Your `vision.md` and `spec.m
 
 ## Roadmap
 
-- ~~**Multi-agent support** — Codex, OpenCode, Ollama ([#1](https://github.com/frankbria/code-evolve/issues/1))~~ (shipped)
-- **Skill/plugin format** — install as a Claude Code skill, Codex plugin, etc. ([#4](https://github.com/frankbria/code-evolve/issues/4))
-- **GitHub Action** — `uses: frankbria/code-evolve@v1` ([#3](https://github.com/frankbria/code-evolve/issues/3))
-- **Guided vision interview** — Socratic questioning to write your vision.md ([#7](https://github.com/frankbria/code-evolve/issues/7))
-- **Spec migration** — point at an existing PRD and convert it ([#6](https://github.com/frankbria/code-evolve/issues/6))
+- **Skill/plugin format** — install as a Claude Code skill, Codex plugin, etc.
+- **GitHub Action** — `uses: frankbria/code-evolve@v1` for zero-install cloud evolution
+- **AI video demos** — auto-generate video walkthroughs of each evolution session ([#8](https://github.com/frankbria/code-evolve/issues/8))
 
 ## Acknowledgments
 
