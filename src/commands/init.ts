@@ -53,6 +53,8 @@ export const initCommand = new Command('init')
         if (fs.existsSync(rootPath) && !fs.existsSync(evolvePath)) {
           fs.renameSync(rootPath, evolvePath);
           console.log(`  Moved ${file} → .evolve/${file} (migration from 0.1.x)`);
+        } else if (fs.existsSync(rootPath) && fs.existsSync(evolvePath)) {
+          console.log(`  Warning: ${file} exists at both root and .evolve/ — using .evolve/ version (root copy is now unused)`);
         }
       }
     }
