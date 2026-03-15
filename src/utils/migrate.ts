@@ -205,6 +205,8 @@ export function gatherCodebaseFiles(projectRoot: string): string[] {
 
     for (const entry of entries) {
       if (ignore.includes(entry.name)) continue;
+      if (entry.name.startsWith('.')) continue;
+      if (entry.isSymbolicLink()) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         results.push(...walk(path.join(dir, entry.name), rel));
@@ -215,5 +217,9 @@ export function gatherCodebaseFiles(projectRoot: string): string[] {
     return results;
   }
 
-  return walk(projectRoot, '').slice(0, 200);
+  const allFiles = walk(projectRoot, '');
+  if (allFiles.length > 200) {
+    console.log(`Note: codebase file list truncated to 200 of ${allFiles.length} files.`);
+  }
+  return allFiles.slice(0, 200);
 }
