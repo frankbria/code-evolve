@@ -122,7 +122,8 @@ export const initCommand = new Command('init')
     updateGitignore();
 
     // Write agent config
-    writeConfig({ agent });
+    const currentConfig = readConfig();
+    writeConfig({ ...currentConfig, agent });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
     }

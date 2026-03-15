@@ -3,17 +3,17 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel } from '../utils/config';
 
 const CRON_MARKER = 'code-evolve';
 
 export const startCommand = new Command('start')
   .description('Start the evolution engine (sets up a recurring local cron job)')
   .option('--every <hours>', 'Run every N hours', '4')
-  .option('--model <model>', 'LLM model to use', 'claude-sonnet-4-6')
+  .option('--model <model>', 'LLM model to use (default depends on agent)')
   .option('--run-now', 'Also run the first evolution cycle immediately')
   .option('--agent <name>', 'Agent backend to use (overrides config)')
-  .action(async (options: { every: string; model: string; runNow?: boolean; agent?: string }) => {
+  .action(async (options: { every: string; model?: string; runNow?: boolean; agent?: string }) => {
     if (!isInitialized()) {
       console.error('Not initialized. Run `code-evolve init` first.');
       process.exit(1);
@@ -49,6 +49,8 @@ export const startCommand = new Command('start')
       process.exit(3);
     }
 
+    const model = options.model || getDefaultModel(agent);
+
     // Persist agent choice
     writeConfig({ ...config, agent });
 
@@ -59,7 +61,7 @@ export const startCommand = new Command('start')
     const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
 
     // Write .env file for cron (cron doesn't inherit shell env)
-    writeEnvFile(envFile, options.model, agent);
+    writeEnvFile(envFile, model, agent);
     console.log('Saved API key to .evolve/.env');
 
     // Ensure .evolve/.env is gitignored
@@ -96,7 +98,7 @@ export const startCommand = new Command('start')
     console.log(`Logs: .evolve/evolve.log`);
 
     // Save schedule config for status command
-    const scheduleConfig = { every: hours, model: options.model, agent, started: new Date().toISOString() };
+    const scheduleConfig = { every: hours, model, agent, started: new Date().toISOString() };
     fs.writeFileSync(path.join(evolveDir, 'schedule.json'), JSON.stringify(scheduleConfig, null, 2) + '\n');
 
     if (options.runNow) {
@@ -111,7 +113,7 @@ export const startCommand = new Command('start')
           ...process.env,
           EVOLVE_DIR: EVOLVE_DIR_NAME,
           PROJECT_DIR: '.',
-          MODEL: options.model,
+          MODEL: model,
           AGENT: agent,
         },
       });

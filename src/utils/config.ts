@@ -51,6 +51,17 @@ export function getAgentEnvKey(agent: string): string {
   return AGENT_ENV_KEYS[agent] || '';
 }
 
+const AGENT_DEFAULT_MODELS: Record<string, string> = {
+  claude: 'claude-sonnet-4-6',
+  codex: 'o4-mini',
+  opencode: 'claude-sonnet-4-6',
+  ollama: 'llama3',
+};
+
+export function getDefaultModel(agent: string): string {
+  return AGENT_DEFAULT_MODELS[agent] || 'claude-sonnet-4-6';
+}
+
 export function getAgentEnvHint(agent: string): string {
   switch (agent) {
     case 'claude':
