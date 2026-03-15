@@ -28,7 +28,28 @@ MODEL="${MODEL:-claude-sonnet-4-6}"
 TIMEOUT="${TIMEOUT:-3600}"
 EVOLVE_DIR="${EVOLVE_DIR:-.evolve}"
 PROJECT_DIR="${PROJECT_DIR:-.}"
+AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
+
+# ── Source agent adapter ──
+# Validate agent name (alphanumeric only — prevents path traversal)
+if ! echo "$AGENT" | grep -qE '^[a-z]+$'; then
+    echo "Error: Invalid agent name '$AGENT'. Must be lowercase alphabetic."
+    exit 1
+fi
+AGENT_ADAPTER="$EVOLVE_DIR/scripts/agents/${AGENT}.sh"
+if [ ! -f "$AGENT_ADAPTER" ]; then
+    echo "Error: Unknown agent '$AGENT'. No adapter found at $AGENT_ADAPTER"
+    echo "Supported agents: claude, codex, opencode, ollama"
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$AGENT_ADAPTER"
+
+if ! check_agent; then
+    echo "Error: Agent '$AGENT' CLI binary not found. Install it first."
+    exit 1
+fi
 
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
@@ -366,10 +387,8 @@ Read $EVOLVE_DIR/IDENTITY.md first. Now begin.
 PROMPT
 
 AGENT_LOG=$(mktemp)
-# Run Claude Code in non-interactive print mode with tool permissions
-${TIMEOUT_CMD:+$TIMEOUT_CMD "$TIMEOUT"} claude -p --model "$MODEL" \
-    --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
-    < "$PROMPT_FILE" 2>&1 | tee "$AGENT_LOG" || true
+# Run agent via adapter
+run_agent "$PROMPT_FILE" "$MODEL" "$TIMEOUT_CMD" "$TIMEOUT" 2>&1 | tee "$AGENT_LOG" || true
 
 rm -f "$PROMPT_FILE"
 
@@ -433,9 +452,7 @@ Steps:
 3. Run the verification commands and keep fixing until they pass
 4. Commit: git add -A && git commit -m "Day $DAY ($SESSION_TIME): fix build errors"
 FIXEOF
-            ${TIMEOUT_CMD:+$TIMEOUT_CMD 300} claude -p --model "$MODEL" \
-                --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
-                < "$FIX_PROMPT" || true
+            run_agent "$FIX_PROMPT" "$MODEL" "$TIMEOUT_CMD" "300" || true
             rm -f "$FIX_PROMPT"
         else
             echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
@@ -470,9 +487,7 @@ Then 2-4 sentences: what you did, what worked, what's next.
 Be specific and honest. Then commit: git add $EVOLVE_DIR/JOURNAL.md && git commit -m "Day $DAY ($SESSION_TIME): journal entry"
 JEOF
 
-    ${TIMEOUT_CMD:+$TIMEOUT_CMD 120} claude -p --model "$MODEL" \
-        --allowedTools "Bash,Read,Write,Edit" \
-        < "$JOURNAL_PROMPT" || true
+    run_agent "$JOURNAL_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || true
     rm -f "$JOURNAL_PROMPT"
 
     # Bash fallback if agent still didn't write it
@@ -518,9 +533,7 @@ Separate multiple with "---". Only claim "fixed" if fully resolved.
 IEOF
 
     AGENT_EXIT=0
-    ${TIMEOUT_CMD:+$TIMEOUT_CMD 120} claude -p --model "$MODEL" \
-        --allowedTools "Bash,Read,Write,Edit" \
-        < "$ISSUE_PROMPT" || AGENT_EXIT=$?
+    run_agent "$ISSUE_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || AGENT_EXIT=$?
     rm -f "$ISSUE_PROMPT"
 
     if [ "$AGENT_EXIT" -ne 0 ]; then

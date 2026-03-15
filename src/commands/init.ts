@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
+import { readConfig, writeConfig, isValidAgent, getAgentEnvHint } from '../utils/config';
 
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
@@ -11,13 +12,23 @@ export const initCommand = new Command('init')
   .description('Initialize .evolve/ in the current project')
   .option('--with-ci', 'Install GitHub Actions workflows')
   .option('--force', 'Overwrite existing .evolve/ directory')
-  .action(async (options: { withCi?: boolean; force?: boolean }) => {
+  .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
+  .action(async (options: { withCi?: boolean; force?: boolean; agent: string }) => {
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
+    // Resolve agent: use existing config on --force if --agent not explicitly passed
+    const existingConfig = options.force ? readConfig() : { agent: 'claude' };
+    const agent = options.agent !== 'claude' ? options.agent : existingConfig.agent || 'claude';
+
+    if (!isValidAgent(agent)) {
+      console.error(`Unknown agent "${agent}". Supported: claude, codex, opencode, ollama`);
+      process.exit(1);
+    }
+
     // Check dependencies
     console.log('Checking dependencies...');
-    const { ok, results } = checkDependencies();
+    const { ok, results } = checkDependencies(agent);
     console.log(formatDependencyResults(results));
 
     if (!ok) {
@@ -88,6 +99,15 @@ export const initCommand = new Command('init')
         fs.chmodSync(scriptPath, 0o755);
       }
     }
+    // Set executable permissions on agent adapters
+    const agentsDir = path.join(evolveDir, 'scripts', 'agents');
+    if (fs.existsSync(agentsDir)) {
+      for (const file of fs.readdirSync(agentsDir)) {
+        if (file.endsWith('.sh')) {
+          fs.chmodSync(path.join(agentsDir, file), 0o755);
+        }
+      }
+    }
 
     // Install GitHub Actions workflows into namespaced subdirectory
     if (options.withCi) {
@@ -101,13 +121,19 @@ export const initCommand = new Command('init')
     // Update .gitignore (appends only if marker not already present)
     updateGitignore();
 
+    // Write agent config
+    writeConfig({ agent });
+    if (agent !== 'claude') {
+      console.log(`  Agent: ${agent}`);
+    }
+
     console.log('');
     console.log('code-evolve initialized.');
     console.log('');
     console.log('Next steps:');
     console.log('  1. Edit .evolve/vision.md with your project vision');
     console.log('  2. Edit .evolve/spec.md with your technical specification');
-    console.log('  3. Set ANTHROPIC_API_KEY environment variable');
+    console.log(`  3. ${getAgentEnvHint(agent)}`);
     console.log('  4. Run: code-evolve run');
     if (!options.withCi) {
       console.log('');
