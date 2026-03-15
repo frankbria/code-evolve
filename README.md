@@ -85,6 +85,7 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 | `code-evolve run` | Run one cycle manually |
 | `code-evolve status` | Check progress — day count, features done, schedule |
 | `code-evolve eject` | Remove the framework, keep everything the agent built |
+| `code-evolve migrate` | Convert an existing spec/vision document into code-evolve format |
 
 ### `init`
 
@@ -101,6 +102,15 @@ code-evolve start                # every 4 hours (default)
 code-evolve start --every 2     # every 2 hours
 code-evolve start --run-now     # start now, then repeat on schedule
 code-evolve start --model claude-opus-4-6  # use a different model
+```
+
+### `migrate`
+
+```bash
+code-evolve migrate spec ./docs/technical-spec.md     # regex extraction (no API key needed)
+code-evolve migrate spec ./PRD.md --ai                # AI-powered conversion via claude CLI
+code-evolve migrate vision ./docs/overview.md         # convert to vision.md format
+code-evolve migrate spec ./README.md --ai --yes       # skip confirmation prompt
 ```
 
 ## What Your Project Looks Like

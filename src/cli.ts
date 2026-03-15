@@ -7,6 +7,7 @@ import { stopCommand } from './commands/stop';
 import { runCommand } from './commands/run';
 import { statusCommand } from './commands/status';
 import { ejectCommand } from './commands/eject';
+import { migrateCommand } from './commands/migrate';
 
 const rawName = path.basename(process.argv[1]);
 const binName = rawName === 'ce' ? 'ce' : 'code-evolve';
@@ -23,5 +24,6 @@ program.addCommand(stopCommand);
 program.addCommand(runCommand);
 program.addCommand(statusCommand);
 program.addCommand(ejectCommand);
+program.addCommand(migrateCommand);
 
 program.parse();
