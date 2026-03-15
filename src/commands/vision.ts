@@ -33,12 +33,13 @@ export const visionCommand = new Command('vision')
       console.log('');
 
       // Refine mode: load existing vision
-      let existingVision = '';
+      let previousAnswers: InterviewAnswers | undefined;
       if (options.refine) {
         const visionPath = evolveFile('vision.md');
         if (fs.existsSync(visionPath)) {
-          existingVision = fs.readFileSync(visionPath, 'utf8');
-          console.log('Found existing .evolve/vision.md. Using it as context for follow-up questions.');
+          const existingVision = fs.readFileSync(visionPath, 'utf8');
+          previousAnswers = parseVisionDoc(existingVision);
+          console.log('Found existing .evolve/vision.md. Previous answers will be shown — press Enter to keep them.');
           console.log('');
         } else {
           console.log('No existing .evolve/vision.md found. Starting fresh.');
@@ -46,7 +47,7 @@ export const visionCommand = new Command('vision')
         }
       }
 
-      const answers = await runInterview(ask, existingVision);
+      const answers = await runInterview(ask, previousAnswers);
 
       // Summary
       console.log('');
@@ -65,7 +66,7 @@ export const visionCommand = new Command('vision')
       let finalAnswers = answers;
       if (choice === 'edit' || choice === 'e') {
         console.log('\nLet\'s go through the questions again. Press Enter to keep your previous answer.\n');
-        finalAnswers = await runInterview(ask, '', answers);
+        finalAnswers = await runInterview(ask, answers);
         console.log('');
         console.log('=== Updated Summary ===');
         console.log('');
@@ -101,7 +102,6 @@ export const visionCommand = new Command('vision')
 
 async function runInterview(
   ask: (q: string) => Promise<string>,
-  existingContext: string,
   previous?: InterviewAnswers,
 ): Promise<InterviewAnswers> {
   const answers: InterviewAnswers = previous
@@ -259,6 +259,31 @@ function printSummary(answers: InterviewAnswers): void {
   for (const [label, value] of entries) {
     console.log(`  ${label}: ${value}`);
   }
+}
+
+function parseVisionDoc(content: string): InterviewAnswers {
+  function extractSection(heading: string): string {
+    const pattern = new RegExp(`^#+ ${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm');
+    const match = pattern.exec(content);
+    if (!match || match.index === undefined) return '';
+    const start = match.index + match[0].length;
+    const nextHeading = content.slice(start).search(/^#+\s/m);
+    const end = nextHeading === -1 ? undefined : start + nextHeading;
+    return content.slice(start, end).trim();
+  }
+
+  return {
+    whatBuilding: extractSection("What We're Building"),
+    whoFor: extractSection("Who It's For"),
+    currentPain: extractSection('The Problem'),
+    triggerMoment: extractSection('The Trigger'),
+    firstExperience: extractSection('The Experience'),
+    mustDoWell: extractSection('Core Capability'),
+    notThis: extractSection('Boundaries'),
+    mvpCuts: extractSection('MVP Scope'),
+    successSignal: extractSection('Success'),
+    delightMoment: extractSection('The Delight Moment'),
+  };
 }
 
 function buildVisionDoc(answers: InterviewAnswers): string {
