@@ -1,6 +1,6 @@
 ---
 name: self-assess
-description: Analyze the project against vision.md and spec.md to find gaps, bugs, and improvement opportunities
+description: Analyze the project against .evolve/vision.md and .evolve/spec.md to find gaps, bugs, and improvement opportunities
 tools: [bash, read_file, list_files, search]
 ---
 
@@ -10,10 +10,10 @@ You are assessing the project against its vision and specification.
 
 ## Process
 
-1. **Read vision.md and spec.md** completely
+1. **Read .evolve/vision.md and .evolve/spec.md** completely
 2. **Read the current project state** — list files, read key modules
 3. **Compare spec features vs implementation**:
-   - Which features from spec.md are implemented?
+   - Which features from .evolve/spec.md are implemented?
    - Which are partially done?
    - Which haven't been started?
 4. **Try using the project.** Run it, test edge cases:
@@ -24,7 +24,7 @@ You are assessing the project against its vision and specification.
 
 ## What to look for
 
-- Missing features from spec.md — prioritize by spec order
+- Missing features from .evolve/spec.md — prioritize by spec order
 - Broken functionality — things that used to work but don't
 - Missing tests — features without test coverage
 - Missing error handling — silent failures, unhelpful messages

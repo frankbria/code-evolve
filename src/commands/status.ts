@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import fs from 'fs';
-import { evolveFile, projectFile, isInitialized } from '../utils/paths';
+import { evolveFile, isInitialized } from '../utils/paths';
 import { output } from '../utils/output';
 
 export const statusCommand = new Command('status')
@@ -32,7 +32,7 @@ export const statusCommand = new Command('status')
     let done = 0;
     let partial = 0;
     try {
-      const spec = fs.readFileSync(projectFile('spec.md'), 'utf8');
+      const spec = fs.readFileSync(evolveFile('spec.md'), 'utf8');
       // Strip HTML comments before counting checkboxes
       const stripped = spec.replace(/<!--[\s\S]*?-->/g, '');
       const lines = stripped.split('\n');
@@ -81,7 +81,7 @@ export const statusCommand = new Command('status')
     const remaining = total - done - partial;
     const progressLine = total > 0
       ? `${done}/${total} features done${partial > 0 ? ` (${partial} in progress)` : ''}${remaining > 0 ? `, ${remaining} remaining` : ''}`
-      : 'No features defined in spec.md yet';
+      : 'No features defined in .evolve/spec.md yet';
 
     const scheduleLine = schedule
       ? `every ${schedule.every}h (${schedule.model})`

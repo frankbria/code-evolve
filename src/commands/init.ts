@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { getEvolveDir, getTemplatesDir, projectFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
 
 // Files that contain user/agent evolution history — never overwrite
@@ -45,8 +45,22 @@ export const initCommand = new Command('init')
     // Copy skills (always overwrite — framework definitions)
     copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
 
+    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path)
+    if (options.force) {
+      for (const file of ['vision.md', 'spec.md']) {
+        const rootPath = projectFile(file);
+        const evolvePath = evolveFile(file);
+        if (fs.existsSync(rootPath) && !fs.existsSync(evolvePath)) {
+          fs.renameSync(rootPath, evolvePath);
+          console.log(`  Moved ${file} → .evolve/${file} (migration from 0.1.x)`);
+        } else if (fs.existsSync(rootPath) && fs.existsSync(evolvePath)) {
+          console.log(`  Warning: ${file} exists at both root and .evolve/ — using .evolve/ version (root copy is now unused)`);
+        }
+      }
+    }
+
     // Copy state files (skip if they already exist — these contain evolution history)
-    const allStateFiles = ['IDENTITY.md', ...PRESERVE_STATE_FILES];
+    const allStateFiles = ['IDENTITY.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
     for (const file of allStateFiles) {
       const src = path.join(templatesDir, 'state', file);
       const dest = path.join(evolveDir, file);
@@ -75,17 +89,6 @@ export const initCommand = new Command('init')
       }
     }
 
-    // Copy vision.md and spec.md to project root (only if they don't exist)
-    for (const file of ['vision.md', 'spec.md']) {
-      const dest = projectFile(file);
-      if (!fs.existsSync(dest)) {
-        fs.copyFileSync(path.join(templatesDir, file), dest);
-        console.log(`  Created ${file}`);
-      } else {
-        console.log(`  ${file} already exists — skipping`);
-      }
-    }
-
     // Install GitHub Actions workflows into namespaced subdirectory
     if (options.withCi) {
       console.log('Installing GitHub Actions workflows...');
@@ -102,8 +105,8 @@ export const initCommand = new Command('init')
     console.log('code-evolve initialized.');
     console.log('');
     console.log('Next steps:');
-    console.log('  1. Edit vision.md with your project vision');
-    console.log('  2. Edit spec.md with your technical specification');
+    console.log('  1. Edit .evolve/vision.md with your project vision');
+    console.log('  2. Edit .evolve/spec.md with your technical specification');
     console.log('  3. Set ANTHROPIC_API_KEY environment variable');
     console.log('  4. Run: code-evolve run');
     if (!options.withCi) {

@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
-import { getEvolveDir, projectFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 
 const CRON_MARKER = 'code-evolve';
 
@@ -17,7 +17,7 @@ export const ejectCommand = new Command('eject')
 
     if (!options.yes) {
       const confirmed = await confirm(
-        'This will stop the engine, remove .evolve/ and workflows. vision.md and spec.md will be kept. Continue?'
+        'This will stop the engine, remove .evolve/ and workflows. vision.md and spec.md will be copied to the project root. Continue?'
       );
       if (!confirmed) {
         console.log('Aborted.');
@@ -30,6 +30,20 @@ export const ejectCommand = new Command('eject')
       const removed = removeCron(process.cwd());
       if (removed) {
         console.log('Stopped evolution engine (cron job removed).');
+      }
+    }
+
+    // Copy vision.md and spec.md to project root before removal
+    for (const file of ['vision.md', 'spec.md']) {
+      const src = evolveFile(file);
+      if (fs.existsSync(src)) {
+        const dest = projectFile(file);
+        if (fs.existsSync(dest)) {
+          console.log(`  ${file} already exists at project root — skipping (kept .evolve/${file} content in .evolve/)`);
+        } else {
+          fs.copyFileSync(src, dest);
+          console.log(`  Copied .evolve/${file} → ${file}`);
+        }
       }
     }
 
@@ -64,7 +78,7 @@ export const ejectCommand = new Command('eject')
     }
 
     console.log('');
-    console.log('Ejected. vision.md and spec.md are preserved.');
+    console.log('Ejected. vision.md and spec.md have been copied to the project root.');
   });
 
 function removeCron(projectDir: string): boolean {
