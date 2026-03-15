@@ -21,6 +21,10 @@ export const visionCommand = new Command('vision')
   .option('--refine', 'Revisit and improve an existing vision.md')
   .action(async (options: { refine?: boolean }) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.on('close', () => {
+      console.log('\nInterview cancelled.');
+      process.exit(0);
+    });
     const ask = (question: string): Promise<string> =>
       new Promise((resolve) => rl.question(question, resolve));
 
