@@ -16,11 +16,19 @@ function checkCommand(name: string, versionFlag = '--version'): DependencyCheck 
   }
 }
 
-export function checkDependencies(): { ok: boolean; results: DependencyCheck[] } {
+const AGENT_BINARIES: Record<string, string> = {
+  claude: 'claude',
+  codex: 'codex',
+  opencode: 'opencode',
+  ollama: 'ollama',
+};
+
+export function checkDependencies(agent = 'claude'): { ok: boolean; results: DependencyCheck[] } {
+  const agentBinary = AGENT_BINARIES[agent] || agent;
   const results = [
     checkCommand('python3'),
     checkCommand('git'),
-    checkCommand('claude'),
+    checkCommand(agentBinary),
   ];
 
   const ok = results.every((r) => r.found);

@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint } from '../utils/config';
 
 const CRON_MARKER = 'code-evolve';
 
@@ -11,7 +12,8 @@ export const startCommand = new Command('start')
   .option('--every <hours>', 'Run every N hours', '4')
   .option('--model <model>', 'LLM model to use', 'claude-sonnet-4-6')
   .option('--run-now', 'Also run the first evolution cycle immediately')
-  .action(async (options: { every: string; model: string; runNow?: boolean }) => {
+  .option('--agent <name>', 'Agent backend to use (overrides config)')
+  .action(async (options: { every: string; model: string; runNow?: boolean; agent?: string }) => {
     if (!isInitialized()) {
       console.error('Not initialized. Run `code-evolve init` first.');
       process.exit(1);
@@ -30,12 +32,19 @@ export const startCommand = new Command('start')
       process.exit(2);
     }
 
-    // Check for ANTHROPIC_API_KEY
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('ANTHROPIC_API_KEY is not set in your environment.');
-      console.error('Export it first: export ANTHROPIC_API_KEY=sk-...');
+    // Resolve agent
+    const config = readConfig();
+    const agent = options.agent || config.agent || 'claude';
+    const envKey = getAgentEnvKey(agent);
+
+    if (envKey && !process.env[envKey]) {
+      console.error(`${envKey} is not set in your environment.`);
+      console.error(getAgentEnvHint(agent));
       process.exit(3);
     }
+
+    // Persist agent choice
+    writeConfig({ ...config, agent });
 
     const projectDir = process.cwd();
     const evolveDir = getEvolveDir();
@@ -44,7 +53,7 @@ export const startCommand = new Command('start')
     const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
 
     // Write .env file for cron (cron doesn't inherit shell env)
-    writeEnvFile(envFile, options.model);
+    writeEnvFile(envFile, options.model, agent);
     console.log('Saved API key to .evolve/.env');
 
     // Ensure .evolve/.env is gitignored
@@ -61,7 +70,7 @@ export const startCommand = new Command('start')
       cronSchedule,
       `cd "${projectDir}"`,
       `&& . "${envFile}"`,
-      `&& EVOLVE_DIR="${EVOLVE_DIR_NAME}" PROJECT_DIR="."`,
+      `&& EVOLVE_DIR="${EVOLVE_DIR_NAME}" PROJECT_DIR="." AGENT="${agent}"`,
       `bash "${scriptPath}"`,
       `>> "${logFile}" 2>&1`,
       `# ${CRON_MARKER}:${projectDir}`,
@@ -81,7 +90,7 @@ export const startCommand = new Command('start')
     console.log(`Logs: .evolve/evolve.log`);
 
     // Save schedule config for status command
-    const scheduleConfig = { every: hours, model: options.model, started: new Date().toISOString() };
+    const scheduleConfig = { every: hours, model: options.model, agent, started: new Date().toISOString() };
     fs.writeFileSync(path.join(evolveDir, 'schedule.json'), JSON.stringify(scheduleConfig, null, 2) + '\n');
 
     if (options.runNow) {
@@ -97,6 +106,7 @@ export const startCommand = new Command('start')
           EVOLVE_DIR: EVOLVE_DIR_NAME,
           PROJECT_DIR: '.',
           MODEL: options.model,
+          AGENT: agent,
         },
       });
       child.on('close', (code: number | null) => {
@@ -109,11 +119,19 @@ export const startCommand = new Command('start')
     }
   });
 
-function writeEnvFile(envFile: string, model: string): void {
-  const lines = [
-    `ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`,
-    `MODEL="${model}"`,
-  ];
+function writeEnvFile(envFile: string, model: string, agent: string): void {
+  const lines: string[] = [];
+
+  // Include the relevant API key
+  if (process.env.ANTHROPIC_API_KEY) {
+    lines.push(`ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`);
+  }
+  if (process.env.OPENAI_API_KEY) {
+    lines.push(`OPENAI_API_KEY="${process.env.OPENAI_API_KEY}"`);
+  }
+
+  lines.push(`MODEL="${model}"`);
+  lines.push(`AGENT="${agent}"`);
 
   // Preserve PATH so cron can find claude, git, python3
   if (process.env.PATH) {

@@ -91,7 +91,8 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 ### `init`
 
 ```bash
-code-evolve init              # basic setup
+code-evolve init              # basic setup (uses Claude Code by default)
+code-evolve init --agent codex  # use Codex CLI instead
 code-evolve init --with-ci    # also install GitHub Actions for cloud evolution
 code-evolve init --force      # upgrade framework files (preserves journal + learnings)
 ```
@@ -157,6 +158,25 @@ Your `.evolve/spec.md` drives everything. Features are a prioritized checklist:
 ```
 
 The agent implements them top to bottom. `[x]` = done. `[~]` = in progress. `[ ]` = next up. The agent updates these checkboxes as it works.
+
+## Multi-Agent Support
+
+code-evolve works with multiple AI coding agents:
+
+| Agent | CLI | Flag |
+|-------|-----|------|
+| Claude Code | `claude` | `--agent claude` (default) |
+| Codex CLI | `codex` | `--agent codex` |
+| OpenCode | `opencode` | `--agent opencode` |
+| Ollama | `ollama` | `--agent ollama` |
+
+```bash
+code-evolve init --agent codex        # initialize with Codex
+code-evolve run --agent ollama        # one-off run with Ollama
+code-evolve start --agent opencode    # schedule with OpenCode
+```
+
+The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run` and `start` commands read from config automatically. You can override with `--agent` on any command.
 
 ## Stack Detection
 
@@ -232,12 +252,12 @@ Stops the engine, removes `.evolve/` and workflows. Your `vision.md` and `spec.m
 - Node.js >= 18
 - Python 3
 - Git
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
-- `ANTHROPIC_API_KEY`
+- An AI coding agent: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode), or [Ollama](https://ollama.ai)
+- API key for your chosen agent (not needed for Ollama)
 
 ## Roadmap
 
-- **Multi-agent support** — Codex, OpenCode, KiloCode, Ollama ([#1](https://github.com/frankbria/code-evolve/issues/1))
+- ~~**Multi-agent support** — Codex, OpenCode, KiloCode, Ollama ([#1](https://github.com/frankbria/code-evolve/issues/1))~~ (shipped)
 - **Skill/plugin format** — install as a Claude Code skill, Codex plugin, etc. ([#4](https://github.com/frankbria/code-evolve/issues/4))
 - **GitHub Action** — `uses: frankbria/code-evolve@v1` ([#3](https://github.com/frankbria/code-evolve/issues/3))
 - **Guided vision interview** — Socratic questioning to write your vision.md ([#7](https://github.com/frankbria/code-evolve/issues/7))
