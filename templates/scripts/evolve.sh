@@ -1,6 +1,6 @@
 #!/bin/bash
 # .evolve/scripts/evolve.sh — One evolution cycle for code-evolve.
-# Reads .evolve/vision.md + .evolve/spec.md, builds/improves the project, verifies, commits.
+# Reads $EVOLVE_DIR/vision.md + $EVOLVE_DIR/spec.md, builds/improves the project, verifies, commits.
 #
 # Adapted from yoyo-evolve's evolve.sh. Key differences:
 # - Uses Claude Code CLI (`claude`) as the agent executor

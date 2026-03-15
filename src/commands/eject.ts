@@ -37,8 +37,13 @@ export const ejectCommand = new Command('eject')
     for (const file of ['vision.md', 'spec.md']) {
       const src = evolveFile(file);
       if (fs.existsSync(src)) {
-        fs.copyFileSync(src, projectFile(file));
-        console.log(`  Copied .evolve/${file} → ${file}`);
+        const dest = projectFile(file);
+        if (fs.existsSync(dest)) {
+          console.log(`  ${file} already exists at project root — skipping (kept .evolve/${file} content in .evolve/)`);
+        } else {
+          fs.copyFileSync(src, dest);
+          console.log(`  Copied .evolve/${file} → ${file}`);
+        }
       }
     }
 
