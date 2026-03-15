@@ -95,9 +95,9 @@ export function buildVisionMarkdown(sourceContent: string): string {
   };
 
   for (const [key, pattern] of Object.entries(sectionPatterns)) {
-    const match = sourceContent.match(pattern);
-    if (match) {
-      const start = sourceContent.indexOf(match[0]) + match[0].length;
+    const match = pattern.exec(sourceContent);
+    if (match && match.index !== undefined) {
+      const start = match.index + match[0].length;
       const nextHeading = sourceContent.slice(start).search(/^#+\s/m);
       const end = nextHeading === -1 ? undefined : start + nextHeading;
       sections[key] = sourceContent.slice(start, end).trim();

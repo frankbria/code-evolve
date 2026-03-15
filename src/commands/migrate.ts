@@ -38,7 +38,14 @@ export const migrateCommand = new Command('migrate')
       fs.mkdirSync(getEvolveDir(), { recursive: true });
     }
 
-    const sourceContent = fs.readFileSync(source, 'utf8');
+    let sourceContent: string;
+    try {
+      sourceContent = fs.readFileSync(source, 'utf8');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Failed to read source file: ${message}`);
+      process.exit(2);
+    }
     const outputPath = evolveFile(`${type}.md`);
 
     console.log(`Migrating ${source} → .evolve/${type}.md`);
