@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent } from '../utils/config';
 
 const CRON_MARKER = 'code-evolve';
 
@@ -35,6 +35,12 @@ export const startCommand = new Command('start')
     // Resolve agent
     const config = readConfig();
     const agent = options.agent || config.agent || 'claude';
+
+    if (!isValidAgent(agent)) {
+      console.error(`Unknown agent "${agent}". Supported: claude, codex, opencode, ollama`);
+      process.exit(1);
+    }
+
     const envKey = getAgentEnvKey(agent);
 
     if (envKey && !process.env[envKey]) {

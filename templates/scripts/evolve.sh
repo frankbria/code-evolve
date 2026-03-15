@@ -32,6 +32,11 @@ AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 
 # ── Source agent adapter ──
+# Validate agent name (alphanumeric only — prevents path traversal)
+if ! echo "$AGENT" | grep -qE '^[a-z]+$'; then
+    echo "Error: Invalid agent name '$AGENT'. Must be lowercase alphabetic."
+    exit 1
+fi
 AGENT_ADAPTER="$EVOLVE_DIR/scripts/agents/${AGENT}.sh"
 if [ ! -f "$AGENT_ADAPTER" ]; then
     echo "Error: Unknown agent '$AGENT'. No adapter found at $AGENT_ADAPTER"

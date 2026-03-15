@@ -24,7 +24,10 @@ const AGENT_BINARIES: Record<string, string> = {
 };
 
 export function checkDependencies(agent = 'claude'): { ok: boolean; results: DependencyCheck[] } {
-  const agentBinary = AGENT_BINARIES[agent] || agent;
+  const agentBinary = AGENT_BINARIES[agent];
+  if (!agentBinary) {
+    return { ok: false, results: [{ name: agent, found: false }] };
+  }
   const results = [
     checkCommand('python3'),
     checkCommand('git'),

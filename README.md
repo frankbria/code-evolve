@@ -204,7 +204,7 @@ Run it however fits your workflow:
 **Cloud** — `code-evolve init --with-ci`
 - GitHub Actions in `.github/workflows/evolve/`
 - Runs every 4 hours with 3-attempt retry logic
-- Set `ANTHROPIC_API_KEY` in your repo secrets
+- Set your agent's API key in repo secrets (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex)
 
 Both run the same engine. Mix and match.
 
@@ -257,7 +257,7 @@ Stops the engine, removes `.evolve/` and workflows. Your `vision.md` and `spec.m
 
 ## Roadmap
 
-- ~~**Multi-agent support** — Codex, OpenCode, KiloCode, Ollama ([#1](https://github.com/frankbria/code-evolve/issues/1))~~ (shipped)
+- ~~**Multi-agent support** — Codex, OpenCode, Ollama ([#1](https://github.com/frankbria/code-evolve/issues/1))~~ (shipped)
 - **Skill/plugin format** — install as a Claude Code skill, Codex plugin, etc. ([#4](https://github.com/frankbria/code-evolve/issues/4))
 - **GitHub Action** — `uses: frankbria/code-evolve@v1` ([#3](https://github.com/frankbria/code-evolve/issues/3))
 - **Guided vision interview** — Socratic questioning to write your vision.md ([#7](https://github.com/frankbria/code-evolve/issues/7))

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
-import { writeConfig, isValidAgent, getAgentEnvHint } from '../utils/config';
+import { readConfig, writeConfig, isValidAgent, getAgentEnvHint } from '../utils/config';
 
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
@@ -17,15 +17,18 @@ export const initCommand = new Command('init')
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
-    // Validate agent
-    if (!isValidAgent(options.agent)) {
-      console.error(`Unknown agent "${options.agent}". Supported: claude, codex, opencode, ollama`);
+    // Resolve agent: use existing config on --force if --agent not explicitly passed
+    const existingConfig = options.force ? readConfig() : { agent: 'claude' };
+    const agent = options.agent !== 'claude' ? options.agent : existingConfig.agent || 'claude';
+
+    if (!isValidAgent(agent)) {
+      console.error(`Unknown agent "${agent}". Supported: claude, codex, opencode, ollama`);
       process.exit(1);
     }
 
     // Check dependencies
     console.log('Checking dependencies...');
-    const { ok, results } = checkDependencies(options.agent);
+    const { ok, results } = checkDependencies(agent);
     console.log(formatDependencyResults(results));
 
     if (!ok) {
@@ -119,9 +122,9 @@ export const initCommand = new Command('init')
     updateGitignore();
 
     // Write agent config
-    writeConfig({ agent: options.agent });
-    if (options.agent !== 'claude') {
-      console.log(`  Agent: ${options.agent}`);
+    writeConfig({ agent });
+    if (agent !== 'claude') {
+      console.log(`  Agent: ${agent}`);
     }
 
     console.log('');
@@ -130,7 +133,7 @@ export const initCommand = new Command('init')
     console.log('Next steps:');
     console.log('  1. Edit .evolve/vision.md with your project vision');
     console.log('  2. Edit .evolve/spec.md with your technical specification');
-    console.log(`  3. ${getAgentEnvHint(options.agent)}`);
+    console.log(`  3. ${getAgentEnvHint(agent)}`);
     console.log('  4. Run: code-evolve run');
     if (!options.withCi) {
       console.log('');

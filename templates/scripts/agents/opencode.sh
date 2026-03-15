@@ -12,7 +12,7 @@ run_agent() {
     local timeout_cmd="$3"
     local timeout="$4"
 
-    ${timeout_cmd:+$timeout_cmd "$timeout"} opencode run \
+    ${timeout_cmd:+$timeout_cmd "$timeout"} opencode run --model "$model" \
         < "$prompt_file" 2>&1
 }
 

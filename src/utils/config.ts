@@ -17,7 +17,11 @@ export function readConfig(): EvolveConfig {
   const configPath = getConfigPath();
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null && typeof parsed.agent === 'string') {
+      return parsed as EvolveConfig;
+    }
+    return { agent: 'claude' };
   } catch {
     return { agent: 'claude' };
   }
@@ -39,7 +43,7 @@ export function getSupportedAgents(): string[] {
 const AGENT_ENV_KEYS: Record<string, string> = {
   claude: 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
-  opencode: 'OPENAI_API_KEY',
+  opencode: '',
   ollama: '',
 };
 
