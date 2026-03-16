@@ -25,11 +25,12 @@ export const runCommand = new Command('run')
     }
 
     const model = options.model || getDefaultModel(agent);
-    const envKey = getAgentEnvKey(agent);
+    const authMode = config.authMode;
+    const envKey = getAgentEnvKey(agent, authMode);
 
     if (envKey && !process.env[envKey]) {
       console.error(`${envKey} is not set.`);
-      console.error(getAgentEnvHint(agent));
+      console.error(getAgentEnvHint(agent, authMode));
       process.exit(3);
     }
 
@@ -44,6 +45,7 @@ export const runCommand = new Command('run')
       TIMEOUT: options.timeout,
       AGENT: agent,
       ...(options.force ? { FORCE_RUN: 'true' } : {}),
+      ...(authMode === 'oauth' ? { CLAUDE_AUTH_MODE: 'oauth' } : {}),
     };
 
     const child = spawn('bash', [scriptPath], {
