@@ -41,18 +41,19 @@ export const startCommand = new Command('start')
       process.exit(1);
     }
 
-    const envKey = getAgentEnvKey(agent);
+    const authMode = config.authMode;
+    const envKey = getAgentEnvKey(agent, authMode);
 
     if (envKey && !process.env[envKey]) {
       console.error(`${envKey} is not set in your environment.`);
-      console.error(getAgentEnvHint(agent));
+      console.error(getAgentEnvHint(agent, authMode));
       process.exit(3);
     }
 
     const model = options.model || getDefaultModel(agent);
 
     // Persist agent choice
-    writeConfig({ ...config, agent });
+    writeConfig({ ...config, agent, authMode });
 
     const projectDir = process.cwd();
     const evolveDir = getEvolveDir();
@@ -61,8 +62,8 @@ export const startCommand = new Command('start')
     const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
 
     // Write .env file for cron (cron doesn't inherit shell env)
-    writeEnvFile(envFile, model, agent);
-    console.log('Saved API key to .evolve/.env');
+    writeEnvFile(envFile, model, agent, authMode);
+    console.log('Saved environment config to .evolve/.env');
 
     // Ensure .evolve/.env is gitignored
     ensureEnvGitignored(projectDir);
@@ -98,7 +99,7 @@ export const startCommand = new Command('start')
     console.log(`Logs: .evolve/evolve.log`);
 
     // Save schedule config for status command
-    const scheduleConfig = { every: hours, model, agent, started: new Date().toISOString() };
+    const scheduleConfig = { every: hours, model, agent, authMode: authMode || 'api-key', started: new Date().toISOString() };
     fs.writeFileSync(path.join(evolveDir, 'schedule.json'), JSON.stringify(scheduleConfig, null, 2) + '\n');
 
     if (options.runNow) {
@@ -115,6 +116,7 @@ export const startCommand = new Command('start')
           PROJECT_DIR: '.',
           MODEL: model,
           AGENT: agent,
+          ...(authMode === 'oauth' ? { CLAUDE_AUTH_MODE: 'oauth' } : {}),
         },
       });
       child.on('close', (code: number | null) => {
@@ -127,19 +129,22 @@ export const startCommand = new Command('start')
     }
   });
 
-function writeEnvFile(envFile: string, model: string, agent: string): void {
+function writeEnvFile(envFile: string, model: string, agent: string, authMode?: string): void {
   const lines: string[] = [];
 
-  // Include the relevant API key
-  if (process.env.ANTHROPIC_API_KEY) {
-    lines.push(`ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`);
-  }
-  if (process.env.OPENAI_API_KEY) {
-    lines.push(`OPENAI_API_KEY="${process.env.OPENAI_API_KEY}"`);
+  // Include the relevant API key (skip for OAuth mode)
+  if (authMode !== 'oauth') {
+    if (process.env.ANTHROPIC_API_KEY) {
+      lines.push(`ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`);
+    }
+    if (process.env.OPENAI_API_KEY) {
+      lines.push(`OPENAI_API_KEY="${process.env.OPENAI_API_KEY}"`);
+    }
   }
 
   lines.push(`MODEL="${model}"`);
   lines.push(`AGENT="${agent}"`);
+  lines.push(`CLAUDE_AUTH_MODE="${authMode || 'api-key'}"`);
 
   // Preserve PATH so cron can find claude, git, python3
   if (process.env.PATH) {

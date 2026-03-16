@@ -1,9 +1,12 @@
 import fs from 'fs';
 import { evolveFile } from './paths';
 
+export type AuthMode = 'api-key' | 'oauth';
+
 export interface EvolveConfig {
   agent: string;
   model?: string;
+  authMode?: AuthMode;
 }
 
 const CONFIG_FILE = 'config.json';
@@ -47,7 +50,8 @@ const AGENT_ENV_KEYS: Record<string, string> = {
   ollama: '',
 };
 
-export function getAgentEnvKey(agent: string): string {
+export function getAgentEnvKey(agent: string, authMode?: AuthMode): string {
+  if (agent === 'claude' && authMode === 'oauth') return '';
   return AGENT_ENV_KEYS[agent] || '';
 }
 
@@ -62,7 +66,10 @@ export function getDefaultModel(agent: string): string {
   return AGENT_DEFAULT_MODELS[agent] || 'claude-sonnet-4-6';
 }
 
-export function getAgentEnvHint(agent: string): string {
+export function getAgentEnvHint(agent: string, authMode?: AuthMode): string {
+  if (agent === 'claude' && authMode === 'oauth') {
+    return 'Ensure you are logged in via `claude login` (OAuth/subscription auth)';
+  }
   switch (agent) {
     case 'claude':
       return 'Set ANTHROPIC_API_KEY environment variable';

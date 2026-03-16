@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
-import { readConfig, writeConfig, isValidAgent, getAgentEnvHint } from '../utils/config';
+import { readConfig, writeConfig, isValidAgent, getAgentEnvHint, AuthMode } from '../utils/config';
 
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
@@ -13,7 +13,8 @@ export const initCommand = new Command('init')
   .option('--with-ci', 'Install GitHub Actions workflows')
   .option('--force', 'Overwrite existing .evolve/ directory')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
-  .action(async (options: { withCi?: boolean; force?: boolean; agent: string }) => {
+  .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
+  .action(async (options: { withCi?: boolean; force?: boolean; agent: string; authMode: string }) => {
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
@@ -24,6 +25,25 @@ export const initCommand = new Command('init')
     if (!isValidAgent(agent)) {
       console.error(`Unknown agent "${agent}". Supported: claude, codex, opencode, ollama`);
       process.exit(1);
+    }
+
+    // Resolve auth mode
+    let authMode: AuthMode = 'api-key';
+    if (options.authMode === 'oauth') {
+      if (agent !== 'claude') {
+        console.warn(`Warning: --auth-mode oauth is only applicable to the Claude agent. Falling back to api-key.`);
+      } else {
+        authMode = 'oauth';
+      }
+    } else if (options.authMode !== 'api-key') {
+      console.error(`Unknown auth mode "${options.authMode}". Supported: api-key, oauth`);
+      process.exit(1);
+    }
+
+    // On --force, preserve existing authMode if --auth-mode wasn't explicitly passed
+    const authModeExplicit = process.argv.includes('--auth-mode');
+    if (options.force && !authModeExplicit && existingConfig.authMode) {
+      authMode = existingConfig.authMode;
     }
 
     // Check dependencies
@@ -123,9 +143,12 @@ export const initCommand = new Command('init')
 
     // Write agent config
     const currentConfig = readConfig();
-    writeConfig({ ...currentConfig, agent });
+    writeConfig({ ...currentConfig, agent, authMode });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
+    }
+    if (authMode === 'oauth') {
+      console.log(`  Auth: OAuth (claude login)`);
     }
 
     console.log('');
@@ -134,7 +157,7 @@ export const initCommand = new Command('init')
     console.log('Next steps:');
     console.log('  1. Edit .evolve/vision.md with your project vision');
     console.log('  2. Edit .evolve/spec.md with your technical specification');
-    console.log(`  3. ${getAgentEnvHint(agent)}`);
+    console.log(`  3. ${getAgentEnvHint(agent, authMode)}`);
     console.log('  4. Run: code-evolve run');
     if (!options.withCi) {
       console.log('');

@@ -47,7 +47,10 @@ jobs:
         id: attempt1
         continue-on-error: true
         env:
+          # OAuth auth is local-only. CI always requires ANTHROPIC_API_KEY.
+          # If your local setup uses OAuth, you must still set this secret for CI.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_AUTH_MODE: api-key
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
@@ -61,7 +64,9 @@ jobs:
         if: steps.attempt1.outcome == 'failure'
         continue-on-error: true
         env:
+          # OAuth auth is local-only. CI always requires ANTHROPIC_API_KEY.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_AUTH_MODE: api-key
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
@@ -74,7 +79,9 @@ jobs:
       - name: Retry after 45min
         if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
         env:
+          # OAuth auth is local-only. CI always requires ANTHROPIC_API_KEY.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_AUTH_MODE: api-key
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
