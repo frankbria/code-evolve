@@ -270,6 +270,8 @@ Drop code-evolve into any project. It figures out how to build and test it:
 
 Package managers (npm, yarn, pnpm, bun) and Python tooling (uv, poetry, pip) are detected automatically.
 
+**Monorepos** are supported automatically. If no stack marker is found at the project root, code-evolve scans immediate subdirectories. When multiple stacks are found (e.g., `backend/` with Python and `frontend/` with Next.js), each substack is verified independently — build, test, and lint run in their respective directories. The post-session fix loop and CI workflow both handle monorepos.
+
 ## Local vs. Cloud
 
 Run it however fits your workflow:
