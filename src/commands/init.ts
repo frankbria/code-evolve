@@ -41,7 +41,8 @@ export const initCommand = new Command('init')
     }
 
     // On --force, preserve existing authMode if --auth-mode wasn't explicitly passed
-    if (options.force && options.authMode === 'api-key' && existingConfig.authMode) {
+    const authModeExplicit = process.argv.includes('--auth-mode');
+    if (options.force && !authModeExplicit && existingConfig.authMode) {
       authMode = existingConfig.authMode;
     }
 

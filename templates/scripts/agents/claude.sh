@@ -7,9 +7,8 @@ check_agent() {
 
 agent_auth_check() {
     if [ "$CLAUDE_AUTH_MODE" = "oauth" ]; then
-        if ! claude --version &>/dev/null; then
-            echo "ERROR: Claude CLI not responding. Is your OAuth session active?" >&2
-            echo "Run 'claude login' to re-authenticate." >&2
+        if ! claude auth status &>/dev/null; then
+            echo "ERROR: Claude not authenticated. Run 'claude auth login' to authenticate." >&2
             return 1
         fi
     fi
