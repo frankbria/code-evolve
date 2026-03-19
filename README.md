@@ -64,6 +64,8 @@ export ANTHROPIC_API_KEY=sk-...    # or the key for your chosen agent
 code-evolve start
 ```
 
+If you use a Claude subscription instead of an API key, initialize with `--auth-mode oauth` and run `claude login` — no `ANTHROPIC_API_KEY` needed.
+
 The engine runs on a schedule (every 4 hours by default) and starts building your project autonomously.
 
 > **Tip:** After installing globally (`npm install -g code-evolve`), you can use `ce` as a shorthand — `ce init`, `ce start`, `ce status`, etc.
@@ -168,10 +170,11 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 ### `init`
 
 ```bash
-code-evolve init                    # basic setup (uses Claude Code by default)
-code-evolve init --agent codex      # use Codex CLI instead
-code-evolve init --with-ci          # also install GitHub Actions for cloud evolution
-code-evolve init --force            # upgrade framework files (preserves journal + learnings)
+code-evolve init                          # basic setup (uses Claude Code by default)
+code-evolve init --agent codex            # use Codex CLI instead
+code-evolve init --auth-mode oauth        # use Claude subscription (claude login) instead of API key
+code-evolve init --with-ci               # also install GitHub Actions for cloud evolution
+code-evolve init --force                 # upgrade framework files (preserves journal + learnings)
 ```
 
 ### `vision`
@@ -247,12 +250,17 @@ code-evolve works with multiple AI coding agents:
 | Ollama | `ollama` | `--agent ollama` |
 
 ```bash
-code-evolve init --agent codex        # initialize with Codex
-code-evolve run --agent ollama        # one-off run with Ollama
-code-evolve start --agent opencode    # schedule with OpenCode
+code-evolve init --agent codex             # initialize with Codex
+code-evolve run --agent ollama             # one-off run with Ollama
+code-evolve start --agent opencode         # schedule with OpenCode
+code-evolve init --auth-mode oauth         # Claude subscription (no API key required)
 ```
 
 The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run` and `start` commands read from config automatically. You can override with `--agent` on any command.
+
+**Claude auth modes:**
+- `api-key` (default) — set `ANTHROPIC_API_KEY` in your environment
+- `oauth` — run `claude login` once; no API key needed (requires a Claude subscription)
 
 The default model adapts to your agent (e.g., `llama3` for Ollama, `o4-mini` for Codex). Override with `--model`.
 
@@ -285,6 +293,7 @@ Run it however fits your workflow:
 - GitHub Actions in `.github/workflows/evolve/`
 - Runs every 4 hours with 3-attempt retry logic
 - Set your agent's API key in repo secrets (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex)
+- CI always uses `api-key` mode regardless of your local `--auth-mode` setting
 
 Both run the same engine. Mix and match.
 
