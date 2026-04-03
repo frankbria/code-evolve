@@ -25,9 +25,11 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "commander": "^11.0.0"
+    "commander": "^11.0.0",
+    "minimatch": "^9.0.0"
   },
   "devDependencies": {
+    "@types/minimatch": "^5.1.2",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0"
   },

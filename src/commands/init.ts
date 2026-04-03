@@ -69,6 +69,7 @@ export const initCommand = new Command('init')
     console.log('Creating .evolve/ directory...');
     fs.mkdirSync(path.join(evolveDir, 'scripts'), { recursive: true });
     fs.mkdirSync(path.join(evolveDir, 'skills'), { recursive: true });
+    fs.mkdirSync(path.join(evolveDir, 'evidence'), { recursive: true });
 
     // Copy scripts (always overwrite — these are framework code, not user data)
     copyDir(path.join(templatesDir, 'scripts'), path.join(evolveDir, 'scripts'));
@@ -91,7 +92,7 @@ export const initCommand = new Command('init')
     }
 
     // Copy state files (skip if they already exist — these contain evolution history)
-    const allStateFiles = ['IDENTITY.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
+    const allStateFiles = ['IDENTITY.md', 'REQUIREMENTS.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
     for (const file of allStateFiles) {
       const src = path.join(templatesDir, 'state', file);
       const dest = path.join(evolveDir, file);
@@ -208,6 +209,7 @@ function updateGitignore(): void {
     `${EVOLVE_DIR_NAME}/.env`,
     `${EVOLVE_DIR_NAME}/evolve.log`,
     `${EVOLVE_DIR_NAME}/schedule.json`,
+    `${EVOLVE_DIR_NAME}/evidence/`,
   ];
 
   let content = '';

@@ -20,6 +20,25 @@ export function projectFile(name: string): string {
   return path.resolve(process.cwd(), name);
 }
 
+export function requirementsFile(): string {
+  return evolveFile('REQUIREMENTS.md');
+}
+
+export function evidenceDir(reqId?: string): string {
+  const base = path.join(getEvolveDir(), 'evidence');
+  return reqId ? path.join(base, reqId) : base;
+}
+
+export function currentDay(): number {
+  try {
+    const p = evolveFile('DAY_COUNT');
+    if (fs.existsSync(p)) {
+      return parseInt(fs.readFileSync(p, 'utf8').trim(), 10) || 0;
+    }
+  } catch { /* ignore */ }
+  return 0;
+}
+
 export function isInitialized(): boolean {
   const evolveDir = getEvolveDir();
   return (
