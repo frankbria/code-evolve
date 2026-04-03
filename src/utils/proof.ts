@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
 import { minimatch } from 'minimatch';
-import { requirementsFile, evidenceDir, currentDay } from './paths';
+import { requirementsFile, evidenceDir, currentDay, shortCommit } from './paths';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -262,14 +261,6 @@ export function reinstateLapsedWaivers(reqs: Req[], currentDay: number): Req[] {
 }
 
 // ── Evidence artifact storage ─────────────────────────────────────────────────
-
-function shortCommit(): string {
-  try {
-    return execSync('git rev-parse --short HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
-  } catch {
-    return 'unknown';
-  }
-}
 
 export function writeEvidence(
   reqId: string,

@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 
 export const EVOLVE_DIR_NAME = '.evolve';
 
@@ -45,6 +46,14 @@ export function currentDay(): number {
     }
   } catch { /* ignore */ }
   return 0;
+}
+
+export function shortCommit(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+  } catch {
+    return 'unknown';
+  }
 }
 
 export function isInitialized(): boolean {

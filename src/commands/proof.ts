@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import fs from 'fs';
 import readline from 'readline';
 import { execSync } from 'child_process';
-import { isInitialized, evidenceDir, currentDay } from '../utils/paths';
+import { isInitialized, evidenceDir, currentDay, shortCommit } from '../utils/paths';
 import {
   readLedger,
   writeLedger,
@@ -193,7 +193,8 @@ const runCommand = new Command('run')
       }
 
       // Determine aggregate outcome: all gates must pass for satisfied; any fail is a failure
-      const allPassed = gateResults.every((r) => r.passed);
+      const anyEvaluated = gateResults.length > 0;
+      const allPassed = anyEvaluated && gateResults.every((r) => r.passed);
       const anyFailed = gateResults.some((r) => !r.passed);
       const lastArtifact = gateResults[gateResults.length - 1]?.artifactPath ?? '';
 
@@ -223,14 +224,6 @@ const runCommand = new Command('run')
       console.log('\nAll applicable obligations checked.');
     }
   });
-
-function shortCommit(): string {
-  try {
-    return execSync('git rev-parse --short HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
-  } catch {
-    return 'unknown';
-  }
-}
 
 function detectCommand(candidates: string[]): string | null {
   for (const cmd of candidates) {
