@@ -99,10 +99,17 @@ const captureCommand = new Command('capture')
       'Obligations [UNIT/BUILD/LINT/CONTRACT/E2E/SEC/PERF/DEMO/MANUAL, comma-separated]',
       'BUILD,UNIT'
     );
+    const validGates: Gate[] = ['UNIT', 'BUILD', 'LINT', 'CONTRACT', 'E2E', 'SEC', 'PERF', 'DEMO', 'MANUAL'];
     const obligations = obligationsRaw
       .split(',')
-      .map((g) => g.trim().toUpperCase() as Gate)
-      .filter(Boolean);
+      .map((g) => g.trim().toUpperCase())
+      .filter((g): g is Gate => validGates.includes(g as Gate));
+
+    if (obligations.length === 0) {
+      console.error('At least one valid obligation is required (UNIT, BUILD, LINT, CONTRACT, E2E, SEC, PERF, DEMO, MANUAL).');
+      rl.close();
+      process.exit(1);
+    }
 
     rl.close();
 
@@ -174,6 +181,11 @@ const runCommand = new Command('run')
 
       for (const gate of req.obligations) {
         const result = runGate(gate);
+        if (result.exitCode === 2) {
+          // Gate not evaluated (no tool found) — skip without marking pass/fail
+          console.log(`    [${gate}] SKIP — ${result.output}`);
+          continue;
+        }
         const artifactPath = writeEvidence(req.id, gate, result.command, result.output, result.exitCode);
         const passed = result.exitCode === 0;
         gateResults.push({ gate, passed, artifactPath });
@@ -252,20 +264,28 @@ function runGate(gate: Gate): { command: string; output: string; exitCode: numbe
   };
 
   const candidates = gateCandidates[gate];
-  const command = candidates ? (detectCommand(candidates) ?? `echo "No tool found for gate ${gate}"`) : `echo "No automated check for gate ${gate}"`;
+  const detected = candidates ? detectCommand(candidates) : null;
+
+  // Exit code 2 = gate not evaluated (no tool found) — distinct from pass (0) and fail (1)
+  if (!detected) {
+    const msg = candidates
+      ? `Gate ${gate}: no tool found. Candidates checked: ${candidates.join(', ')}`
+      : `Gate ${gate}: no automated check defined`;
+    return { command: '', output: msg, exitCode: 2 };
+  }
 
   let out = '';
   let exitCode = 0;
 
   try {
-    out = execSync(command, { stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+    out = execSync(detected, { stdio: ['pipe', 'pipe', 'pipe'] }).toString();
   } catch (e: unknown) {
     const err = e as { stdout?: Buffer; stderr?: Buffer; status?: number };
     out = [err.stdout?.toString(), err.stderr?.toString()].filter(Boolean).join('\n');
     exitCode = err.status ?? 1;
   }
 
-  return { command, output: out, exitCode };
+  return { command: detected, output: out, exitCode };
 }
 
 // ── proof waive ───────────────────────────────────────────────────────────────

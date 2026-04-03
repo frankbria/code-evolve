@@ -51,11 +51,22 @@ export function parseRequirements(content: string): Req[] {
       ? scopeRaw.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
 
-    const obligationsRaw = get('Obligations');
-    const obligations = (obligationsRaw.replace(/[\[\]]/g, '').split(',').map((g) => g.trim()) as Gate[]).filter(Boolean);
+    const validGates: Gate[] = ['UNIT', 'BUILD', 'LINT', 'CONTRACT', 'E2E', 'SEC', 'PERF', 'DEMO', 'MANUAL'];
+    const validStatuses: ReqStatus[] = ['open', 'satisfied', 'regressed', 'waived'];
+    const validSeverities: Severity[] = ['critical', 'high', 'medium', 'low'];
 
-    const status = (get('Status') as ReqStatus) || 'open';
-    const severity = (get('Severity') as Severity) || 'high';
+    const obligationsRaw = get('Obligations');
+    const obligations = obligationsRaw
+      .replace(/[\[\]]/g, '')
+      .split(',')
+      .map((g) => g.trim())
+      .filter((g): g is Gate => validGates.includes(g as Gate));
+
+    const rawStatus = get('Status');
+    const status: ReqStatus = validStatuses.includes(rawStatus as ReqStatus) ? (rawStatus as ReqStatus) : 'open';
+
+    const rawSeverity = get('Severity');
+    const severity: Severity = validSeverities.includes(rawSeverity as Severity) ? (rawSeverity as Severity) : 'high';
 
     reqs.push({
       id,
