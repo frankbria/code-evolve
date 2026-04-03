@@ -273,7 +273,9 @@ export function writeEvidence(
   const day = currentDay();
   const commit = shortCommit();
   const timestamp = new Date().toISOString();
-  const filename = `day${day}-${commit}-${gate.toLowerCase()}.txt`;
+  // Include seconds-level timestamp suffix to prevent overwrite on repeated runs
+  const timeSuffix = timestamp.replace(/[:.]/g, '').slice(0, 15); // e.g. 20260403T035306
+  const filename = `day${day}-${commit}-${gate.toLowerCase()}-${timeSuffix}.txt`;
   const artifactPath = path.join(dir, filename);
 
   // Truncate output to last 500 lines

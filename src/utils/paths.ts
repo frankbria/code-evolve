@@ -31,9 +31,17 @@ export function evidenceDir(reqId?: string): string {
 
 export function currentDay(): number {
   try {
-    const p = evolveFile('DAY_COUNT');
-    if (fs.existsSync(p)) {
-      return parseInt(fs.readFileSync(p, 'utf8').trim(), 10) || 0;
+    const dayCountPath = evolveFile('DAY_COUNT');
+    if (fs.existsSync(dayCountPath)) {
+      const n = parseInt(fs.readFileSync(dayCountPath, 'utf8').trim(), 10);
+      if (!isNaN(n) && n > 0) return n;
+    }
+    // Fallback: derive from birth date if DAY_COUNT is absent or corrupt
+    const birthPath = evolveFile('.birth_date');
+    if (fs.existsSync(birthPath)) {
+      const birth = new Date(fs.readFileSync(birthPath, 'utf8').trim());
+      const elapsed = Math.floor((Date.now() - birth.getTime()) / 86_400_000);
+      return Math.max(1, elapsed);
     }
   } catch { /* ignore */ }
   return 0;

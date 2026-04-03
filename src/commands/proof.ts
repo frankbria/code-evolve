@@ -33,8 +33,10 @@ function requireInit(): void {
 
 function changedFilesSinceLastCommit(): string[] {
   try {
-    const out = execSync('git diff --name-only HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
-    return out ? out.split('\n') : [];
+    const staged = execSync('git diff --name-only HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    const untracked = execSync('git ls-files --others --exclude-standard', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    const all = [staged, untracked].filter(Boolean).join('\n');
+    return all ? all.split('\n').filter(Boolean) : [];
   } catch {
     return [];
   }
@@ -165,31 +167,37 @@ const runCommand = new Command('run')
       console.log(`  ${req.id}: ${req.title}`);
       console.log(`    Obligations: [${req.obligations.join(', ')}]`);
 
+      // Collect all gate results before updating REQ status (a later passing gate must
+      // not overwrite the status set by an earlier failing gate)
+      type GateResult = { gate: Gate; passed: boolean; artifactPath: string };
+      const gateResults: GateResult[] = [];
+
       for (const gate of req.obligations) {
-        const gateResult = runGate(gate);
-        const artifactPath = writeEvidence(req.id, gate, gateResult.command, gateResult.output, gateResult.exitCode);
+        const result = runGate(gate);
+        const artifactPath = writeEvidence(req.id, gate, result.command, result.output, result.exitCode);
+        const passed = result.exitCode === 0;
+        gateResults.push({ gate, passed, artifactPath });
+        console.log(`    [${gate}] ${passed ? 'PASS' : 'FAIL'} — ${artifactPath}`);
+      }
 
-        const passed = gateResult.exitCode === 0;
+      // Determine aggregate outcome: all gates must pass for satisfied; any fail is a failure
+      const allPassed = gateResults.every((r) => r.passed);
+      const anyFailed = gateResults.some((r) => !r.passed);
+      const lastArtifact = gateResults[gateResults.length - 1]?.artifactPath ?? '';
 
-        if (!passed && req.status === 'satisfied') {
-          // Regression detected
+      const idx = reqs.findIndex((r) => r.id === req.id);
+      if (idx !== -1) {
+        if (anyFailed && req.status === 'satisfied') {
           hasRegressions = true;
-          const idx = reqs.findIndex((r) => r.id === req.id);
-          if (idx !== -1) {
-            reqs[idx] = { ...reqs[idx], status: 'regressed' };
-          }
-          console.log(`    [${gate}] REGRESSED — ${artifactPath}`);
-        } else if (passed) {
-          const idx = reqs.findIndex((r) => r.id === req.id);
-          if (idx !== -1) {
-            reqs[idx] = updateReqEvidence(
-              { ...reqs[idx], status: 'satisfied', satisfiedBy: `Day ${day}, commit ${shortCommit()}` },
-              artifactPath
-            );
-          }
-          console.log(`    [${gate}] PASS — ${artifactPath}`);
-        } else {
-          console.log(`    [${gate}] FAIL — ${artifactPath}`);
+          reqs[idx] = { ...reqs[idx], status: 'regressed' };
+          console.log(`    → REGRESSED`);
+        } else if (anyFailed) {
+          // stays open/regressed — no further change needed
+        } else if (allPassed) {
+          reqs[idx] = updateReqEvidence(
+            { ...reqs[idx], status: 'satisfied', satisfiedBy: `Day ${day}, commit ${shortCommit()}` },
+            lastArtifact
+          );
         }
       }
     }
@@ -214,8 +222,20 @@ function shortCommit(): string {
 
 function detectCommand(candidates: string[]): string | null {
   for (const cmd of candidates) {
+    const binary = cmd.split(' ')[0];
     try {
-      execSync(`command -v ${cmd.split(' ')[0]}`, { stdio: 'pipe' });
+      // For `npm run <script>`, verify the script exists in package.json
+      if (binary === 'npm' && cmd.startsWith('npm run ')) {
+        const scriptName = cmd.split(' ')[2];
+        const pkgPath = 'package.json';
+        if (fs.existsSync(pkgPath)) {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts?: Record<string, string> };
+          if (!pkg.scripts?.[scriptName]) continue;
+        } else {
+          continue; // no package.json — not an npm project
+        }
+      }
+      execSync(`command -v ${binary}`, { stdio: 'pipe' });
       return cmd;
     } catch { /* not found */ }
   }
@@ -266,15 +286,26 @@ const waiveCommand = new Command('waive')
       process.exit(1);
     }
 
+    const expiresDay = parseInt(options.expiresDay, 10);
+    if (isNaN(expiresDay) || expiresDay <= 0) {
+      console.error(`Invalid --expires-day: must be a positive integer (e.g. --expires-day 12).`);
+      process.exit(1);
+    }
+    const day = currentDay();
+    if (expiresDay <= day) {
+      console.error(`--expires-day ${expiresDay} is already past (current day: ${day}).`);
+      process.exit(1);
+    }
+
     reqs[idx] = {
       ...reqs[idx],
       status: 'waived',
       waiverReason: options.reason,
-      waiverExpires: `Day ${options.expiresDay}`,
+      waiverExpires: `Day ${expiresDay}`,
     };
 
     writeLedger(reqs);
-    console.log(`${reqId} waived until Day ${options.expiresDay}`);
+    console.log(`${reqId} waived until Day ${expiresDay}`);
     console.log(`  Reason: ${options.reason}`);
   });
 

@@ -571,18 +571,21 @@ FIXEOF
             git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
 
             # PROOF9: Auto-capture REQ from revert
+            # $ERRORS was captured before ERRORS_FILE was deleted — use it directly
             if [ -f "$EVOLVE_DIR/REQUIREMENTS.md" ]; then
                 REQ_COUNT=$(grep -c '^## REQ-' "$EVOLVE_DIR/REQUIREMENTS.md" 2>/dev/null || echo 0)
                 NEXT_REQ_NUM=$(printf "%04d" $((REQ_COUNT + 1)))
-                ERROR_SUMMARY=$(cat "$ERRORS_FILE" 2>/dev/null | tail -c 200 | tr '\n' ' ' | sed 's/"/'"'"'/g')
-                # Assign gates heuristically
+                ERROR_SUMMARY=$(printf '%s' "$ERRORS" | tail -c 200 | tr '\n' ' ' | tr -cd '[:print:]')
+                # Assign gates heuristically from error text
                 REQ_GATES="[BUILD]"
-                if echo "$ERROR_SUMMARY" | grep -qi "test\|spec\|assert\|jest\|pytest"; then
+                if printf '%s' "$ERRORS" | grep -qi "test\|spec\|assert\|jest\|pytest"; then
                     REQ_GATES="[UNIT, BUILD]"
                 fi
-                REQ_TITLE="Build failed after revert — $(echo "$ERROR_SUMMARY" | cut -c1-60 | tr -cd '[:print:]')"
-                printf '\n## REQ-%s: %s\n- **Source**: Day %s session revert\n- **Severity**: high\n- **Scope**: %s/*\n- **Obligations**: %s\n- **Evidence**: (none yet)\n- **Status**: open\n' \
-                    "$NEXT_REQ_NUM" "$REQ_TITLE" "$DAY" "$PROJECT_DIR" "$REQ_GATES" \
+                REQ_TITLE="Build failed after revert — $(printf '%s' "$ERROR_SUMMARY" | cut -c1-60)"
+                # Use src/** as scope (broad but avoids literal PROJECT_DIR expansion issues)
+                REQ_SCOPE="src/**,**/*.ts,**/*.py,**/*.js"
+                printf '\n## REQ-%s: %s\n- **Source**: Day %s session revert\n- **Severity**: high\n- **Scope**: %s\n- **Obligations**: %s\n- **Evidence**: (none yet)\n- **Status**: open\n' \
+                    "$NEXT_REQ_NUM" "$REQ_TITLE" "$DAY" "$REQ_SCOPE" "$REQ_GATES" \
                     >> "$EVOLVE_DIR/REQUIREMENTS.md"
                 git add "$EVOLVE_DIR/REQUIREMENTS.md" && git commit -m "Day $DAY ($SESSION_TIME): auto-capture REQ-${NEXT_REQ_NUM} from revert" || true
                 echo "  PROOF9: Created REQ-${NEXT_REQ_NUM} from session revert"
