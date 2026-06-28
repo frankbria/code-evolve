@@ -1,0 +1,105 @@
+#!/bin/bash
+# Test: `code-evolve vision`/`spec` draft via the configured agent adapter when one
+# is available, and fall back to the static template when none is. Regression test
+# for issue #23 (P1.4 — LLM-driven interview).
+#
+# Drives the REAL compiled CLI over piped (non-TTY) stdin. No real agent/API is
+# used: a stub `.evolve/scripts/agents/claude.sh` adapter stands in for the LLM.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CLI="$ROOT/dist/cli.js"
+
+[ -f "$CLI" ] || ( cd "$ROOT" && npm run build >/dev/null 2>&1 )
+
+pass=0; fail=0
+check() { if [ "$2" = "$3" ]; then echo "  ok: $1"; pass=$((pass+1)); else echo "  FAIL: $1 (got '$2', want '$3')"; fi; [ "$2" = "$3" ] || fail=$((fail+1)); }
+
+# Install a stub agent adapter that echoes a recognizable document to stdout,
+# proving the LLM path was taken (output replaces the static builder).
+install_stub_adapter() {
+  local dir="$1" body="$2"
+  mkdir -p "$dir/.evolve/scripts/agents"
+  printf '{"agent":"claude"}\n' > "$dir/.evolve/config.json"
+  cat > "$dir/.evolve/scripts/agents/claude.sh" <<EOF
+#!/bin/bash
+run_agent() { cat <<'DOC'
+$body
+DOC
+}
+EOF
+}
+
+# ── Case 1: vision drafts via the agent adapter ──
+T1=$(mktemp -d)
+install_stub_adapter "$T1" "# Vision
+## What We're Building
+AGENT_DRAFTED_VISION_MARKER"
+( cd "$T1"
+  printf '%s\n' \
+    "A command line tool for managing notes" \
+    "Developers who live in the terminal daily" \
+    "They scatter notes across many files today" \
+    "When they cannot find an old note quickly" \
+    "They type a command and see results" \
+    "Fast full text search across all notes" \
+    "Not a heavyweight cloud knowledge base" \
+    "Cut sync and sharing for the first week" \
+    "Daily active use by the author themselves" \
+    "When search returns the right note instantly" \
+    "yes" "yes" | ANTHROPIC_API_KEY=stub-key node "$CLI" vision >/dev/null 2>&1
+) || echo CRASH > "$T1/crash"
+check "vision (agent) does not crash" "$( [ -f "$T1/crash" ] && echo CRASH || echo OK )" "OK"
+check "vision (agent) writes vision.md" "$( [ -f "$T1/.evolve/vision.md" ] && echo YES || echo NO )" "YES"
+check "vision uses agent-drafted output" "$(grep -c 'AGENT_DRAFTED_VISION_MARKER' "$T1/.evolve/vision.md" || true)" "1"
+rm -rf "$T1"
+
+# ── Case 2: vision falls back to the static template with no adapter ──
+T2=$(mktemp -d)
+( cd "$T2"
+  printf '%s\n' \
+    "A command line tool for managing notes" \
+    "Developers who live in the terminal daily" \
+    "They scatter notes across many files today" \
+    "When they cannot find an old note quickly" \
+    "They type a command and see results" \
+    "Fast full text search across all notes" \
+    "Not a heavyweight cloud knowledge base" \
+    "Cut sync and sharing for the first week" \
+    "Daily active use by the author themselves" \
+    "When search returns the right note instantly" \
+    "yes" "yes" | node "$CLI" vision >/dev/null 2>&1
+) || echo CRASH > "$T2/crash"
+check "vision (fallback) does not crash" "$( [ -f "$T2/crash" ] && echo CRASH || echo OK )" "OK"
+check "vision (fallback) writes vision.md" "$( [ -f "$T2/.evolve/vision.md" ] && echo YES || echo NO )" "YES"
+check "vision fallback uses static builder" "$(grep -c 'managing notes' "$T2/.evolve/vision.md" || true)" "1"
+check "vision fallback has no agent marker" "$(grep -c 'AGENT_DRAFTED' "$T2/.evolve/vision.md" || true)" "0"
+rm -rf "$T2"
+
+# ── Case 3: spec drafts via the agent and preserves verbatim feature lines ──
+T3=$(mktemp -d)
+install_stub_adapter "$T3" "# Specification
+## Tech Stack
+SPEC_AGENT_MARKER
+## Features (Priority Order)
+- [ ] Add task command
+- [ ] List all tasks command"
+( cd "$T3"
+  printf '%s\n' \
+    "TypeScript Node.js Commander SQLite Jest" \
+    "A CLI tool using the command pattern" \
+    "Add task command" "List all tasks command" "" \
+    "Tasks stored as markdown files locally" \
+    "CLI subcommands add and list tasks" \
+    "Jest unit tests with coverage target" \
+    "Published to the npm registry package" \
+    "yes" "yes" | ANTHROPIC_API_KEY=stub-key node "$CLI" spec >/dev/null 2>&1
+) || echo CRASH > "$T3/crash"
+check "spec (agent) does not crash" "$( [ -f "$T3/crash" ] && echo CRASH || echo OK )" "OK"
+check "spec uses agent-drafted output" "$(grep -c 'SPEC_AGENT_MARKER' "$T3/.evolve/spec.md" || true)" "1"
+check "spec keeps verbatim feature line" "$(grep -c '^- \[ \] Add task command' "$T3/.evolve/spec.md" || true)" "1"
+rm -rf "$T3"
+
+echo "---"
+echo "passed: $pass  failed: $fail"
+[ "$fail" -eq 0 ]

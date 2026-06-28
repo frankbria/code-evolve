@@ -50,7 +50,7 @@ code-evolve vision
 code-evolve spec
 ```
 
-`vision` runs five rounds of Socratic questions — what you're building, who it's for, what problem it solves, and what success looks like — assembled into `.evolve/vision.md` with your approval. `spec` then interviews you on tech stack, architecture, and a prioritized feature checklist, written to `.evolve/spec.md`. Re-run either with `--refine` to revisit prior answers.
+`vision` runs five rounds of Socratic questions — what you're building, who it's for, what problem it solves, and what success looks like. `spec` then interviews you on tech stack, architecture, and a prioritized feature checklist. When an agent is configured (see [Multi-Agent Support](#multi-agent-support)), your configured LLM drafts the `.evolve/vision.md` / `.evolve/spec.md` from your answers and you can accept it or ask for a refinement; with no agent configured it falls back to a built-in template. Re-run either with `--refine` to revisit prior answers.
 
 **Option B: Write both files directly**
 

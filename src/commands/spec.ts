@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import fs from 'fs';
 import readline from 'readline';
 import { evolveFile, getEvolveDir, isInitialized } from '../utils/paths';
+import { makeAsk } from '../utils/interview';
+import { draftWithAgent } from '../utils/agent';
 
 type FeatureStatus = ' ' | '~' | 'x';
 
@@ -25,28 +27,7 @@ export const specCommand = new Command('spec')
   .option('--refine', 'Revisit and improve an existing spec.md')
   .action(async (options: { refine?: boolean }) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-    // Line-queue reader: decouples our await pace from readline's emit pace so
-    // piped (non-TTY) input isn't lost between questions, and EOF resolves
-    // pending prompts to '' instead of leaving the process hung.
-    const queue: string[] = [];
-    const waiters: Array<(line: string) => void> = [];
-    let closed = false;
-    rl.on('line', (line) => {
-      const waiter = waiters.shift();
-      if (waiter) waiter(line);
-      else queue.push(line);
-    });
-    rl.on('close', () => {
-      closed = true;
-      while (waiters.length) waiters.shift()!('');
-    });
-    const ask = (question: string): Promise<string> => {
-      process.stdout.write(question);
-      if (queue.length) return Promise.resolve(queue.shift()!);
-      if (closed) return Promise.resolve('');
-      return new Promise((resolve) => waiters.push(resolve));
-    };
+    const ask = makeAsk(rl);
 
     try {
       console.log('');
@@ -97,14 +78,37 @@ export const specCommand = new Command('spec')
         printSummary(finalAnswers);
       }
 
-      // Build and preview
-      const doc = buildSpecDoc(finalAnswers);
+      // Draft with the configured agent; fall back to the static template when
+      // no agent/key is available.
+      console.log('\nDrafting your spec...');
+      let drafted = draftWithAgent(buildSpecPrompt(finalAnswers));
+      console.log(drafted ? '(Drafted with your configured agent.)' : '(No agent configured — using the built-in template.)');
+      let doc = drafted ?? buildSpecDoc(finalAnswers);
 
-      console.log('\n=== Preview ===\n');
-      console.log(doc);
+      // Preview + accept/refine loop.
+      for (;;) {
+        console.log('\n=== Preview ===\n');
+        console.log(doc);
 
-      const writeConfirm = await ask('Write this to .evolve/spec.md? (yes / no) ');
-      if (writeConfirm.toLowerCase().trim() !== 'yes' && writeConfirm.toLowerCase().trim() !== 'y') {
+        const prompt = drafted
+          ? 'Write this to .evolve/spec.md? (yes / refine / no) '
+          : 'Write this to .evolve/spec.md? (yes / no) ';
+        const choice = (await ask(prompt)).toLowerCase().trim();
+
+        if (choice === 'yes' || choice === 'y') break;
+
+        if (drafted && (choice === 'refine' || choice === 'r')) {
+          const feedback = (await ask('What should change? ')).trim();
+          const redo = draftWithAgent(buildSpecPrompt(finalAnswers, feedback));
+          if (redo) {
+            drafted = redo;
+            doc = redo;
+          } else {
+            console.log('Could not redraft — keeping the current version.');
+          }
+          continue;
+        }
+
         console.log('Aborted. Nothing was written.');
         return;
       }
@@ -332,5 +336,47 @@ ${answers.testing || '(to be determined)'}
 
 ## Deployment
 ${answers.deployment || '(to be determined)'}
+`;
+}
+
+function buildSpecPrompt(answers: SpecAnswers, feedback?: string): string {
+  const featureLines = answers.features.length
+    ? answers.features.map((f) => `- [${f.status}] ${f.text}`).join('\n')
+    : '- [ ] (no features given)';
+
+  return `You are drafting a technical specification from a developer interview.
+Write a clear, well-structured spec in GitHub-flavored Markdown.
+
+Use EXACTLY these headings, in this order, and nothing else:
+# Specification
+## Tech Stack
+## Architecture
+## Features (Priority Order)
+## Data Model
+## API Design
+## Testing
+## Deployment
+
+Sharpen and organize each section from the answers below; do not invent facts
+the answers do not imply. For any empty answer, write "(to be determined)".
+
+CRITICAL: Under "## Features (Priority Order)", reproduce the feature list
+EXACTLY as given — same order, one per line, each as \`- [<status>] <text>\`
+keeping the status marker ([ ], [~], or [x]) unchanged. This list is parsed by
+the build pipeline, so do not rephrase, reorder, merge, or drop any feature.
+
+Output ONLY the Markdown document — no preamble, no commentary, and do not use
+any tools or write any files.
+${feedback ? `\nRevision request from the user — apply this (but still keep the feature lines verbatim): ${feedback}\n` : ''}
+Interview answers:
+- Tech stack: ${answers.techStack || '(not answered)'}
+- Architecture: ${answers.architecture || '(not answered)'}
+- Data model: ${answers.dataModel || '(not answered)'}
+- API design: ${answers.apiDesign || '(not answered)'}
+- Testing: ${answers.testing || '(not answered)'}
+- Deployment: ${answers.deployment || '(not answered)'}
+
+Features (Priority Order) — reproduce verbatim:
+${featureLines}
 `;
 }

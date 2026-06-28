@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local Claude Code state (machine-local, not project data)
 .claude/
+
+# Local planning notes (not part of the package)
+tasks/

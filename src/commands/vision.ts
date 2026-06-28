@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import fs from 'fs';
 import readline from 'readline';
 import { evolveFile, getEvolveDir, isInitialized } from '../utils/paths';
+import { makeAsk } from '../utils/interview';
+import { draftWithAgent } from '../utils/agent';
 
 interface InterviewAnswers {
   whatBuilding: string;
@@ -21,12 +23,7 @@ export const visionCommand = new Command('vision')
   .option('--refine', 'Revisit and improve an existing vision.md')
   .action(async (options: { refine?: boolean }) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.on('close', () => {
-      console.log('\nInterview cancelled.');
-      process.exit(0);
-    });
-    const ask = (question: string): Promise<string> =>
-      new Promise((resolve) => rl.question(question, resolve));
+    const ask = makeAsk(rl);
 
     try {
       console.log('');
@@ -77,14 +74,37 @@ export const visionCommand = new Command('vision')
         printSummary(finalAnswers);
       }
 
-      // Build and preview
-      const doc = buildVisionDoc(finalAnswers);
+      // Draft with the configured agent; fall back to the static template when
+      // no agent/key is available.
+      console.log('\nDrafting your vision...');
+      let drafted = draftWithAgent(buildVisionPrompt(finalAnswers));
+      console.log(drafted ? '(Drafted with your configured agent.)' : '(No agent configured — using the built-in template.)');
+      let doc = drafted ?? buildVisionDoc(finalAnswers);
 
-      console.log('\n=== Preview ===\n');
-      console.log(doc);
+      // Preview + accept/refine loop.
+      for (;;) {
+        console.log('\n=== Preview ===\n');
+        console.log(doc);
 
-      const writeConfirm = await ask('Write this to .evolve/vision.md? (yes / no) ');
-      if (writeConfirm.toLowerCase().trim() !== 'yes' && writeConfirm.toLowerCase().trim() !== 'y') {
+        const prompt = drafted
+          ? 'Write this to .evolve/vision.md? (yes / refine / no) '
+          : 'Write this to .evolve/vision.md? (yes / no) ';
+        const choice = (await ask(prompt)).toLowerCase().trim();
+
+        if (choice === 'yes' || choice === 'y') break;
+
+        if (drafted && (choice === 'refine' || choice === 'r')) {
+          const feedback = (await ask('What should change? ')).trim();
+          const redo = draftWithAgent(buildVisionPrompt(finalAnswers, feedback));
+          if (redo) {
+            drafted = redo;
+            doc = redo;
+          } else {
+            console.log('Could not redraft — keeping the current version.');
+          }
+          continue;
+        }
+
         console.log('Aborted. Nothing was written.');
         return;
       }
@@ -322,5 +342,48 @@ ${answers.successSignal}
 
 ### The Delight Moment
 ${answers.delightMoment}
+`;
+}
+
+function buildVisionPrompt(answers: InterviewAnswers, feedback?: string): string {
+  const qa: [string, string][] = [
+    ['What are you building', answers.whatBuilding],
+    ['Who it is for', answers.whoFor],
+    ['The current pain without this tool', answers.currentPain],
+    ['The moment they reach for it', answers.triggerMoment],
+    ['The first experience', answers.firstExperience],
+    ['The one thing it must do well', answers.mustDoWell],
+    ['What it is NOT', answers.notThis],
+    ['What to cut for a one-week MVP', answers.mvpCuts],
+    ['How success is measured', answers.successSignal],
+    ['The delight moment', answers.delightMoment],
+  ];
+  const interview = qa.map(([q, a]) => `- ${q}: ${a || '(not answered)'}`).join('\n');
+
+  return `You are drafting a project vision document from a founder interview.
+Write a clear, compelling vision in GitHub-flavored Markdown.
+
+Use EXACTLY these headings, in this order, and nothing else:
+# Vision
+## What We're Building
+## Who It's For
+## The Problem
+### The Trigger
+## The Experience
+### Core Capability
+## Boundaries
+### MVP Scope
+## Success
+### The Delight Moment
+
+Base each section on the interview answers below. Sharpen the language and flow,
+but do not invent facts that the answers do not imply. For any answer that is
+empty or "(to be determined)", write a short honest placeholder.
+
+Output ONLY the Markdown document — no preamble, no commentary, and do not use
+any tools or write any files.
+${feedback ? `\nRevision request from the user — apply this: ${feedback}\n` : ''}
+Interview answers:
+${interview}
 `;
 }
