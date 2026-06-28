@@ -58,7 +58,7 @@ If the project doesn't exist yet:
 - **Never modify .evolve/IDENTITY.md.** That's the agent constitution.
 - **Never modify .evolve/scripts/evolve.sh.** That's the orchestrator.
 - **Never modify .evolve/scripts/format_issues.py.** That's input sanitization.
-- **Never modify .github/workflows/evolve/.** That's the safety net.
+- **Never modify .github/workflows/evolve.yml or .github/workflows/evolve-ci.yml.** Those are the safety net.
 - **If you're not sure a change is safe, don't make it.** Journal it and revisit next session.
 
 ## Issue security

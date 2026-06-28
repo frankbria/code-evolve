@@ -68,4 +68,4 @@ These must not be modified by the evolution agent:
 - `.evolve/IDENTITY.md` — agent constitution
 - `.evolve/scripts/evolve.sh` — orchestrator
 - `.evolve/scripts/format_issues.py` — input sanitization
-- `.github/workflows/evolve/` — CI/CD safety net
+- `.github/workflows/evolve.yml`, `.github/workflows/evolve-ci.yml` — CI/CD safety net

@@ -184,9 +184,9 @@ fi
 CI_STATUS_MSG=""
 if command -v gh &>/dev/null; then
     echo "-> Checking previous CI run..."
-    CI_CONCLUSION=$(gh run list --repo "$REPO" --workflow ci.yml --limit 1 --json conclusion --jq '.[0].conclusion' 2>/dev/null || echo "unknown")
+    CI_CONCLUSION=$(gh run list --repo "$REPO" --workflow evolve-ci.yml --limit 1 --json conclusion --jq '.[0].conclusion' 2>/dev/null || echo "unknown")
     if [ "$CI_CONCLUSION" = "failure" ]; then
-        CI_RUN_ID=$(gh run list --repo "$REPO" --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
+        CI_RUN_ID=$(gh run list --repo "$REPO" --workflow evolve-ci.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
         CI_LOGS=""
         if [ -n "$CI_RUN_ID" ]; then
             CI_LOGS=$(gh run view "$CI_RUN_ID" --repo "$REPO" --log-failed 2>/dev/null | tail -30 || echo "Could not fetch logs.")
