@@ -47,11 +47,10 @@ You have three options — pick the one that fits:
 
 ```bash
 code-evolve vision
+code-evolve spec
 ```
 
-Five rounds of Socratic questions draw out your project vision — what you're building, who it's for, what problem it solves, and what success looks like. Your answers are assembled into `.evolve/vision.md` with your approval.
-
-Then write `.evolve/spec.md` by hand — define your tech stack, architecture, and a prioritized feature checklist.
+`vision` runs five rounds of Socratic questions — what you're building, who it's for, what problem it solves, and what success looks like — assembled into `.evolve/vision.md` with your approval. `spec` then interviews you on tech stack, architecture, and a prioritized feature checklist, written to `.evolve/spec.md`. Re-run either with `--refine` to revisit prior answers.
 
 **Option B: Write both files directly**
 
