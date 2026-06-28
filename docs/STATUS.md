@@ -11,7 +11,7 @@ The **core evolution engine is real and surprisingly solid** for the happy path 
 
 But the product the user is describing — *"open any repo, install, get interviewed, turn it on"* — has **two hard functional blockers** and a **missing guided-install layer**:
 
-- **The GitHub Action path is currently dead** — workflows install into a subdirectory GitHub never executes (P0.1).
+- ~~**The GitHub Action path is currently dead** — workflows install into a subdirectory GitHub never executes (P0.1).~~ **RESOLVED** in #36 — workflows now install directly into `.github/workflows/` with collision-safe names. (Per-agent CI for non-Claude backends remains a follow-up.)
 - **True greenfield (zero-commit) repos abort immediately** on session start (P0.2).
 - **There is no guided onboarding.** Everything is non-interactive flags a user must discover. No LLM picker, no spec generator, the existing vision interview is hardcoded (not LLM-driven) and not even wired into `init`, and there is no "choose local / CI / both + pick a schedule" step (P1.x).
 
@@ -67,7 +67,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 
 | Issue | # | Priority | Title | Depends on |
 |-------|---|----------|-------|------------|
-| P0.1 | [#18](https://github.com/frankbria/code-evolve/issues/18) | Blocker | Install GitHub Actions workflows into `.github/workflows/` so they actually run | — |
+| P0.1 | [#18](https://github.com/frankbria/code-evolve/issues/18) ✅ | Blocker | Install GitHub Actions workflows into `.github/workflows/` so they actually run *(done in #36)* | — |
 | P0.2 | [#19](https://github.com/frankbria/code-evolve/issues/19) | Blocker | Handle zero-commit / greenfield repos without aborting the session | — |
 | P1.1 | [#20](https://github.com/frankbria/code-evolve/issues/20) | High | Interactive LLM/agent + auth picker on `init` | — |
 | P1.2 | [#21](https://github.com/frankbria/code-evolve/issues/21) | High | Add `spec` interview command to generate `spec.md` | — |

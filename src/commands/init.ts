@@ -135,6 +135,13 @@ export const initCommand = new Command('init')
     // Renamed to evolve-* so they never clobber a target repo's own ci.yml/evolve.yml.
     if (options.withCi) {
       console.log('Installing GitHub Actions workflows...');
+      // The bundled CI workflow is Claude-only today (installs claude-code, uses
+      // ANTHROPIC_API_KEY). Warn rather than silently running the wrong backend in CI.
+      if (agent !== 'claude') {
+        console.warn(
+          `  ⚠ The bundled GitHub Actions workflow currently supports the Claude backend only; it will not run "${agent}" in CI. Use local execution (code-evolve start) for "${agent}", or see the tracked follow-up for per-agent CI.`
+        );
+      }
       const workflowDir = projectFile('.github/workflows');
       fs.mkdirSync(workflowDir, { recursive: true });
       const workflowMap: Record<string, string> = {
