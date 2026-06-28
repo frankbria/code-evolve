@@ -9,6 +9,7 @@ import { statusCommand } from './commands/status';
 import { ejectCommand } from './commands/eject';
 import { migrateCommand } from './commands/migrate';
 import { visionCommand } from './commands/vision';
+import { specCommand } from './commands/spec';
 import { proofCommand } from './commands/proof';
 
 const rawName = path.basename(process.argv[1]);
@@ -28,6 +29,7 @@ program.addCommand(statusCommand);
 program.addCommand(ejectCommand);
 program.addCommand(migrateCommand);
 program.addCommand(visionCommand);
+program.addCommand(specCommand);
 program.addCommand(proofCommand);
 
 program.parse();
