@@ -70,19 +70,13 @@ export const ejectCommand = new Command('eject')
         console.log(`  ${wf} is not code-evolve-managed — leaving in place`);
       }
     }
-    // Clean up the legacy .github/workflows/evolve/ subdir from older installs — but only
-    // if it holds just the files old versions put there (evolve.yml/ci.yml), so we never
-    // delete a user-owned directory that happens to be named evolve/.
+    // We deliberately do NOT auto-remove a legacy .github/workflows/evolve/ subdir from
+    // pre-relocation installs: those nested files never executed (GitHub ignores subdirs),
+    // so they're inert, and we can't prove ownership of a user dir named evolve/ without
+    // risking data loss. If present, tell the user so they can delete it themselves.
     const legacyWorkflowDir = projectFile('.github/workflows/evolve');
     if (fs.existsSync(legacyWorkflowDir)) {
-      const entries = fs.readdirSync(legacyWorkflowDir);
-      const ours = entries.length > 0 && entries.every((e) => e === 'evolve.yml' || e === 'ci.yml');
-      if (ours) {
-        fs.rmSync(legacyWorkflowDir, { recursive: true, force: true });
-        console.log('Removed .github/workflows/evolve/ (legacy)');
-      } else {
-        console.log('  .github/workflows/evolve/ has unexpected contents — leaving in place');
-      }
+      console.log('  Note: a legacy .github/workflows/evolve/ directory exists (inert) — remove it manually if it was code-evolve\'s.');
     }
 
     // Clean .gitignore entries

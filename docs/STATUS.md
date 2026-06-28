@@ -36,7 +36,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 ## Gaps by dimension
 
 ### 1. Functional blockers (advertised feature literally doesn't work)
-- **CI workflows install to `.github/workflows/evolve/`** (`init.ts:136`). GitHub Actions only executes workflows directly in `.github/workflows/` — nested workflows never run. The auto-evolution feature is silently disabled in every repo. → **P0.1**
+- ~~**CI workflows install to `.github/workflows/evolve/`** — GitHub Actions only executes workflows directly in `.github/workflows/`, so nested workflows never ran.~~ **RESOLVED in #36** — workflows now install directly into `.github/workflows/` as `evolve.yml`/`evolve-ci.yml`. Remaining open work: the bundled workflow is Claude-only, so `--with-ci` is skipped for non-Claude backends (per-agent CI tracked in #37). → **P0.1 done**
 - **Greenfield abort.** `evolve.sh:277` runs `git rev-parse HEAD` under `set -euo pipefail` (`:23`). On a freshly `git init`'d repo with no commits this exits non-zero and kills the session before any work. → **P0.2**
 
 ### 2. Guided installation (the "turn on" experience — the heart of the ask)
