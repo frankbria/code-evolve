@@ -274,6 +274,17 @@ fi
 echo ""
 
 # ── Step 5: Run evolution session ──
+# Greenfield repos (fresh `git init`, zero commits) have no HEAD, which would
+# abort under `set -e`. Seed a baseline commit so revert/log logic has a valid base.
+if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    git config user.name >/dev/null 2>&1 || git config user.name "code-evolve[bot]"
+    git config user.email >/dev/null 2>&1 || git config user.email "code-evolve[bot]@users.noreply.github.com"
+    # Commit any existing files as the baseline so the revert/log logic can restore
+    # pre-session state (--allow-empty covers the truly-empty case).
+    git add -A
+    git commit -q --allow-empty -m "code-evolve: initial commit"
+    echo "  Seeded initial commit (greenfield repo)"
+fi
 SESSION_START_SHA=$(git rev-parse HEAD)
 echo "-> Starting evolution session..."
 echo ""
@@ -567,7 +578,22 @@ FIXEOF
             rm -f "$FIX_PROMPT"
         else
             echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
-            git checkout "$SESSION_START_SHA" -- "$PROJECT_DIR/"
+            if git checkout "$SESSION_START_SHA" -- "$PROJECT_DIR/" 2>/dev/null; then
+                # Restored tracked files to baseline. Also drop files the session ADDED
+                # since the baseline, so the revert truly returns to pre-session state.
+                # Scoped to tracked additions vs the baseline → pre-existing untracked
+                # files in an existing repo are never deleted.
+                git diff --name-only --diff-filter=A -z "$SESSION_START_SHA" -- "$PROJECT_DIR" \
+                    | while IFS= read -r -d '' f; do
+                        git rm -fq --ignore-unmatch -- "$f" >/dev/null 2>&1 || true
+                      done
+            else
+                # Empty baseline (greenfield seed had nothing tracked — all files ignored):
+                # no paths to restore, so discard the session's generated files instead.
+                # git clean keeps ignored files (e.g. an ignored .evolve), so the framework survives.
+                git rm -rfq --ignore-unmatch -- "$PROJECT_DIR" >/dev/null 2>&1 || true
+                git clean -fdq -- "$PROJECT_DIR" >/dev/null 2>&1 || true
+            fi
             git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
 
             # PROOF9: Auto-capture REQ from revert
