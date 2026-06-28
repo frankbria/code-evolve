@@ -78,10 +78,17 @@ export const specCommand = new Command('spec')
         printSummary(finalAnswers);
       }
 
-      // Draft with the configured agent; fall back to the static template when
-      // no agent/key is available.
+      // Draft with the configured agent (and force the feature checklist back to
+      // the user's exact list — the build pipeline parses those lines, so we never
+      // trust the model with them). Falls back to the static template when no
+      // agent/key is available or the draft's structure is unusable.
+      const draftSpec = (feedback?: string): string | null => {
+        const d = draftWithAgent(buildSpecPrompt(finalAnswers, feedback));
+        return d ? enforceFeatureChecklist(d, finalAnswers.features) : null;
+      };
+
       console.log('\nDrafting your spec...');
-      let drafted = draftWithAgent(buildSpecPrompt(finalAnswers));
+      let drafted = draftSpec();
       console.log(drafted ? '(Drafted with your configured agent.)' : '(No agent configured — using the built-in template.)');
       let doc = drafted ?? buildSpecDoc(finalAnswers);
 
@@ -99,7 +106,7 @@ export const specCommand = new Command('spec')
 
         if (drafted && (choice === 'refine' || choice === 'r')) {
           const feedback = (await ask('What should change? ')).trim();
-          const redo = draftWithAgent(buildSpecPrompt(finalAnswers, feedback));
+          const redo = draftSpec(feedback);
           if (redo) {
             drafted = redo;
             doc = redo;
@@ -337,6 +344,30 @@ ${answers.testing || '(to be determined)'}
 ## Deployment
 ${answers.deployment || '(to be determined)'}
 `;
+}
+
+/**
+ * Replace the body of the agent draft's "## Features (Priority Order)" section
+ * with the user's exact checklist, so a model rewrite/drop/reorder can never
+ * corrupt the lines the build pipeline parses. Returns null if the draft has no
+ * such section (structure unusable → caller falls back to the static builder).
+ */
+function enforceFeatureChecklist(doc: string, features: Feature[]): string | null {
+  const canonical = features.length
+    ? features.map((f) => `- [${f.status}] ${f.text}`).join('\n')
+    : '- [ ] (add your first feature)';
+
+  const heading = /^##[ \t]+Features \(Priority Order\)[ \t]*$/m.exec(doc);
+  if (!heading || heading.index === undefined) return null;
+
+  const bodyStart = heading.index + heading[0].length;
+  const rest = doc.slice(bodyStart);
+  const nextHeading = rest.search(/^##[ \t]/m);
+  const bodyEnd = nextHeading === -1 ? doc.length : bodyStart + nextHeading;
+
+  const before = doc.slice(0, bodyStart);
+  const after = doc.slice(bodyEnd);
+  return `${before}\n${canonical}\n\n${after}`.replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '\n');
 }
 
 function buildSpecPrompt(answers: SpecAnswers, feedback?: string): string {

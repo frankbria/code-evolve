@@ -26,19 +26,36 @@ export function draftWithAgent(prompt: string): string | null {
   if (envKey && !process.env[envKey]) return null;
 
   const model = config.model || getDefaultModel(agent);
-  const promptFile = path.join(os.tmpdir(), `code-evolve-draft-${process.pid}.txt`);
+  // Per-call private dir (not a guessable shared-tmp name), prompt written 0600 —
+  // interview prompts can carry sensitive product details.
+  let promptDir: string;
+  try {
+    promptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-evolve-draft-'));
+  } catch {
+    return null;
+  }
+  const promptFile = path.join(promptDir, 'prompt.txt');
 
   try {
-    fs.writeFileSync(promptFile, prompt);
-    // Source the adapter and call its run_agent(prompt_file, model, timeout_cmd, timeout).
-    // No timeout_cmd is passed; spawnSync's own timeout guards against a hung agent.
+    fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
+    // Source the adapter and call run_agent(prompt_file, model, timeout_cmd, timeout).
+    // A detected `timeout`/`gtimeout` wrapper (the same mechanism evolve.sh uses)
+    // kills the agent's whole process tree on timeout; spawnSync's own timeout is
+    // an outer backstop in case neither binary exists.
     const result = spawnSync(
       'bash',
-      ['-c', 'source "$1"; run_agent "$2" "$3" "" ""', 'bash', adapter, promptFile, model],
+      [
+        '-c',
+        'tcmd="$(command -v timeout || command -v gtimeout || true)"; source "$1"; run_agent "$2" "$3" "$tcmd" 300',
+        'bash',
+        adapter,
+        promptFile,
+        model,
+      ],
       {
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
-        timeout: 300_000,
+        timeout: 330_000,
         killSignal: 'SIGTERM',
         env: {
           ...process.env,
@@ -52,6 +69,6 @@ export function draftWithAgent(prompt: string): string | null {
   } catch {
     return null;
   } finally {
-    fs.rmSync(promptFile, { force: true });
+    fs.rmSync(promptDir, { recursive: true, force: true });
   }
 }
