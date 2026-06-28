@@ -159,6 +159,7 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 |---------|-------------|
 | `code-evolve init` | Scaffold `.evolve/` with vision and spec templates |
 | `code-evolve vision` | Guided Socratic interview to generate `.evolve/vision.md` |
+| `code-evolve spec` | Guided interview to generate `.evolve/spec.md` |
 | `code-evolve migrate` | Convert an existing spec/vision document into code-evolve format |
 | `code-evolve start` | Turn on the evolution engine (local cron) |
 | `code-evolve stop` | Pause evolution |
@@ -182,6 +183,16 @@ code-evolve init --force                 # upgrade framework files (preserves jo
 code-evolve vision           # guided interview to create .evolve/vision.md
 code-evolve vision --refine  # revisit and improve an existing vision.md
 ```
+
+### `spec`
+
+```bash
+code-evolve spec           # guided interview to create .evolve/spec.md
+code-evolve spec --refine  # revisit and improve an existing spec.md
+```
+
+On a terminal, `code-evolve init` offers to run the `vision` and `spec`
+interviews for you right after install — decline to edit the files by hand instead.
 
 ### `migrate`
 

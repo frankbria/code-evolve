@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
@@ -213,17 +214,75 @@ export const initCommand = new Command('init')
     console.log('');
     console.log('code-evolve initialized.');
     console.log('');
+
+    // On a TTY, offer to run the vision + spec interviews right now so onboarding
+    // flows straight into artifact generation. Declining (or non-TTY) falls through
+    // to the manual "edit these files" guidance below — scripted/CI installs are
+    // never prompted. We only drop the manual step for a file the interview
+    // actually populated, so a cancelled interview still gets its "edit" reminder.
+    let visionDone = false;
+    let specDone = false;
+    if (interactive) {
+      const launch = await promptYesNo('Generate your vision + spec now via a guided interview? (yes/no): ');
+      if (launch) {
+        visionDone = runInterview('vision');
+        specDone = runInterview('spec');
+        console.log('');
+      }
+    }
+
     console.log('Next steps:');
-    console.log('  1. Edit .evolve/vision.md with your project vision');
-    console.log('  2. Edit .evolve/spec.md with your technical specification');
-    console.log(`  3. ${getAgentEnvHint(agent, authMode)}`);
-    console.log('  4. Run: code-evolve run');
+    let step = 1;
+    if (!visionDone) {
+      console.log(`  ${step++}. Edit .evolve/vision.md with your project vision`);
+    }
+    if (!specDone) {
+      console.log(`  ${step++}. Edit .evolve/spec.md with your technical specification`);
+    }
+    console.log(`  ${step++}. ${getAgentEnvHint(agent, authMode)}`);
+    console.log(`  ${step++}. Run: code-evolve run`);
     if (!options.withCi) {
       console.log('');
       console.log('  To add GitHub Actions (auto-evolve every 4h):');
       console.log('    code-evolve init --with-ci --force');
     }
   });
+
+/** Ask a yes/no question on the current TTY. Defaults to no on empty/EOF. */
+async function promptYesNo(question: string): Promise<boolean> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await new Promise<string>((resolve) => {
+      // EOF (Ctrl-D / closed TTY) fires 'close' without ever calling the
+      // question callback — resolve empty so we follow the declined path.
+      rl.on('close', () => resolve(''));
+      rl.question(question, resolve);
+    });
+    const normalized = answer.trim().toLowerCase();
+    return normalized === 'y' || normalized === 'yes';
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Launch one of the interview subcommands (`vision`/`spec`) by re-invoking this
+ * same CLI as a child process with inherited stdio, so it owns the terminal
+ * cleanly. Returns true only if the interview actually populated the target file
+ * (the user can cancel mid-interview and exit 0), so callers know whether the
+ * manual "edit this file" guidance is still needed.
+ */
+function runInterview(name: 'vision' | 'spec'): boolean {
+  const file = evolveFile(`${name}.md`);
+  const read = (): string => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+  const before = read();
+  const res = spawnSync(process.execPath, [process.argv[1], name], { stdio: 'inherit' });
+  if (res.status !== 0) {
+    console.warn(`  (${name} interview did not complete — run \`code-evolve ${name}\` anytime.)`);
+  }
+  const after = read();
+  return after.trim() !== '' && after !== before;
+}
 
 /** Copy directory recursively, overwriting all files (for framework code). */
 function copyDir(src: string, dest: string): void {
