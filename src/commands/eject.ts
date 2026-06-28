@@ -74,11 +74,19 @@ export const ejectCommand = new Command('eject')
         console.log(`  ${wf} differs from template — leaving in place`);
       }
     }
-    // Clean up the legacy .github/workflows/evolve/ subdir from older installs.
+    // Clean up the legacy .github/workflows/evolve/ subdir from older installs — but only
+    // if it holds just the files old versions put there (evolve.yml/ci.yml), so we never
+    // delete a user-owned directory that happens to be named evolve/.
     const legacyWorkflowDir = projectFile('.github/workflows/evolve');
     if (fs.existsSync(legacyWorkflowDir)) {
-      fs.rmSync(legacyWorkflowDir, { recursive: true, force: true });
-      console.log('Removed .github/workflows/evolve/ (legacy)');
+      const entries = fs.readdirSync(legacyWorkflowDir);
+      const ours = entries.length > 0 && entries.every((e) => e === 'evolve.yml' || e === 'ci.yml');
+      if (ours) {
+        fs.rmSync(legacyWorkflowDir, { recursive: true, force: true });
+        console.log('Removed .github/workflows/evolve/ (legacy)');
+      } else {
+        console.log('  .github/workflows/evolve/ has unexpected contents — leaving in place');
+      }
     }
 
     // Clean .gitignore entries

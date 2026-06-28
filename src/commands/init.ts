@@ -146,7 +146,11 @@ export const initCommand = new Command('init')
         const destPath = path.join(workflowDir, destName);
         if (!fs.existsSync(srcPath)) continue;
         if (fs.existsSync(destPath)) {
-          console.log(`  ${path.relative(process.cwd(), destPath)} already exists — skipping`);
+          // A same-named file already exists — leave it untouched, but make clear our
+          // workflow was NOT installed so the user knows evolution/CI won't run from it.
+          console.warn(
+            `  ⚠ ${path.relative(process.cwd(), destPath)} already exists — skipping; code-evolve's ${destName} was NOT installed (rename or remove the existing file to install it)`
+          );
         } else {
           fs.copyFileSync(srcPath, destPath);
           console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
