@@ -1,11 +1,14 @@
 import { Command } from 'commander';
 import { execSync } from 'child_process';
 import fs from 'fs';
-import path from 'path';
 import readline from 'readline';
-import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 
 const CRON_MARKER = 'code-evolve';
+// Stable marker embedded in the workflow templates so eject recognizes files it
+// installed regardless of which package version wrote them (kept in sync with
+// templates/workflows/*.yml). A user's own same-named workflow won't contain it.
+const WORKFLOW_MARKER = 'code-evolve:managed';
 
 export const ejectCommand = new Command('eject')
   .description('Remove code-evolve framework, keep project files')
@@ -54,24 +57,17 @@ export const ejectCommand = new Command('eject')
     console.log('Removed .evolve/');
 
     // Remove only the workflow files we installed. init skips same-named files it didn't
-    // create, so eject must do the same — verify ownership by comparing against the shipped
-    // template before deleting, never removing a user's own evolve.yml/evolve-ci.yml.
-    const templatesDir = getTemplatesDir();
-    const installedWorkflows: Array<[string, string]> = [
-      ['.github/workflows/evolve.yml', path.join(templatesDir, 'workflows', 'evolve.yml')],
-      ['.github/workflows/evolve-ci.yml', path.join(templatesDir, 'workflows', 'ci.yml')],
-    ];
-    for (const [wf, templatePath] of installedWorkflows) {
+    // create, so eject must do the same — recognize ours by the embedded marker (stable
+    // across package versions), never removing a user's own evolve.yml/evolve-ci.yml.
+    for (const wf of ['.github/workflows/evolve.yml', '.github/workflows/evolve-ci.yml']) {
       const wfPath = projectFile(wf);
       if (!fs.existsSync(wfPath)) continue;
-      const isOurs =
-        fs.existsSync(templatePath) &&
-        fs.readFileSync(wfPath, 'utf8') === fs.readFileSync(templatePath, 'utf8');
+      const isOurs = fs.readFileSync(wfPath, 'utf8').includes(WORKFLOW_MARKER);
       if (isOurs) {
         fs.rmSync(wfPath, { force: true });
         console.log(`Removed ${wf}`);
       } else {
-        console.log(`  ${wf} differs from template — leaving in place`);
+        console.log(`  ${wf} is not code-evolve-managed — leaving in place`);
       }
     }
     // Clean up the legacy .github/workflows/evolve/ subdir from older installs — but only

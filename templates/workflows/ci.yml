@@ -1,3 +1,4 @@
+# code-evolve:managed — installed by `code-evolve init --with-ci`, removed by `code-evolve eject`. Safe to delete.
 name: CI
 
 on:
