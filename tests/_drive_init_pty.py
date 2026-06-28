@@ -42,13 +42,18 @@ else:  # decline
     ]
 
 idx = 0
+buf = ""  # accumulate output across reads so a prompt split over two PTY reads
+          # (e.g. "guided interv" + "iew") still matches
 
 
-def handle(text: str, write) -> None:
-    global idx
-    while idx < len(steps) and steps[idx][0] in text:
+def handle(write) -> None:
+    """Match the next expected step against accumulated output. Clearing the
+    buffer after each answer both prevents re-firing and bounds its growth."""
+    global idx, buf
+    if idx < len(steps) and steps[idx][0] in buf:
         write(steps[idx][1])
         idx += 1
+        buf = ""
 
 
 pid, fd = pty.fork()
@@ -69,5 +74,6 @@ else:  # parent: pump output, answer prompts
         if not chunk:
             break
         os.write(1, chunk)
-        handle(chunk.decode("utf-8", "replace"), lambda b: os.write(fd, b))
+        buf += chunk.decode("utf-8", "replace")
+        handle(lambda b: os.write(fd, b))
     os.waitpid(pid, 0)

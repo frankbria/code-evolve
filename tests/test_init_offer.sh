@@ -38,7 +38,7 @@ rm -rf "$T1"
 # declining the interview offer. python3 is already a hard dependency.
 T2=$(mktemp -d)
 ( cd "$T2" && git init -q )
-OUT2=$( cd "$T2" && python3 "$ROOT/tests/_drive_init_pty.py" "$CLI" decline 2>&1 ) || true
+OUT2=$( cd "$T2" && timeout 20 python3 "$ROOT/tests/_drive_init_pty.py" "$CLI" decline 2>&1 ) || true
 check "TTY offers the interview"        "$(echo "$OUT2" | grep -ci 'guided interview' || true)" "1"
 check "declining keeps manual guidance" "$(echo "$OUT2" | grep -c 'Edit .evolve/vision.md' || true)" "1"
 rm -rf "$T2"
@@ -49,7 +49,7 @@ rm -rf "$T2"
 # guard for the per-file completion check.
 T3=$(mktemp -d)
 ( cd "$T3" && git init -q )
-OUT3=$( cd "$T3" && python3 "$ROOT/tests/_drive_init_pty.py" "$CLI" cancel 2>&1 ) || true
+OUT3=$( cd "$T3" && timeout 20 python3 "$ROOT/tests/_drive_init_pty.py" "$CLI" cancel 2>&1 ) || true
 check "cancelled vision keeps its edit step" "$(echo "$OUT3" | grep -c 'Edit .evolve/vision.md' || true)" "1"
 check "cancelled spec keeps its edit step"   "$(echo "$OUT3" | grep -c 'Edit .evolve/spec.md' || true)" "1"
 rm -rf "$T3"
