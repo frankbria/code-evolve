@@ -49,8 +49,21 @@ export const initCommand = new Command('init')
       process.exit(1);
     }
     // On --force, preserve existing authMode if --auth-mode wasn't explicitly passed.
-    if (options.force && !authModeExplicit && existingConfig.authMode) {
-      authMode = existingConfig.authMode;
+    // readConfig() only guarantees `agent` is a string, so validate the on-disk value
+    // before trusting it — a hand-edited config.json must not bypass the check above.
+    const existingAuthMode = (existingConfig as { authMode?: unknown }).authMode;
+    if (options.force && !authModeExplicit && typeof existingAuthMode === 'string') {
+      if (existingAuthMode === 'api-key' || existingAuthMode === 'oauth') {
+        authMode = existingAuthMode;
+      } else {
+        console.warn(`Warning: ignoring unsupported auth mode "${existingAuthMode}" from config.json.`);
+      }
+    }
+
+    // Fail fast before prompting: don't ask agent/auth questions only to abort.
+    if (isInitialized() && !options.force) {
+      console.error(`.evolve/ already exists. Use --force to overwrite.`);
+      process.exit(1);
     }
 
     // Interactive picker: on a TTY, when --agent wasn't passed, ask the user.
@@ -83,12 +96,6 @@ export const initCommand = new Command('init')
       process.exit(3);
     }
     console.log('');
-
-    // Check if already initialized
-    if (isInitialized() && !options.force) {
-      console.error(`.evolve/ already exists. Use --force to overwrite.`);
-      process.exit(1);
-    }
 
     // Create .evolve/ directory structure
     console.log('Creating .evolve/ directory...');
