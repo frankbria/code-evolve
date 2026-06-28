@@ -43,6 +43,20 @@ export function getSupportedAgents(): string[] {
   return [...SUPPORTED_AGENTS];
 }
 
+/**
+ * Resolve an interactive agent picker answer to an agent name.
+ * Accepts a 1-based list index ("2") or an agent name ("codex").
+ * Empty or unrecognized input falls back to `defaultAgent`.
+ */
+export function resolveAgentSelection(raw: string, defaultAgent: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return defaultAgent;
+  const n = Number(trimmed);
+  if (Number.isInteger(n) && n >= 1 && n <= SUPPORTED_AGENTS.length) return SUPPORTED_AGENTS[n - 1];
+  if (SUPPORTED_AGENTS.includes(trimmed)) return trimmed;
+  return defaultAgent;
+}
+
 const AGENT_ENV_KEYS: Record<string, string> = {
   claude: 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',

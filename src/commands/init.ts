@@ -1,9 +1,18 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
-import { readConfig, writeConfig, isValidAgent, getAgentEnvHint, AuthMode } from '../utils/config';
+import {
+  readConfig,
+  writeConfig,
+  isValidAgent,
+  getAgentEnvHint,
+  getSupportedAgents,
+  resolveAgentSelection,
+  AuthMode,
+} from '../utils/config';
 
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
@@ -18,32 +27,48 @@ export const initCommand = new Command('init')
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
-    // Resolve agent: use existing config on --force if --agent not explicitly passed
+    // Detect whether flags were explicitly passed (handles both `--agent x` and `--agent=x`)
+    const flagPassed = (flag: string): boolean =>
+      process.argv.some((a) => a === flag || a.startsWith(`${flag}=`));
+    const agentExplicit = flagPassed('--agent');
+    const authModeExplicit = flagPassed('--auth-mode');
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+    // Resolve agent: explicit flag wins; else existing config on --force; else default.
     const existingConfig = options.force ? readConfig() : { agent: 'claude' };
-    const agent = options.agent !== 'claude' ? options.agent : existingConfig.agent || 'claude';
+    let agent = agentExplicit ? options.agent : existingConfig.agent || 'claude';
 
-    if (!isValidAgent(agent)) {
-      console.error(`Unknown agent "${agent}". Supported: claude, codex, opencode, ollama`);
-      process.exit(1);
-    }
-
-    // Resolve auth mode
-    let authMode: AuthMode = 'api-key';
+    // Validate the --auth-mode flag value up front (before any agent-specific rules).
+    let authMode: AuthMode;
     if (options.authMode === 'oauth') {
-      if (agent !== 'claude') {
-        console.warn(`Warning: --auth-mode oauth is only applicable to the Claude agent. Falling back to api-key.`);
-      } else {
-        authMode = 'oauth';
-      }
-    } else if (options.authMode !== 'api-key') {
+      authMode = 'oauth';
+    } else if (options.authMode === 'api-key') {
+      authMode = 'api-key';
+    } else {
       console.error(`Unknown auth mode "${options.authMode}". Supported: api-key, oauth`);
       process.exit(1);
     }
-
-    // On --force, preserve existing authMode if --auth-mode wasn't explicitly passed
-    const authModeExplicit = process.argv.includes('--auth-mode');
+    // On --force, preserve existing authMode if --auth-mode wasn't explicitly passed.
     if (options.force && !authModeExplicit && existingConfig.authMode) {
       authMode = existingConfig.authMode;
+    }
+
+    // Interactive picker: on a TTY, when --agent wasn't passed, ask the user.
+    if (interactive && !agentExplicit) {
+      const picked = await promptForAgentAndAuth(agent, !authModeExplicit);
+      agent = picked.agent;
+      if (picked.authMode) authMode = picked.authMode;
+    }
+
+    if (!isValidAgent(agent)) {
+      console.error(`Unknown agent "${agent}". Supported: ${getSupportedAgents().join(', ')}`);
+      process.exit(1);
+    }
+
+    // oauth only applies to Claude — fall back for other backends.
+    if (authMode === 'oauth' && agent !== 'claude') {
+      console.warn(`Warning: oauth auth is only applicable to the Claude agent. Falling back to api-key.`);
+      authMode = 'api-key';
     }
 
     // Check dependencies
@@ -205,6 +230,40 @@ function copyDir(src: string, dest: string): void {
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
+  }
+}
+
+/**
+ * Interactively prompt for the agent backend (and, for Claude, the auth mode)
+ * using Node's built-in readline. Returns `authMode` only when it was asked.
+ */
+async function promptForAgentAndAuth(
+  defaultAgent: string,
+  askAuth: boolean,
+): Promise<{ agent: string; authMode?: AuthMode }> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
+  try {
+    const agents = getSupportedAgents();
+    console.log('Which agent backend should drive evolution?');
+    agents.forEach((a, i) => console.log(`  ${i + 1}. ${a}${a === defaultAgent ? ' (default)' : ''}`));
+    const defaultIdx = Math.max(agents.indexOf(defaultAgent), 0) + 1;
+    const raw = await ask(`Select [1-${agents.length}] (default ${defaultIdx}): `);
+    const agent = resolveAgentSelection(raw, defaultAgent);
+    if (raw.trim() && agent === defaultAgent && raw.trim() !== defaultAgent && raw.trim() !== String(defaultIdx)) {
+      console.log(`  Unrecognized choice — using ${defaultAgent}.`);
+    }
+
+    if (agent === 'claude' && askAuth) {
+      console.log('Claude auth mode:');
+      console.log('  1. api-key — ANTHROPIC_API_KEY (default)');
+      console.log('  2. oauth — claude login / subscription');
+      const a = (await ask('Select [1-2] (default 1): ')).trim().toLowerCase();
+      return { agent, authMode: a === '2' || a === 'oauth' ? 'oauth' : 'api-key' };
+    }
+    return { agent };
+  } finally {
+    rl.close();
   }
 }
 
