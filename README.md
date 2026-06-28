@@ -219,7 +219,8 @@ my-project/
 ├── src/                   ← the agent builds this
 ├── tests/                 ← the agent writes these
 └── .github/workflows/
-    └── evolve/            ← CI workflows (namespaced, won't touch yours)
+    ├── evolve.yml        ← evolution workflow (won't touch yours)
+    └── evolve-ci.yml     ← CI workflow (renamed so it won't clobber your ci.yml)
 ```
 
 ## The Spec Is the Source of Truth
@@ -290,7 +291,7 @@ Run it however fits your workflow:
 - Logs in `.evolve/evolve.log`
 
 **Cloud** — `code-evolve init --with-ci`
-- GitHub Actions in `.github/workflows/evolve/`
+- GitHub Actions installed as `.github/workflows/evolve.yml` and `evolve-ci.yml`
 - Runs every 4 hours with 3-attempt retry logic
 - Set your agent's API key in repo secrets (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex)
 - CI always uses `api-key` mode regardless of your local `--auth-mode` setting

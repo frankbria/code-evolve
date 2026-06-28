@@ -130,13 +130,28 @@ export const initCommand = new Command('init')
       }
     }
 
-    // Install GitHub Actions workflows into namespaced subdirectory
+    // Install GitHub Actions workflows directly into .github/workflows/ so they actually run.
+    // (GitHub only executes workflows located directly in .github/workflows/, not subdirectories.)
+    // Renamed to evolve-* so they never clobber a target repo's own ci.yml/evolve.yml.
     if (options.withCi) {
       console.log('Installing GitHub Actions workflows...');
-      const workflowDir = projectFile('.github/workflows/evolve');
+      const workflowDir = projectFile('.github/workflows');
       fs.mkdirSync(workflowDir, { recursive: true });
-      // Only copy workflow files that don't already exist
-      copyDirSafe(path.join(templatesDir, 'workflows'), workflowDir);
+      const workflowMap: Record<string, string> = {
+        'evolve.yml': 'evolve.yml',
+        'ci.yml': 'evolve-ci.yml',
+      };
+      for (const [src, destName] of Object.entries(workflowMap)) {
+        const srcPath = path.join(templatesDir, 'workflows', src);
+        const destPath = path.join(workflowDir, destName);
+        if (!fs.existsSync(srcPath)) continue;
+        if (fs.existsSync(destPath)) {
+          console.log(`  ${path.relative(process.cwd(), destPath)} already exists — skipping`);
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+          console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
+        }
+      }
     }
 
     // Update .gitignore (appends only if marker not already present)
@@ -178,24 +193,6 @@ function copyDir(src: string, dest: string): void {
       copyDir(srcPath, destPath);
     } else {
       fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
-
-/** Copy directory recursively, skipping files that already exist. */
-function copyDirSafe(src: string, dest: string): void {
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirSafe(srcPath, destPath);
-    } else if (fs.existsSync(destPath)) {
-      console.log(`  ${path.relative(process.cwd(), destPath)} already exists — skipping`);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-      console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
     }
   }
 }

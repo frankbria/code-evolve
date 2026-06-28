@@ -52,11 +52,19 @@ export const ejectCommand = new Command('eject')
     fs.rmSync(evolveDir, { recursive: true, force: true });
     console.log('Removed .evolve/');
 
-    // Remove evolve workflow directory
-    const evolveWorkflowDir = projectFile('.github/workflows/evolve');
-    if (fs.existsSync(evolveWorkflowDir)) {
-      fs.rmSync(evolveWorkflowDir, { recursive: true, force: true });
-      console.log('Removed .github/workflows/evolve/');
+    // Remove the workflow files we installed (kept any of the user's own workflows untouched).
+    // Also clean up the legacy .github/workflows/evolve/ subdir from older installs.
+    for (const wf of ['.github/workflows/evolve.yml', '.github/workflows/evolve-ci.yml']) {
+      const wfPath = projectFile(wf);
+      if (fs.existsSync(wfPath)) {
+        fs.rmSync(wfPath, { force: true });
+        console.log(`Removed ${wf}`);
+      }
+    }
+    const legacyWorkflowDir = projectFile('.github/workflows/evolve');
+    if (fs.existsSync(legacyWorkflowDir)) {
+      fs.rmSync(legacyWorkflowDir, { recursive: true, force: true });
+      console.log('Removed .github/workflows/evolve/ (legacy)');
     }
 
     // Clean .gitignore entries
