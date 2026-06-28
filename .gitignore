@@ -24,3 +24,6 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Local Claude Code state (machine-local, not project data)
+.claude/
