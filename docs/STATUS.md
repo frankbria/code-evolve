@@ -13,7 +13,7 @@ But the product the user is describing — *"open any repo, install, get intervi
 
 - ~~**The GitHub Action path is currently dead** — workflows install into a subdirectory GitHub never executes (P0.1).~~ **RESOLVED** in #36 — workflows now install directly into `.github/workflows/` with collision-safe names. (Per-agent CI for non-Claude backends remains a follow-up.)
 - **True greenfield (zero-commit) repos abort immediately** on session start (P0.2).
-- **There is no guided onboarding.** Everything is non-interactive flags a user must discover. No LLM picker, no spec generator, the existing vision interview is hardcoded (not LLM-driven) and not even wired into `init`, and there is no "choose local / CI / both + pick a schedule" step (P1.x).
+- **Guided onboarding is still thin.** `init` now prompts for the agent + auth backend on a TTY (P1.1, #20), but there is still no spec generator, the existing vision interview is hardcoded (not LLM-driven) and not wired into `init`, and there is no "choose local / CI / both + pick a schedule" step (P1.x).
 
 Beyond that, breadth (more languages), non-Claude backend robustness, and package hygiene (no tests, doc drift) are the long tail.
 
@@ -40,7 +40,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 - **Greenfield abort.** `evolve.sh:277` runs `git rev-parse HEAD` under `set -euo pipefail` (`:23`). On a freshly `git init`'d repo with no commits this exits non-zero and kills the session before any work. → **P0.2**
 
 ### 2. Guided installation (the "turn on" experience — the heart of the ask)
-- No interactive **LLM/agent picker**; `init` silently defaults to `claude`/`api-key`. → **P1.1**
+- ~~No interactive **LLM/agent picker**; `init` silently defaults to `claude`/`api-key`.~~ **DONE** (#20) — `init` prompts for agent + auth on a TTY; flags/non-TTY skip it. → **P1.1**
 - No **spec generator** — `spec.md` is always hand-written. → **P1.2**
 - `init` never offers to generate artifacts; the `vision` interview is disconnected and undocumented. → **P1.3**
 - The interview is **hardcoded string Q&A, not the LLM interviewing the user**. → **P1.4**
@@ -69,7 +69,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 |-------|---|----------|-------|------------|
 | P0.1 | [#18](https://github.com/frankbria/code-evolve/issues/18) ✅ | Blocker | Install GitHub Actions workflows into `.github/workflows/` so they actually run *(done in #36)* | — |
 | P0.2 | [#19](https://github.com/frankbria/code-evolve/issues/19) | Blocker | Handle zero-commit / greenfield repos without aborting the session | — |
-| P1.1 | [#20](https://github.com/frankbria/code-evolve/issues/20) | High | Interactive LLM/agent + auth picker on `init` | — |
+| P1.1 | [#20](https://github.com/frankbria/code-evolve/issues/20) ✅ | High | Interactive LLM/agent + auth picker on `init` *(done in #39)* | — |
 | P1.2 | [#21](https://github.com/frankbria/code-evolve/issues/21) | High | Add `spec` interview command to generate `spec.md` | — |
 | P1.3 | [#22](https://github.com/frankbria/code-evolve/issues/22) | High | Wire `init` to offer vision + spec generation after install | P1.1, P1.2 |
 | P1.4 | [#23](https://github.com/frankbria/code-evolve/issues/23) | High | Make the vision/spec interview LLM-driven via the chosen agent | P1.1 |

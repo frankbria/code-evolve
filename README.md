@@ -170,8 +170,8 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 ### `init`
 
 ```bash
-code-evolve init                          # basic setup (uses Claude Code by default)
-code-evolve init --agent codex            # use Codex CLI instead
+code-evolve init                          # on a terminal, prompts for agent + auth (Claude/api-key by default)
+code-evolve init --agent codex            # skip the prompt; use Codex CLI
 code-evolve init --auth-mode oauth        # use Claude subscription (claude login) instead of API key
 code-evolve init --with-ci               # also install GitHub Actions for cloud evolution
 code-evolve init --force                 # upgrade framework files (preserves journal + learnings)
