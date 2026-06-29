@@ -306,8 +306,16 @@ Drop code-evolve into any project. It figures out how to build and test it:
 | Python | `pyproject.toml` | `uv sync` | `uv run pytest` | `uv run ruff check .` |
 | Rust | `Cargo.toml` | `cargo build` | `cargo test` | `cargo clippy` |
 | Go | `go.mod` | `go build ./...` | `go test ./...` | `go vet ./...` |
+| Deno | `deno.json` | — | `deno test` | `deno lint` |
+| Java/Kotlin | `pom.xml` / `build.gradle` | `mvn compile` / `gradle build` | `mvn test` / `gradle test` | — |
+| C#/.NET | `*.csproj` / `*.sln` | `dotnet build` | `dotnet test` | — |
+| Ruby | `Gemfile` | `bundle install` | `rspec` / `rake` | `rubocop` |
+| PHP | `composer.json` | `composer install` | `composer test` / `phpunit` | — |
+| C/C++ | `CMakeLists.txt` | `cmake --build build` | `ctest` | — |
+| Static | `index.html` | — | — | — |
 
-Package managers (npm, yarn, pnpm, bun) and Python tooling (uv, poetry, pip) are detected automatically.
+Package managers (npm, yarn, pnpm, bun), Python tooling (uv, poetry, pip), and
+the Gradle wrapper (`./gradlew`) are detected automatically.
 
 **Monorepos** are supported automatically. If no stack marker is found at the project root, code-evolve scans immediate subdirectories. When multiple stacks are found (e.g., `backend/` with Python and `frontend/` with Next.js), each substack is verified independently — build, test, and lint run in their respective directories. The post-session fix loop and CI workflow both handle monorepos.
 

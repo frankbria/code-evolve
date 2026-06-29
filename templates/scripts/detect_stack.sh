@@ -29,6 +29,14 @@ detect_single_stack() {
         LINT_CMD="cargo clippy --all-targets -- -D warnings"
         FORMAT_CMD="cargo fmt -- --check"
 
+    elif [ -f "$dir/deno.json" ] || [ -f "$dir/deno.jsonc" ]; then
+        # Checked before package.json: Deno projects may ship one for npm compat.
+        STACK="deno"
+        BUILD_CMD=""
+        TEST_CMD="deno test"
+        LINT_CMD="deno lint"
+        FORMAT_CMD="deno fmt --check"
+
     elif [ -f "$dir/package.json" ]; then
         # Detect package manager
         local PKG_MGR="npm"
@@ -105,10 +113,77 @@ detect_single_stack() {
         LINT_CMD="go vet ./..."
         FORMAT_CMD="gofmt -l ."
 
+    elif [ -f "$dir/pom.xml" ]; then
+        STACK="java"
+        BUILD_CMD="mvn compile"
+        TEST_CMD="mvn test"
+        LINT_CMD=""
+        FORMAT_CMD=""
+
+    elif [ -f "$dir/build.gradle" ] || [ -f "$dir/build.gradle.kts" ] || \
+         [ -f "$dir/settings.gradle" ] || [ -f "$dir/settings.gradle.kts" ]; then
+        STACK="java"
+        # Prefer the project's wrapper for a pinned Gradle version.
+        local GRADLE="gradle"
+        [ -f "$dir/gradlew" ] && GRADLE="./gradlew"
+        BUILD_CMD="$GRADLE build"
+        TEST_CMD="$GRADLE test"
+        LINT_CMD=""
+        FORMAT_CMD=""
+
+    elif compgen -G "$dir/*.sln" >/dev/null || compgen -G "$dir/*.csproj" >/dev/null; then
+        STACK="dotnet"
+        BUILD_CMD="dotnet build"
+        TEST_CMD="dotnet test"
+        LINT_CMD=""
+        FORMAT_CMD="dotnet format --verify-no-changes"
+
+    elif [ -f "$dir/Gemfile" ]; then
+        STACK="ruby"
+        BUILD_CMD="bundle install"
+        if grep -q "rspec" "$dir/Gemfile" 2>/dev/null; then
+            TEST_CMD="bundle exec rspec"
+        else
+            TEST_CMD="bundle exec rake"
+        fi
+        if grep -q "rubocop" "$dir/Gemfile" 2>/dev/null; then
+            LINT_CMD="bundle exec rubocop"
+        else
+            LINT_CMD=""
+        fi
+        FORMAT_CMD=""
+
+    elif [ -f "$dir/composer.json" ]; then
+        STACK="php"
+        BUILD_CMD="composer install"
+        if grep -q '"test"' "$dir/composer.json" 2>/dev/null; then
+            TEST_CMD="composer test"
+        else
+            TEST_CMD="vendor/bin/phpunit"
+        fi
+        LINT_CMD=""
+        FORMAT_CMD=""
+
+    elif [ -f "$dir/CMakeLists.txt" ]; then
+        # Checked before Makefile: CMake projects often ship a generated Makefile too.
+        STACK="cpp"
+        BUILD_CMD="cmake -S . -B build && cmake --build build"
+        TEST_CMD="ctest --test-dir build"
+        LINT_CMD=""
+        FORMAT_CMD=""
+
     elif [ -f "$dir/Makefile" ]; then
         STACK="make"
         BUILD_CMD="make"
         TEST_CMD="make test"
+        LINT_CMD=""
+        FORMAT_CMD=""
+
+    elif [ -f "$dir/index.html" ]; then
+        # Weakest signal — last resort before "unknown". Static site: no build/test.
+        STACK="static"
+        BUILD_CMD=""
+        TEST_CMD=""
         LINT_CMD=""
         FORMAT_CMD=""
     fi
