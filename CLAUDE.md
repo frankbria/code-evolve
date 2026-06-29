@@ -13,28 +13,59 @@ session after session using Claude Code CLI.
 
 ```
 code-evolve/                  # npm package source
-├── package.json              # npm package config (bin: code-evolve)
+├── package.json              # npm package config (bin: code-evolve, ce)
 ├── tsconfig.json             # TypeScript config
+├── jest.config.js            # Jest (ts-jest) config
 ├── src/                      # CLI source (TypeScript)
 │   ├── cli.ts                # Entrypoint (commander)
-│   ├── commands/
+│   ├── commands/             # One file per subcommand (see Commands below)
 │   │   ├── init.ts           # code-evolve init (exports runInit)
-│   │   ├── setup.ts          # code-evolve setup (guided wizard → runInit)
+│   │   ├── setup.ts          # code-evolve setup (guided onboarding wizard)
+│   │   ├── start.ts          # code-evolve start (set up recurring cron)
+│   │   ├── stop.ts           # code-evolve stop (remove cron)
 │   │   ├── run.ts            # code-evolve run
 │   │   ├── status.ts         # code-evolve status
-│   │   └── eject.ts          # code-evolve eject
+│   │   ├── eject.ts          # code-evolve eject
+│   │   ├── migrate.ts        # code-evolve migrate
+│   │   ├── vision.ts         # code-evolve vision (guided interview)
+│   │   ├── spec.ts           # code-evolve spec (guided interview)
+│   │   └── proof.ts          # code-evolve proof (PROOF9 quality gates)
 │   └── utils/
 │       ├── paths.ts          # Path resolution
 │       ├── checks.ts         # Dependency checking
-│       └── output.ts         # TTY/JSON output
+│       ├── output.ts         # TTY/JSON output
+│       ├── agent.ts          # Agent backend invocation
+│       ├── config.ts         # Agent/mode selection + config I/O
+│       ├── interview.ts      # Guided vision/spec interview engine
+│       ├── migrate.ts        # Spec/vision document migration
+│       ├── proof.ts          # PROOF9 requirements management
+│       └── __tests__/        # Jest unit tests
 ├── templates/                # Files installed by `init`
-│   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py
-│   ├── skills/               # Agent behavior definitions (5 SKILL.md files)
-│   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, DAY_COUNT, vision.md, spec.md
+│   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, agents/ (per-backend adapters)
+│   ├── skills/               # Agent behavior definitions (5 skill dirs, each a SKILL.md)
+│   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, REQUIREMENTS.md, DAY_COUNT, vision.md, spec.md
 │   └── workflows/            # GitHub Actions (evolve.yml, ci.yml)
 ├── dist/                     # Compiled output (gitignored)
 └── .github/workflows/        # CI for this package
 ```
+
+## Commands
+
+The CLI ships 11 subcommands (registered in `src/cli.ts`; also available as `ce`):
+
+| Command | Purpose |
+|---------|---------|
+| `init` | Initialize `.evolve/` in the current project |
+| `setup` | Guided onboarding wizard: agent → interview → mode → schedule → ready |
+| `start` | Start the evolution engine (sets up a recurring local cron job) |
+| `stop` | Stop the evolution engine (removes the local cron job) |
+| `run` | Run one evolution cycle |
+| `status` | Show current evolution state |
+| `eject` | Remove code-evolve framework, keep project files |
+| `migrate` | Convert an existing spec or vision document into code-evolve format |
+| `vision` | Guided interview to generate `.evolve/vision.md` |
+| `spec` | Guided interview to generate `.evolve/spec.md` |
+| `proof` | PROOF9 quality gates and requirements management |
 
 ## Development
 
@@ -69,4 +100,5 @@ These must not be modified by the evolution agent:
 - `.evolve/IDENTITY.md` — agent constitution
 - `.evolve/scripts/evolve.sh` — orchestrator
 - `.evolve/scripts/format_issues.py` — input sanitization
-- `.github/workflows/evolve.yml`, `.github/workflows/evolve-ci.yml` — CI/CD safety net
+- `.github/workflows/evolve.yml` — auto-evolution workflow
+- `.github/workflows/ci.yml` — CI/CD safety net (installed by `init --with-ci`)

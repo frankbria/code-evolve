@@ -1,9 +1,27 @@
 {
   "name": "code-evolve",
   "version": "0.1.0",
-  "description": "Self-evolving project builder powered by Claude Code",
+  "description": "Turn any project into a self-evolving codebase — autonomous build-and-improve cycles driven by Claude Code, Codex, OpenCode, or Ollama.",
+  "keywords": [
+    "ai",
+    "agent",
+    "autonomous",
+    "code-generation",
+    "claude",
+    "claude-code",
+    "codex",
+    "opencode",
+    "ollama",
+    "self-evolving",
+    "cli",
+    "automation"
+  ],
   "author": "FRANK BRIA <frank@frankbria.com>",
   "license": "MIT",
+  "homepage": "https://github.com/frankbria/code-evolve#readme",
+  "bugs": {
+    "url": "https://github.com/frankbria/code-evolve/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/frankbria/code-evolve"
