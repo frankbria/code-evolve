@@ -101,4 +101,4 @@ These must not be modified by the evolution agent:
 - `.evolve/scripts/evolve.sh` — orchestrator
 - `.evolve/scripts/format_issues.py` — input sanitization
 - `.github/workflows/evolve.yml` — auto-evolution workflow
-- `.github/workflows/ci.yml` — CI/CD safety net (installed by `init --with-ci`)
+- `.github/workflows/evolve-ci.yml` — CI/CD safety net (installed by `init --with-ci` from `templates/workflows/ci.yml`, renamed so it never clobbers the target repo's own `ci.yml`)
