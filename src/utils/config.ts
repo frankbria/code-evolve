@@ -2,15 +2,18 @@ import fs from 'fs';
 import { evolveFile } from './paths';
 
 export type AuthMode = 'api-key' | 'oauth';
+export type ExecutionMode = 'local' | 'ci' | 'both';
 
 export interface EvolveConfig {
   agent: string;
   model?: string;
   authMode?: AuthMode;
+  mode?: ExecutionMode;
 }
 
 const CONFIG_FILE = 'config.json';
 const SUPPORTED_AGENTS = ['claude', 'codex', 'opencode', 'ollama'];
+const EXECUTION_MODES: ExecutionMode[] = ['local', 'ci', 'both'];
 
 export function getConfigPath(): string {
   return evolveFile(CONFIG_FILE);
@@ -37,6 +40,27 @@ export function writeConfig(config: EvolveConfig): void {
 
 export function isValidAgent(agent: string): boolean {
   return SUPPORTED_AGENTS.includes(agent);
+}
+
+export function isValidMode(mode: string): mode is ExecutionMode {
+  return (EXECUTION_MODES as string[]).includes(mode);
+}
+
+export function getExecutionModes(): ExecutionMode[] {
+  return [...EXECUTION_MODES];
+}
+
+/**
+ * Resolve an interactive execution-mode answer. Accepts a 1-based list index
+ * ("2"), a mode name ("ci"), or "skip"/empty (returns undefined — decide later).
+ */
+export function resolveModeSelection(raw: string): ExecutionMode | undefined {
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || trimmed === 'skip' || trimmed === 'none') return undefined;
+  const n = Number(trimmed);
+  if (Number.isInteger(n) && n >= 1 && n <= EXECUTION_MODES.length) return EXECUTION_MODES[n - 1];
+  if (isValidMode(trimmed)) return trimmed;
+  return undefined;
 }
 
 export function getSupportedAgents(): string[] {

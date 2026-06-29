@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import fs from 'fs';
 import { evolveFile, isInitialized } from '../utils/paths';
 import { output } from '../utils/output';
+import { readConfig } from '../utils/config';
 
 export const statusCommand = new Command('status')
   .description('Show current evolution state')
@@ -70,9 +71,13 @@ export const statusCommand = new Command('status')
       // not scheduled
     }
 
+    // Read execution mode from config
+    const mode = readConfig().mode ?? null;
+
     const data = {
       day: dayCount,
       started: birthDate,
+      mode,
       features: { total, done, partial, remaining: total - done - partial },
       schedule: schedule ? { every: `${schedule.every}h`, model: schedule.model } : null,
       lastEntry,
@@ -91,6 +96,7 @@ export const statusCommand = new Command('status')
       `code-evolve status`,
       `  Day:      ${dayCount}`,
       `  Started:  ${birthDate}`,
+      `  Mode:     ${mode ?? 'not set'}`,
       `  Progress: ${progressLine}`,
       `  Engine:   ${scheduleLine}`,
       lastEntry ? `\n  Last entry:\n  ${lastEntry.split('\n').join('\n  ')}` : '',

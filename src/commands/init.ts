@@ -10,10 +10,16 @@ import {
   writeConfig,
   isValidAgent,
   getAgentEnvHint,
+  getAgentEnvKey,
+  getDefaultModel,
   getSupportedAgents,
   resolveAgentSelection,
+  resolveModeSelection,
+  isValidMode,
   AuthMode,
+  ExecutionMode,
 } from '../utils/config';
+import { installLocalSchedule } from './start';
 
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
@@ -24,7 +30,8 @@ export const initCommand = new Command('init')
   .option('--force', 'Overwrite existing .evolve/ directory')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
   .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
-  .action(async (options: { withCi?: boolean; force?: boolean; agent: string; authMode: string }) => {
+  .option('--mode <mode>', 'Execution mode: local, ci, or both')
+  .action(async (options: { withCi?: boolean; force?: boolean; agent: string; authMode: string; mode?: string }) => {
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
@@ -33,6 +40,7 @@ export const initCommand = new Command('init')
       process.argv.some((a) => a === flag || a.startsWith(`${flag}=`));
     const agentExplicit = flagPassed('--agent');
     const authModeExplicit = flagPassed('--auth-mode');
+    const modeExplicit = flagPassed('--mode');
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
     // Resolve agent: explicit flag wins; else existing config on --force; else default.
@@ -61,6 +69,23 @@ export const initCommand = new Command('init')
       }
     }
 
+    // Resolve execution mode: explicit --mode wins; else --with-ci implies 'ci';
+    // else preserve existing config.mode on --force; else undefined (decide later).
+    let mode: ExecutionMode | undefined;
+    if (modeExplicit) {
+      if (options.mode && isValidMode(options.mode)) {
+        mode = options.mode;
+      } else {
+        console.error(`Unknown mode "${options.mode}". Supported: local, ci, both`);
+        process.exit(1);
+      }
+    } else if (options.withCi) {
+      mode = 'ci';
+    } else if (options.force) {
+      const existingMode = (existingConfig as { mode?: unknown }).mode;
+      if (typeof existingMode === 'string' && isValidMode(existingMode)) mode = existingMode;
+    }
+
     // Fail fast before prompting: don't ask agent/auth questions only to abort.
     if (isInitialized() && !options.force) {
       console.error(`.evolve/ already exists. Use --force to overwrite.`);
@@ -72,6 +97,12 @@ export const initCommand = new Command('init')
       const picked = await promptForAgentAndAuth(agent, !authModeExplicit);
       agent = picked.agent;
       if (picked.authMode) authMode = picked.authMode;
+    }
+
+    // Interactive execution-mode picker: on a TTY, when neither --mode nor
+    // --with-ci was passed, ask where evolution should run.
+    if (interactive && !modeExplicit && !options.withCi) {
+      mode = await promptForMode(mode);
     }
 
     if (!isValidAgent(agent)) {
@@ -163,17 +194,22 @@ export const initCommand = new Command('init')
       }
     }
 
+    // Execution mode drives which artifacts install: CI workflows for ci/both,
+    // a local cron job for local/both. --with-ci stays as a back-compat alias.
+    const wantCi = mode === 'ci' || mode === 'both' || Boolean(options.withCi);
+    const wantLocal = mode === 'local' || mode === 'both';
+
     // Install GitHub Actions workflows directly into .github/workflows/ so they actually run.
     // (GitHub only executes workflows located directly in .github/workflows/, not subdirectories.)
     // Renamed to evolve-* so they never clobber a target repo's own ci.yml/evolve.yml.
     // The bundled CI workflow is Claude-only today (installs claude-code, uses
     // ANTHROPIC_API_KEY). Skip the install for other backends rather than schedule a
     // workflow that would run the wrong agent / fail every cycle. Tracked for per-agent CI.
-    if (options.withCi && agent !== 'claude') {
+    if (wantCi && agent !== 'claude') {
       console.warn(
         `  ⚠ Skipping GitHub Actions install: the bundled workflow supports the Claude backend only and would run the wrong agent in CI. Use local execution (code-evolve start) for "${agent}". Per-agent CI is tracked as a follow-up.`
       );
-    } else if (options.withCi) {
+    } else if (wantCi) {
       console.log('Installing GitHub Actions workflows...');
       const workflowDir = projectFile('.github/workflows');
       fs.mkdirSync(workflowDir, { recursive: true });
@@ -198,17 +234,45 @@ export const initCommand = new Command('init')
       }
     }
 
+    // Install the local cron schedule for local/both modes. Native Windows has
+    // no cron, so skip with a pointer to CI. We only install when the agent's
+    // API key is already in the environment (or none is needed); otherwise the
+    // cron .env would be written without it — defer to `code-evolve start` once
+    // the key is set, matching init's "set your key as a next step" model.
+    let localScheduled = false;
+    if (wantLocal) {
+      if (process.platform === 'win32') {
+        console.warn('  ⚠ Local scheduling is not supported on native Windows — use WSL or ci mode.');
+      } else {
+        const envKey = getAgentEnvKey(agent, authMode);
+        if (!envKey || process.env[envKey]) {
+          try {
+            installLocalSchedule({ agent, authMode, model: getDefaultModel(agent), hours: 4, projectDir: process.cwd() });
+            console.log('Local schedule installed: every 4h (.evolve/evolve.log)');
+            localScheduled = true;
+          } catch (err) {
+            console.warn(`  ⚠ Could not install local cron job: ${(err as Error).message}`);
+          }
+        } else {
+          console.warn(`  ⚠ Local schedule not installed yet: ${envKey} is not set. Set it, then run \`code-evolve start\`.`);
+        }
+      }
+    }
+
     // Update .gitignore (appends only if marker not already present)
     updateGitignore();
 
-    // Write agent config
+    // Write agent config (persist execution mode when one was chosen)
     const currentConfig = readConfig();
-    writeConfig({ ...currentConfig, agent, authMode });
+    writeConfig({ ...currentConfig, agent, authMode, ...(mode ? { mode } : {}) });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
     }
     if (authMode === 'oauth') {
       console.log(`  Auth: OAuth (claude login)`);
+    }
+    if (mode) {
+      console.log(`  Mode: ${mode}`);
     }
 
     console.log('');
@@ -240,11 +304,15 @@ export const initCommand = new Command('init')
       console.log(`  ${step++}. Edit .evolve/spec.md with your technical specification`);
     }
     console.log(`  ${step++}. ${getAgentEnvHint(agent, authMode)}`);
-    console.log(`  ${step++}. Run: code-evolve run`);
-    if (!options.withCi) {
+    if (localScheduled) {
+      console.log(`  ${step++}. Local evolution runs every 4h. Run now: code-evolve run`);
+    } else {
+      console.log(`  ${step++}. Run: code-evolve run`);
+    }
+    if (!wantCi || !wantLocal) {
       console.log('');
-      console.log('  To add GitHub Actions (auto-evolve every 4h):');
-      console.log('    code-evolve init --with-ci --force');
+      console.log('  To choose where evolution runs (local / ci / both):');
+      console.log('    code-evolve init --mode <local|ci|both> --force');
     }
   });
 
@@ -328,6 +396,29 @@ async function promptForAgentAndAuth(
       return { agent, authMode: a === '2' || a === 'oauth' ? 'oauth' : 'api-key' };
     }
     return { agent };
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Interactively ask where evolution should run. Free-text (local/ci/both/skip)
+ * to avoid colliding with the numbered agent picker's "Select [1-N]" prompt.
+ * Empty / "skip" keeps the current `fallback` (decide later).
+ */
+async function promptForMode(fallback: ExecutionMode | undefined): Promise<ExecutionMode | undefined> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log('Where should evolution run?');
+    console.log('  local — schedule a cron job on this machine');
+    console.log('  ci    — install GitHub Actions workflows');
+    console.log('  both  — local + CI');
+    console.log('  skip  — decide later (default)');
+    const raw = await new Promise<string>((resolve) => {
+      rl.on('close', () => resolve(''));
+      rl.question('Select [local/ci/both/skip] (default skip): ', resolve);
+    });
+    return resolveModeSelection(raw) ?? fallback;
   } finally {
     rl.close();
   }

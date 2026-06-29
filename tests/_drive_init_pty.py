@@ -4,9 +4,9 @@
 Spawns the compiled CLI with a controlling terminal (so init's `isTTY` checks
 are true), then feeds canned answers as each prompt appears. Two modes:
 
-  decline  agent->1, auth->1, interview offer->"no"
-  cancel   agent->1, auth->1, interview offer->"yes", then Ctrl-D to cancel each
-           launched interview (vision, then spec)
+  decline  agent->1, auth->1, mode->skip, interview offer->"no"
+  cancel   agent->1, auth->1, mode->skip, interview offer->"yes", then Ctrl-D to
+           cancel each launched interview (vision, then spec)
 
 All terminal output is echoed to our stdout so the caller can grep it.
 Usage: _drive_init_pty.py <cli.js> <decline|cancel>
@@ -24,6 +24,7 @@ if mode == "cancel":
     steps = [
         ("Select [1-4]", b"1\n"),
         ("Select [1-2]", b"1\n"),
+        ("Where should evolution run", b"skip\n"),
         ("guided interview", b"yes\n"),
         ("Vision Interview", EOF),
         ("Spec Interview", EOF),
@@ -32,12 +33,14 @@ elif mode == "eof":  # press Ctrl-D at the offer prompt instead of answering
     steps = [
         ("Select [1-4]", b"1\n"),
         ("Select [1-2]", b"1\n"),
+        ("Where should evolution run", b"skip\n"),
         ("guided interview", EOF),
     ]
 else:  # decline
     steps = [
         ("Select [1-4]", b"1\n"),
         ("Select [1-2]", b"1\n"),
+        ("Where should evolution run", b"skip\n"),
         ("guided interview", b"no\n"),
     ]
 

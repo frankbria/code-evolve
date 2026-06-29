@@ -3,9 +3,63 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel, AuthMode } from '../utils/config';
 
 const CRON_MARKER = 'code-evolve';
+
+export interface ScheduleOptions {
+  agent: string;
+  authMode?: AuthMode;
+  model: string;
+  hours: number;
+  projectDir: string;
+}
+
+/**
+ * Install (or replace) the local cron job for this project and persist
+ * schedule.json. Writes .evolve/.env capturing the current API key (if any).
+ * Shared by `code-evolve start` and `code-evolve init --mode local|both`.
+ * Throws if the crontab update fails. Does NOT validate env keys — callers
+ * decide whether a missing key is fatal.
+ */
+export function installLocalSchedule(opts: ScheduleOptions): void {
+  const { agent, authMode, model, hours, projectDir } = opts;
+  const evolveDir = getEvolveDir();
+  const envFile = path.join(evolveDir, '.env');
+  const logFile = path.join(evolveDir, 'evolve.log');
+  const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
+
+  // Write .env file for cron (cron doesn't inherit shell env)
+  writeEnvFile(envFile, model, agent, authMode);
+
+  // Ensure .evolve/.env is gitignored
+  ensureEnvGitignored(projectDir);
+
+  // Remove any existing code-evolve cron entry for this project
+  removeExistingCron(projectDir);
+
+  // Build cron expression
+  const cronSchedule = hours === 1 ? '0 * * * *' : `0 */${hours} * * *`;
+
+  // The cron command: source .env, run evolve.sh, log output
+  const cronCommand = [
+    cronSchedule,
+    `cd "${projectDir}"`,
+    `&& . "${envFile}"`,
+    `&& EVOLVE_DIR="${EVOLVE_DIR_NAME}" PROJECT_DIR="." AGENT="${agent}"`,
+    `bash "${scriptPath}"`,
+    `>> "${logFile}" 2>&1`,
+    `# ${CRON_MARKER}:${projectDir}`,
+  ].join(' ');
+
+  const existing = getCrontab();
+  const updated = existing ? existing + '\n' + cronCommand + '\n' : cronCommand + '\n';
+  setCrontab(updated);
+
+  // Save schedule config for status command
+  const scheduleConfig = { every: hours, model, agent, authMode: authMode || 'api-key', started: new Date().toISOString() };
+  fs.writeFileSync(path.join(evolveDir, 'schedule.json'), JSON.stringify(scheduleConfig, null, 2) + '\n');
+}
 
 export const startCommand = new Command('start')
   .description('Start the evolution engine (sets up a recurring local cron job)')
@@ -52,55 +106,25 @@ export const startCommand = new Command('start')
 
     const model = options.model || getDefaultModel(agent);
 
-    // Persist agent choice
-    writeConfig({ ...config, agent, authMode });
-
     const projectDir = process.cwd();
     const evolveDir = getEvolveDir();
-    const envFile = path.join(evolveDir, '.env');
-    const logFile = path.join(evolveDir, 'evolve.log');
     const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
 
-    // Write .env file for cron (cron doesn't inherit shell env)
-    writeEnvFile(envFile, model, agent, authMode);
-    console.log('Saved environment config to .evolve/.env');
+    // Persist agent choice + mode. `start` always sets up a local schedule, so
+    // the mode is at least 'local' (keep 'both' if CI was also chosen).
+    writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local' });
 
-    // Ensure .evolve/.env is gitignored
-    ensureEnvGitignored(projectDir);
-
-    // Remove any existing code-evolve cron entry for this project
-    removeExistingCron(projectDir);
-
-    // Build cron expression
-    const cronSchedule = hours === 1 ? '0 * * * *' : `0 */${hours} * * *`;
-
-    // The cron command: source .env, run evolve.sh, log output
-    const cronCommand = [
-      cronSchedule,
-      `cd "${projectDir}"`,
-      `&& . "${envFile}"`,
-      `&& EVOLVE_DIR="${EVOLVE_DIR_NAME}" PROJECT_DIR="." AGENT="${agent}"`,
-      `bash "${scriptPath}"`,
-      `>> "${logFile}" 2>&1`,
-      `# ${CRON_MARKER}:${projectDir}`,
-    ].join(' ');
-
-    // Install cron entry
+    // Install cron entry + write .env + schedule.json
     try {
-      const existing = getCrontab();
-      const updated = existing ? existing + '\n' + cronCommand + '\n' : cronCommand + '\n';
-      setCrontab(updated);
+      installLocalSchedule({ agent, authMode, model, hours, projectDir });
     } catch (err) {
       console.error('Failed to install cron job:', err);
       process.exit(1);
     }
 
+    console.log('Saved environment config to .evolve/.env');
     console.log(`Cron job installed: every ${hours} hour${hours > 1 ? 's' : ''}`);
     console.log(`Logs: .evolve/evolve.log`);
-
-    // Save schedule config for status command
-    const scheduleConfig = { every: hours, model, agent, authMode: authMode || 'api-key', started: new Date().toISOString() };
-    fs.writeFileSync(path.join(evolveDir, 'schedule.json'), JSON.stringify(scheduleConfig, null, 2) + '\n');
 
     if (options.runNow) {
       console.log('');
