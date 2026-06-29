@@ -45,7 +45,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 - `init` never offers to generate artifacts; the `vision` interview is disconnected and undocumented. → **P1.3**
 - The interview is **hardcoded string Q&A, not the LLM interviewing the user**. → **P1.4**
 - No **execution-mode selector** (local / CI / both); `--with-ci` and `start` are disjoint, no persisted mode. → **P1.5**
-- **Schedule is not configurable at install**: local is `--every <hours>` only; CI cron is hardcoded `0 */4 * * *` in the template. → **P1.6**
+- ~~**Schedule is not configurable at install**: local is `--every <hours>` only; CI cron is hardcoded `0 */4 * * *` in the template.~~ **RESOLVED in #44** — `code-evolve init --every <hours>` now applies the chosen cadence to both the templated CI `cron:` and the local cron entry (prompted on a TTY). → **P1.6 done**
 - No **unified setup wizard** chaining picker → interview → mode → schedule. → **P1.7**
 
 ### 3. Breadth & correctness (works on more repos, correctly)
