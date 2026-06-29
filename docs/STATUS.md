@@ -52,7 +52,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 - ~~CI provisions only Node/Python toolchains — **Rust/Go/JVM builds fail in CI**.~~ **RESOLVED in #46** — both `ci.yml` and `evolve.yml` now detect the stack(s) up front and conditionally install Rust (`dtolnay/rust-toolchain`), Go (`actions/setup-go`), and Java/Kotlin (`actions/setup-java`) toolchains; monorepos install each needed one. Java/Kotlin gating is inert until detection lands (#28). → **P2.1 done**
 - Large class of stacks fall through to "unknown" (no verification): **Java/Kotlin, C#/.NET, Ruby, PHP, C/C++, Deno, static sites**. → **P2.2**
 - `evolve.sh` blindly appends `--quiet` to build/test commands → **false "build has issues" for Go/Make/pip**. → **P2.3**
-- Agent **error detection is Claude-JSON-specific** (`evolve.sh:476`) — codex/ollama/opencode failures pass undetected. → **P2.4**
+- ~~Agent **error detection is Claude-JSON-specific** (`evolve.sh:476`) — codex/ollama/opencode failures pass undetected.~~ **RESOLVED in #49** — the main session now captures `run_agent`'s real exit code (no longer masked by `tee`) and flags a failure on non-zero exit OR a per-adapter `agent_detect_error` marker (Claude keeps its `"type":"error"` grep; other adapters defer to exit code). → **P2.4 done**
 - codex/opencode/ollama adapter invocations are **unverified against the real CLIs** (e.g. Codex now uses `codex exec`). → **P2.5**
 - Skills are greenfield/spec-driven; **no instruction to discover & honor an existing mature repo's conventions**. → **P2.6**
 
@@ -79,7 +79,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 | P2.1 | [#27](https://github.com/frankbria/code-evolve/issues/27) | Medium | Provision CI toolchains for the detected stack (Rust/Go/JVM) | — |
 | P2.2 | [#28](https://github.com/frankbria/code-evolve/issues/28) | Medium | Add stack detectors for Java/Kotlin, C#/.NET, Ruby, PHP, C/C++, Deno, static | — |
 | P2.3 | [#29](https://github.com/frankbria/code-evolve/issues/29) | Medium | Make build/test/format invocation stack-aware (drop blind `--quiet`) | — |
-| P2.4 | [#30](https://github.com/frankbria/code-evolve/issues/30) | Medium | Per-adapter agent error detection (stop assuming Claude JSON) | — |
+| P2.4 | [#30](https://github.com/frankbria/code-evolve/issues/30) ✅ | Medium | Per-adapter agent error detection (stop assuming Claude JSON) *(done in #49)* | — |
 | P2.5 | [#31](https://github.com/frankbria/code-evolve/issues/31) | Medium | Verify & fix codex/opencode/ollama adapter invocations vs real CLIs | — |
 | P2.6 | [#32](https://github.com/frankbria/code-evolve/issues/32) | Medium | Add a "respect existing repo conventions" pass for mature repos | — |
 | P3.1 | [#33](https://github.com/frankbria/code-evolve/issues/33) | Low | Add jest + first unit tests; fix the broken `npm test` | — |
