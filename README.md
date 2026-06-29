@@ -174,8 +174,11 @@ code-evolve init                          # on a terminal, prompts for agent + a
 code-evolve init --agent codex            # skip the prompt; use Codex CLI
 code-evolve init --auth-mode oauth        # use Claude subscription (claude login) instead of API key
 code-evolve init --with-ci               # also install GitHub Actions for cloud evolution
+code-evolve init --mode both             # choose where evolution runs: local | ci | both (persisted in config)
 code-evolve init --force                 # upgrade framework files (preserves journal + learnings)
 ```
+
+`--mode` is the unified execution-mode selector (also offered as an interactive prompt on a terminal). `local` installs a local cron job, `ci` installs the GitHub Actions workflows, `both` does both; the choice is persisted in `.evolve/config.json` and shown by `code-evolve status`. `--with-ci` remains as an alias for `--mode ci`. When `local`/`both` is chosen but the agent's API key isn't set yet, the cron job is deferred — set the key and run `code-evolve start`.
 
 ### `vision`
 
