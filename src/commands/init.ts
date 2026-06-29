@@ -11,6 +11,7 @@ import {
   isValidAgent,
   getAgentEnvHint,
   getAgentEnvKey,
+  getAgentCiProfile,
   getDefaultModel,
   getSupportedAgents,
   resolveAgentSelection,
@@ -18,6 +19,7 @@ import {
   isValidMode,
   AuthMode,
   ExecutionMode,
+  AgentCiProfile,
 } from '../utils/config';
 import { installLocalSchedule, hourlyCron, parseInterval } from './start';
 
@@ -240,14 +242,15 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Install GitHub Actions workflows directly into .github/workflows/ so they actually run.
     // (GitHub only executes workflows located directly in .github/workflows/, not subdirectories.)
     // Renamed to evolve-* so they never clobber a target repo's own ci.yml/evolve.yml.
-    // The bundled CI workflow is Claude-only today (installs claude-code, uses
-    // ANTHROPIC_API_KEY). Skip the install for other backends rather than schedule a
-    // workflow that would run the wrong agent / fail every cycle. Tracked for per-agent CI.
-    if (wantCi && agent !== 'claude') {
+    // The evolve workflow is templated for the configured agent (CLI install, secret,
+    // AGENT/MODEL). Ollama has no CI profile — it needs local model compute — so its
+    // install is skipped rather than scheduling a workflow that times out every cycle.
+    const ciProfile = wantCi ? getAgentCiProfile(agent) : null;
+    if (wantCi && !ciProfile) {
       console.warn(
-        `  ⚠ Skipping GitHub Actions install: the bundled workflow supports the Claude backend only and would run the wrong agent in CI. Use local execution (code-evolve start) for "${agent}". Per-agent CI is tracked as a follow-up.`
+        `  ⚠ Skipping GitHub Actions install: "${agent}" runs models locally and isn't supported on hosted CI runners. Use local execution (code-evolve start) for "${agent}".`
       );
-    } else if (wantCi) {
+    } else if (wantCi && ciProfile) {
       console.log('Installing GitHub Actions workflows...');
       const workflowDir = projectFile('.github/workflows');
       fs.mkdirSync(workflowDir, { recursive: true });
@@ -266,12 +269,10 @@ export async function runInit(options: InitOptions): Promise<void> {
             `  ⚠ ${path.relative(process.cwd(), destPath)} already exists — skipping; code-evolve's ${destName} was NOT installed (rename or remove the existing file to install it)`
           );
         } else {
-          // Template the cadence into the evolve workflow's schedule before writing,
-          // so --every reaches CI too (the other workflow has no cron to template).
+          // Template the cadence + agent into the evolve workflow before writing, so
+          // --every and the chosen backend reach CI. (evolve-ci.yml has nothing to template.)
           if (src === 'evolve.yml') {
-            const templated = fs
-              .readFileSync(srcPath, 'utf8')
-              .replace(/-\s*cron:\s*'[^']*'[^\n]*/, `- cron: '${hourlyCron(hours)}'  # every ${hours}h`);
+            const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, hours, ciProfile);
             fs.writeFileSync(destPath, templated);
           } else {
             fs.copyFileSync(srcPath, destPath);
@@ -279,6 +280,7 @@ export async function runInit(options: InitOptions): Promise<void> {
           console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
         }
       }
+      console.log(`  CI secret: ${ciProfile.secretHint}`);
     }
 
     // Install the local cron schedule for local/both modes. Native Windows has
@@ -397,6 +399,30 @@ function runInterview(name: 'vision' | 'spec'): boolean {
   }
   const after = read();
   return after.trim() !== '' && after !== before;
+}
+
+/**
+ * Template the bundled evolve.yml for the configured agent: the cron cadence, the
+ * AGENT/MODEL job env, the CLI install step, and the secret env block (between the
+ * `# code-evolve:secrets` markers). For the Claude default these replacements are
+ * no-ops, so the workflow round-trips unchanged.
+ */
+function templateEvolveWorkflow(
+  src: string,
+  agent: string,
+  hours: number,
+  profile: AgentCiProfile,
+): string {
+  return src
+    .replace(/-\s*cron:\s*'[^']*'[^\n]*/, `- cron: '${hourlyCron(hours)}'  # every ${hours}h`)
+    .replace(/^( *AGENT: ).*$/m, `$1${agent}`)
+    .replace(/^( *MODEL: ).*$/m, `$1${getDefaultModel(agent)}`)
+    .replace('npm install -g @anthropic-ai/claude-code', profile.cliInstall)
+    // The secret block is repeated on each agent run step — replace every occurrence.
+    .replace(
+      /^ *# code-evolve:secrets[\s\S]*?# code-evolve:secrets-end\n/gm,
+      profile.envBlock,
+    );
 }
 
 /** Copy directory recursively, overwriting all files (for framework code). */

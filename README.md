@@ -328,11 +328,11 @@ Run it however fits your workflow:
 - API key stored securely in `.evolve/.env` (mode 600, gitignored)
 - Logs in `.evolve/evolve.log`
 
-**Cloud** — `code-evolve init --with-ci` *(Claude backend only, for now)*
+**Cloud** — `code-evolve init --with-ci`
 - GitHub Actions installed as `.github/workflows/evolve.yml` and `evolve-ci.yml`
 - Runs every 4 hours with 3-attempt retry logic
-- Set `ANTHROPIC_API_KEY` in repo secrets; CI always uses `api-key` mode regardless of your local `--auth-mode`
-- The bundled workflow currently supports Claude only — `--with-ci` is skipped for `codex`/`opencode`/`ollama`. Use **Local** execution for those backends; per-agent CI is in progress.
+- The workflow is templated for your `--agent`: it installs the matching CLI, sets `AGENT`/`MODEL`, and wires the right secret. `init` prints the exact `gh secret set …` command for your backend (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex, the provider key for opencode). OAuth is local-only, so CI always uses `api-key` mode regardless of your local `--auth-mode`.
+- `ollama` runs models locally and isn't supported on hosted CI runners, so `--with-ci` is skipped for it — use **Local** execution.
 
 Both run the same engine. Mix and match.
 

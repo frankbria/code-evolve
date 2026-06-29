@@ -14,6 +14,16 @@ jobs:
   evolve:
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    # Non-secret config is shared at job scope. AGENT/MODEL are templated by
+    # `code-evolve init` for the configured agent (values below are the Claude
+    # defaults). Secrets are deliberately NOT here — they're scoped to the steps
+    # that need them so third-party setup actions never see them.
+    env:
+      AGENT: claude
+      MODEL: claude-sonnet-4-6
+      REPO: ${{ github.repository }}
+      FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
+      EVOLVE_DIR: .evolve
 
     steps:
       - name: Checkout
@@ -61,7 +71,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Install Claude Code CLI
+      - name: Install agent CLI
         run: npm install -g @anthropic-ai/claude-code
 
       - name: Setup GitHub CLI
@@ -78,14 +88,11 @@ jobs:
         id: attempt1
         continue-on-error: true
         env:
-          # OAuth auth is local-only. CI always requires ANTHROPIC_API_KEY.
-          # If your local setup uses OAuth, you must still set this secret for CI.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # code-evolve:secrets — agent backend secrets (templated by init)
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_AUTH_MODE: api-key
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
-          EVOLVE_DIR: .evolve
+          # code-evolve:secrets-end
         run: |
           chmod +x .evolve/scripts/evolve.sh
           .evolve/scripts/evolve.sh
@@ -95,13 +102,11 @@ jobs:
         if: steps.attempt1.outcome == 'failure'
         continue-on-error: true
         env:
-          # OAuth auth is local-only. CI always requires ANTHROPIC_API_KEY.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # code-evolve:secrets — agent backend secrets (templated by init)
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_AUTH_MODE: api-key
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
-          EVOLVE_DIR: .evolve
+          # code-evolve:secrets-end
         run: |
           echo "Waiting 15 minutes before retry..."
           sleep 900
@@ -110,13 +115,11 @@ jobs:
       - name: Retry after 45min
         if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
         env:
-          # OAuth auth is local-only. CI always requires ANTHROPIC_API_KEY.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # code-evolve:secrets — agent backend secrets (templated by init)
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_AUTH_MODE: api-key
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
-          EVOLVE_DIR: .evolve
+          # code-evolve:secrets-end
         run: |
           echo "Waiting 45 minutes before retry..."
           sleep 2700

@@ -96,12 +96,75 @@ export function getAgentEnvKey(agent: string, authMode?: AuthMode): string {
 const AGENT_DEFAULT_MODELS: Record<string, string> = {
   claude: 'claude-sonnet-4-6',
   codex: 'o4-mini',
-  opencode: 'claude-sonnet-4-6',
+  // opencode's `run --model` needs a provider-qualified value (see agents/opencode.sh);
+  // a bare model name won't resolve.
+  opencode: 'anthropic/claude-sonnet-4-6',
   ollama: 'llama3',
 };
 
 export function getDefaultModel(agent: string): string {
   return AGENT_DEFAULT_MODELS[agent] || 'claude-sonnet-4-6';
+}
+
+/**
+ * CI-templating profile for a backend: how the bundled GitHub Actions workflow
+ * installs the CLI and which secret it wires. Returns `null` for agents that
+ * can't run on hosted runners (ollama needs local model compute), signalling
+ * init to skip the CI install rather than schedule a workflow that times out.
+ */
+export interface AgentCiProfile {
+  /** Shell command for the workflow's "Install agent CLI" step. */
+  cliInstall: string;
+  /** YAML lines (6-space indented, with markers) for the job-level secret env. */
+  envBlock: string;
+  /** Post-install hint, e.g. the `gh secret set` command for the backend. */
+  secretHint: string;
+}
+
+/**
+ * Build the templated secret env block placed on each agent run step (between the
+ * workflow's `# code-evolve:secrets` markers). Step-level `env:` is indented 10
+ * spaces — keeping secrets off the job scope so third-party setup actions never see them.
+ */
+function secretEnvBlock(lines: string[]): string {
+  const indent = '          ';
+  const body = lines.map((l) => `${indent}${l}`).join('\n');
+  return `${indent}# code-evolve:secrets — agent backend secrets (templated by init)\n${body}\n${indent}# code-evolve:secrets-end\n`;
+}
+
+export function getAgentCiProfile(agent: string): AgentCiProfile | null {
+  switch (agent) {
+    case 'claude':
+      // CI is always api-key (OAuth is local-only), regardless of local authMode.
+      return {
+        cliInstall: 'npm install -g @anthropic-ai/claude-code',
+        envBlock: secretEnvBlock([
+          'ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+          'CLAUDE_AUTH_MODE: api-key',
+        ]),
+        secretHint: 'gh secret set ANTHROPIC_API_KEY',
+      };
+    case 'codex':
+      return {
+        cliInstall: 'npm install -g @openai/codex',
+        envBlock: secretEnvBlock(['OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}']),
+        secretHint: 'gh secret set OPENAI_API_KEY',
+      };
+    case 'opencode':
+      // Provider-dependent: ship both keys so either configured provider works.
+      return {
+        cliInstall: 'npm install -g opencode-ai',
+        envBlock: secretEnvBlock([
+          'OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}',
+          'ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+        ]),
+        // Default opencode model is Anthropic-provider, so lead with that secret.
+        secretHint: 'gh secret set ANTHROPIC_API_KEY   # or OPENAI_API_KEY, per your opencode provider/model',
+      };
+    case 'ollama':
+    default:
+      return null; // local-only — not viable on hosted CI runners
+  }
 }
 
 export function getAgentEnvHint(agent: string, authMode?: AuthMode): string {

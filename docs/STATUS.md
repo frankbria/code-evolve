@@ -11,7 +11,7 @@ The **core evolution engine is real and surprisingly solid** for the happy path 
 
 But the product the user is describing — *"open any repo, install, get interviewed, turn it on"* — has **two hard functional blockers** and a **missing guided-install layer**:
 
-- ~~**The GitHub Action path is currently dead** — workflows install into a subdirectory GitHub never executes (P0.1).~~ **RESOLVED** in #36 — workflows now install directly into `.github/workflows/` with collision-safe names. (Per-agent CI for non-Claude backends remains a follow-up.)
+- ~~**The GitHub Action path is currently dead** — workflows install into a subdirectory GitHub never executes (P0.1).~~ **RESOLVED** in #36 — workflows now install directly into `.github/workflows/` with collision-safe names. (Per-agent CI landed in #37 — the workflow is templated per backend.)
 - **True greenfield (zero-commit) repos abort immediately** on session start (P0.2).
 - **Guided onboarding is still thin.** `init` now prompts for the agent + auth backend on a TTY (P1.1, #20), but there is still no spec generator, the existing vision interview is hardcoded (not LLM-driven) and not wired into `init`, and there is no "choose local / CI / both + pick a schedule" step (P1.x).
 
@@ -36,7 +36,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 ## Gaps by dimension
 
 ### 1. Functional blockers (advertised feature literally doesn't work)
-- ~~**CI workflows install to `.github/workflows/evolve/`** — GitHub Actions only executes workflows directly in `.github/workflows/`, so nested workflows never ran.~~ **RESOLVED in #36** — workflows now install directly into `.github/workflows/` as `evolve.yml`/`evolve-ci.yml`. Remaining open work: the bundled workflow is Claude-only, so `--with-ci` is skipped for non-Claude backends (per-agent CI tracked in #37). → **P0.1 done**
+- ~~**CI workflows install to `.github/workflows/evolve/`** — GitHub Actions only executes workflows directly in `.github/workflows/`, so nested workflows never ran.~~ **RESOLVED in #36** — workflows now install directly into `.github/workflows/` as `evolve.yml`/`evolve-ci.yml`. Per-agent CI landed in #37 — `--with-ci` now templates `evolve.yml` for the configured agent (CLI install + `AGENT`/`MODEL` + the right secret); only `ollama` is skipped as local-only. → **P0.1 done**
 - **Greenfield abort.** `evolve.sh:277` runs `git rev-parse HEAD` under `set -euo pipefail` (`:23`). On a freshly `git init`'d repo with no commits this exits non-zero and kills the session before any work. → **P0.2**
 
 ### 2. Guided installation (the "turn on" experience — the heart of the ask)
