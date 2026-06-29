@@ -1,5 +1,8 @@
 #!/bin/bash
 # Agent adapter: OpenCode CLI
+# Verified against opencode 1.17.8 (2026-06): `opencode run` reads the prompt from
+# stdin and the model flag takes a "provider/model" string (e.g. "anthropic/claude-..."
+# or "opencode/...-free"). A bare model name will not resolve. Exits non-zero on error.
 
 check_agent() {
     command -v opencode &>/dev/null

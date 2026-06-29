@@ -1,5 +1,9 @@
 #!/bin/bash
 # Agent adapter: Ollama (local models)
+# Verified against ollama (2026-06): `ollama run <model>` reads the prompt from stdin.
+# Requires a running server ('ollama serve') and the model pulled locally; otherwise
+# the run exits non-zero with a "could not connect"/"model not found" error, which
+# evolve.sh surfaces via its exit-code check.
 
 check_agent() {
     command -v ollama &>/dev/null
