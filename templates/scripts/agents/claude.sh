@@ -28,6 +28,12 @@ run_agent() {
         < "$prompt_file" 2>&1
 }
 
+# agent_detect_error <logfile> — returns 0 if the log shows a Claude API error.
+# Claude's stream-JSON emits {"type":"error",...} even on exit 0, so grep for it.
+agent_detect_error() {
+    grep -q '"type":"error"' "$1" 2>/dev/null
+}
+
 agent_env_hint() {
     if [ "$CLAUDE_AUTH_MODE" = "oauth" ]; then
         echo "Run 'claude login' to authenticate via OAuth"

@@ -51,6 +51,13 @@ if ! check_agent; then
     exit 1
 fi
 
+# Fallback for adapters that don't ship a log-based error detector (codex/opencode/
+# ollama emit plain text, so there's no reliable marker — rely on the process exit
+# code instead). Only Claude's stream-JSON warrants a grep, defined in claude.sh.
+if ! declare -f agent_detect_error >/dev/null; then
+    agent_detect_error() { return 1; }
+fi
+
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
     BIRTH_DATE=$(cat "$EVOLVE_DIR/.birth_date")
@@ -478,14 +485,18 @@ Read $EVOLVE_DIR/IDENTITY.md first. Now begin.
 PROMPT
 
 AGENT_LOG=$(mktemp)
-# Run agent via adapter
-run_agent "$PROMPT_FILE" "$MODEL" "$TIMEOUT_CMD" "$TIMEOUT" 2>&1 | tee "$AGENT_LOG" || true
+# Run agent via adapter. Capture its real exit code — `tee` would otherwise mask it
+# (pipefail makes PIPESTATUS[0] reachable, but `|| true` would reset it).
+AGENT_RC=0
+run_agent "$PROMPT_FILE" "$MODEL" "$TIMEOUT_CMD" "$TIMEOUT" 2>&1 | tee "$AGENT_LOG" || AGENT_RC=$?
 
 rm -f "$PROMPT_FILE"
 
-# Check for API errors
-if grep -q '"type":"error"' "$AGENT_LOG" 2>/dev/null; then
-    echo "  API error detected. Exiting for retry."
+# Detect agent failure: a non-zero exit (any backend) OR an adapter-specific error
+# marker in the log (Claude's stream-JSON errors out with exit 0). This replaces the
+# old Claude-only `"type":"error"` grep that let non-Claude failures pass silently.
+if [ "$AGENT_RC" -ne 0 ] || agent_detect_error "$AGENT_LOG"; then
+    echo "  Agent error detected (exit code $AGENT_RC). Exiting for retry."
     rm -f "$AGENT_LOG"
     exit 1
 fi
