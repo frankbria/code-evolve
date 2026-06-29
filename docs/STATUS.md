@@ -49,7 +49,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 - No **unified setup wizard** chaining picker → interview → mode → schedule. → **P1.7**
 
 ### 3. Breadth & correctness (works on more repos, correctly)
-- CI provisions only Node/Python toolchains — **Rust/Go/JVM builds fail in CI**. → **P2.1**
+- ~~CI provisions only Node/Python toolchains — **Rust/Go/JVM builds fail in CI**.~~ **RESOLVED in #46** — both `ci.yml` and `evolve.yml` now detect the stack(s) up front and conditionally install Rust (`dtolnay/rust-toolchain`), Go (`actions/setup-go`), and Java/Kotlin (`actions/setup-java`) toolchains; monorepos install each needed one. Java/Kotlin gating is inert until detection lands (#28). → **P2.1 done**
 - Large class of stacks fall through to "unknown" (no verification): **Java/Kotlin, C#/.NET, Ruby, PHP, C/C++, Deno, static sites**. → **P2.2**
 - `evolve.sh` blindly appends `--quiet` to build/test commands → **false "build has issues" for Go/Make/pip**. → **P2.3**
 - Agent **error detection is Claude-JSON-specific** (`evolve.sh:476`) — codex/ollama/opencode failures pass undetected. → **P2.4**
