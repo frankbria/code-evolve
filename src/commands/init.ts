@@ -250,6 +250,11 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.warn(
         `  ⚠ Skipping GitHub Actions install: "${agent}" runs models locally and isn't supported on hosted CI runners. Use local execution (code-evolve start) for "${agent}".`
       );
+      // Don't persist a CI mode we just refused to install — local is the only
+      // viable mode for this backend, so reflect that in config.json/status.
+      if (mode === 'ci' || mode === 'both') {
+        mode = 'local';
+      }
     } else if (wantCi && ciProfile) {
       console.log('Installing GitHub Actions workflows...');
       const workflowDir = projectFile('.github/workflows');

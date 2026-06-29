@@ -69,6 +69,8 @@ D=$(mktemp -d)
 OUT=$( cd "$D" && git init -q && node "$CLI" init --agent ollama --with-ci </dev/null 2>&1 )
 check "ollama: CI workflow skipped"   "$([ -f "$D/.github/workflows/evolve.yml" ] && echo yes || echo no)" "no"
 has   "ollama: skip explained"        "$OUT" "local"
+# Don't persist a CI mode that was refused — normalize to local (issue #37 review).
+check "ollama: mode normalized off ci" "$(node -e "console.log(require('$D/.evolve/config.json').mode)")" "local"
 rm -rf "$D"
 
 rm -rf "$STUB"
