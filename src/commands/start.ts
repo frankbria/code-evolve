@@ -31,7 +31,9 @@ export interface ScheduleOptions {
 
 /**
  * Install (or replace) the local cron job for this project and persist
- * schedule.json. Writes .evolve/.env capturing the current API key (if any).
+ * schedule.json (display-only metadata read by `status`/`stop` — the cron
+ * expression is the only thing that gates run cadence; schedule.json never
+ * does). Writes .evolve/.env capturing the current API key (if any).
  * Shared by `code-evolve start` and `code-evolve init --mode local|both`.
  * Throws if the crontab update fails. Does NOT validate env keys — callers
  * decide whether a missing key is fatal.
@@ -70,7 +72,7 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   const updated = existing ? existing + '\n' + cronCommand + '\n' : cronCommand + '\n';
   setCrontab(updated);
 
-  // Save schedule config for status command
+  // Save schedule config for `status` display / `stop` cleanup (not a run gate)
   const scheduleConfig = { every: hours, model, agent, authMode: authMode || 'api-key', started: new Date().toISOString() };
   fs.writeFileSync(path.join(evolveDir, 'schedule.json'), JSON.stringify(scheduleConfig, null, 2) + '\n');
 }

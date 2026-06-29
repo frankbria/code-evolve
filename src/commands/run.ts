@@ -8,7 +8,7 @@ export const runCommand = new Command('run')
   .description('Run one evolution cycle')
   .option('--model <model>', 'LLM model to use (default depends on agent)')
   .option('--timeout <seconds>', 'Max session time in seconds', '3600')
-  .option('--force', 'Bypass schedule gate')
+  .option('--force', 'Bypass sponsor bonus-run gate')
   .option('--agent <name>', 'Agent backend to use (overrides config)')
   .action(async (options: { model?: string; timeout: string; force?: boolean; agent?: string }) => {
     if (!isInitialized()) {

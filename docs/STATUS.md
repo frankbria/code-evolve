@@ -59,7 +59,7 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 ### 4. Package polish & accuracy
 - **`npm test` is broken** — jest declared but not installed, zero test files. → **P3.1**
 - **CLAUDE.md & package.json drift** — CLAUDE.md lists 4 commands (code ships 9) and flat skills (actually 5 dirs); package.json missing `keywords`/`homepage`/`bugs`. → **P3.2**
-- **`schedule.json` is dead config** (written/displayed but never consumed); `--force` help text is misleading. → **P3.3**
+- ~~**`schedule.json` is dead config** (written/displayed but never consumed); `--force` help text is misleading.~~ **RESOLVED in #35** — `schedule.json` documented as display-only metadata (read by `status`/`stop`; cron gates cadence, not this file); `--force` help corrected to "Bypass sponsor bonus-run gate". → **P3.3 done**
 
 ---
 
@@ -84,6 +84,6 @@ Beyond that, breadth (more languages), non-Claude backend robustness, and packag
 | P2.6 | [#32](https://github.com/frankbria/code-evolve/issues/32) | Medium | Add a "respect existing repo conventions" pass for mature repos | — |
 | P3.1 | [#33](https://github.com/frankbria/code-evolve/issues/33) | Low | Add jest + first unit tests; fix the broken `npm test` | — |
 | P3.2 | [#34](https://github.com/frankbria/code-evolve/issues/34) | Low | Fix CLAUDE.md / package.json doc & metadata drift | — |
-| P3.3 | [#35](https://github.com/frankbria/code-evolve/issues/35) | Low | Make `schedule.json` real or document it; fix misleading `--force` help | — |
+| P3.3 | [#35](https://github.com/frankbria/code-evolve/issues/35) ✅ | Low | Make `schedule.json` real or document it; fix misleading `--force` help *(done in #35)* | — |
 
 Priority = importance × dependency. Ship **P0** first (the feature is broken without it), then **P1** (the guided-install experience the project is actually about), then breadth (**P2**) and polish (**P3**).
