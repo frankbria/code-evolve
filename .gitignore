@@ -30,3 +30,6 @@ Thumbs.db
 
 # Local planning notes (not part of the package)
 tasks/
+
+# jest coverage reports
+coverage/

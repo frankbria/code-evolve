@@ -29,8 +29,11 @@
     "minimatch": "^9.0.0"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/minimatch": "^5.1.2",
     "@types/node": "^20.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
     "typescript": "^5.0.0"
   },
   "engines": {
