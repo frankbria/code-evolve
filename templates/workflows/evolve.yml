@@ -31,6 +31,36 @@ jobs:
         with:
           python-version: '3.12'
 
+      # evolve.sh builds/tests the project, so its toolchains must be present too.
+      - name: Detect stack toolchains
+        id: detect
+        run: |
+          chmod +x .evolve/scripts/detect_stack.sh
+          STACK_JSON=$(bash .evolve/scripts/detect_stack.sh . 2>/dev/null || echo '{"stack":"unknown"}')
+          STACKS=$(echo "$STACK_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(' '.join([d.get('stack','')] + [s.get('stack','') for s in d.get('substacks',[])]))")
+          echo "Detected stacks: $STACKS"
+          case " $STACKS " in *" rust "*) echo "needs_rust=true" >> "$GITHUB_OUTPUT";; esac
+          case " $STACKS " in *" go "*) echo "needs_go=true" >> "$GITHUB_OUTPUT";; esac
+          # ponytail: java/kotlin not yet emitted by detect_stack.sh (see #28); inert until then.
+          case " $STACKS " in *" java "*|*" kotlin "*) echo "needs_java=true" >> "$GITHUB_OUTPUT";; esac
+
+      - name: Setup Rust
+        if: steps.detect.outputs.needs_rust == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Go
+        if: steps.detect.outputs.needs_go == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Setup Java
+        if: steps.detect.outputs.needs_java == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
       - name: Install Claude Code CLI
         run: npm install -g @anthropic-ai/claude-code
 
