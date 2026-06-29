@@ -164,18 +164,18 @@ for s in json.load(sys.stdin):
 " 2>/dev/null | while IFS='|' read -r sdir sbuild stest; do
         SUBPATH="$PROJECT_DIR/$sdir"
         if [ -n "$sbuild" ]; then
-            (cd "$SUBPATH" && eval "$sbuild" --quiet 2>/dev/null) && echo "  $sdir build OK." || echo "  $sdir build has issues (agent will address)."
+            (cd "$SUBPATH" && eval "$sbuild" >/dev/null 2>&1) && echo "  $sdir build OK." || echo "  $sdir build has issues (agent will address)."
         fi
         if [ -n "$stest" ]; then
-            (cd "$SUBPATH" && eval "$stest" --quiet 2>/dev/null) && echo "  $sdir tests OK." || true
+            (cd "$SUBPATH" && eval "$stest" >/dev/null 2>&1) && echo "  $sdir tests OK." || true
         fi
     done
     echo ""
 elif [ -n "$BUILD_CMD" ] && [ "$STACK" != "unknown" ]; then
     echo "-> Checking existing build..."
     cd "$PROJECT_DIR" 2>/dev/null || true
-    eval "$BUILD_CMD" --quiet 2>/dev/null && echo "  Build OK." || echo "  Build has issues (agent will address)."
-    [ -n "$TEST_CMD" ] && eval "$TEST_CMD" --quiet 2>/dev/null && echo "  Tests OK." || true
+    eval "$BUILD_CMD" >/dev/null 2>&1 && echo "  Build OK." || echo "  Build has issues (agent will address)."
+    [ -n "$TEST_CMD" ] && eval "$TEST_CMD" >/dev/null 2>&1 && echo "  Tests OK." || true
     cd - > /dev/null 2>/dev/null || true
     echo ""
 fi
@@ -501,6 +501,17 @@ STACK=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.st
 BUILD_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['build'])" 2>/dev/null || echo "")
 TEST_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['test'])" 2>/dev/null || echo "")
 LINT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['lint'])" 2>/dev/null || echo "")
+FORMAT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['format'])" 2>/dev/null || echo "")
+
+# Map a format *check* command to its in-place *fix* equivalent (stack-aware).
+# `gofmt -l` only lists, `dotnet --verify-no-changes` only checks — stripping
+# `--check` alone is a no-op for those. Covers every FORMAT_CMD detect_stack emits.
+format_fix_cmd() {
+    echo "$1" \
+        | sed 's/ -- --check//; s/ --check//' \
+        | sed 's/gofmt -l/gofmt -w/' \
+        | sed 's/ --verify-no-changes//'
+}
 
 # Helper: verify a single substack directory, append errors to ERRORS_FILE
 verify_single_stack() {
@@ -509,7 +520,7 @@ verify_single_stack() {
     # Auto-fix formatting if possible
     if [ -n "$sformat" ]; then
         local sformat_fix
-        sformat_fix=$(echo "$sformat" | sed 's/ --check//')
+        sformat_fix=$(format_fix_cmd "$sformat")
         if ! (cd "$subpath" && eval "$sformat") 2>/dev/null; then
             (cd "$subpath" && eval "$sformat_fix") 2>/dev/null && \
                 git add -A && git commit -m "Day $DAY ($SESSION_TIME): auto-format $label" || true
