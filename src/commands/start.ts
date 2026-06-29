@@ -7,6 +7,20 @@ import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent,
 
 const CRON_MARKER = 'code-evolve';
 
+/** Build the "every N hours" cron expression (top of the hour). */
+export function hourlyCron(hours: number): string {
+  return hours === 1 ? '0 * * * *' : `0 */${hours} * * *`;
+}
+
+/** Parse/validate an `--every` hours value. Returns null unless it's a whole
+ *  number in 1–24 — a bare integer string only, so "1.5"/"6abc" are rejected
+ *  rather than silently truncated by parseInt. */
+export function parseInterval(raw: string): number | null {
+  if (!/^\d+$/.test(raw.trim())) return null;
+  const h = parseInt(raw, 10);
+  return h >= 1 && h <= 24 ? h : null;
+}
+
 export interface ScheduleOptions {
   agent: string;
   authMode?: AuthMode;
@@ -39,7 +53,7 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   removeExistingCron(projectDir);
 
   // Build cron expression
-  const cronSchedule = hours === 1 ? '0 * * * *' : `0 */${hours} * * *`;
+  const cronSchedule = hourlyCron(hours);
 
   // The cron command: source .env, run evolve.sh, log output
   const cronCommand = [
@@ -80,9 +94,9 @@ export const startCommand = new Command('start')
     }
 
     // Validate interval
-    const hours = parseInt(options.every, 10);
-    if (isNaN(hours) || hours < 1 || hours > 24) {
-      console.error('--every must be between 1 and 24 hours.');
+    const hours = parseInterval(options.every);
+    if (hours === null) {
+      console.error('--every must be an integer between 1 and 24 hours.');
       process.exit(2);
     }
 

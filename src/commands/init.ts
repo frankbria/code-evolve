@@ -19,7 +19,10 @@ import {
   AuthMode,
   ExecutionMode,
 } from '../utils/config';
-import { installLocalSchedule } from './start';
+import { installLocalSchedule, hourlyCron, parseInterval } from './start';
+
+// Default evolution cadence (hours) when --every isn't passed and isn't chosen interactively.
+const DEFAULT_EVERY_HOURS = 4;
 
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
@@ -31,7 +34,8 @@ export const initCommand = new Command('init')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
   .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
-  .action(async (options: { withCi?: boolean; force?: boolean; agent: string; authMode: string; mode?: string }) => {
+  .option('--every <hours>', 'Evolution cadence in hours (1–24)')
+  .action(async (options: { withCi?: boolean; force?: boolean; agent: string; authMode: string; mode?: string; every?: string }) => {
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
@@ -41,7 +45,19 @@ export const initCommand = new Command('init')
     const agentExplicit = flagPassed('--agent');
     const authModeExplicit = flagPassed('--auth-mode');
     const modeExplicit = flagPassed('--mode');
+    const everyExplicit = flagPassed('--every');
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+    // Resolve the evolution cadence: explicit --every wins (validated); else default.
+    let hours = DEFAULT_EVERY_HOURS;
+    if (everyExplicit) {
+      const parsed = parseInterval(options.every ?? '');
+      if (parsed === null) {
+        console.error('--every must be an integer between 1 and 24 hours.');
+        process.exit(2);
+      }
+      hours = parsed;
+    }
 
     // Resolve agent: explicit flag wins; else existing config on --force; else default.
     const existingConfig = options.force ? readConfig() : { agent: 'claude' };
@@ -199,6 +215,12 @@ export const initCommand = new Command('init')
     const wantCi = mode === 'ci' || mode === 'both' || Boolean(options.withCi);
     const wantLocal = mode === 'local' || mode === 'both';
 
+    // Ask for the cadence interactively only when a schedule will actually be
+    // installed and the user didn't already pin it with --every.
+    if (interactive && !everyExplicit && (wantCi || wantLocal)) {
+      hours = await promptForInterval(hours);
+    }
+
     // Install GitHub Actions workflows directly into .github/workflows/ so they actually run.
     // (GitHub only executes workflows located directly in .github/workflows/, not subdirectories.)
     // Renamed to evolve-* so they never clobber a target repo's own ci.yml/evolve.yml.
@@ -228,7 +250,16 @@ export const initCommand = new Command('init')
             `  ⚠ ${path.relative(process.cwd(), destPath)} already exists — skipping; code-evolve's ${destName} was NOT installed (rename or remove the existing file to install it)`
           );
         } else {
-          fs.copyFileSync(srcPath, destPath);
+          // Template the cadence into the evolve workflow's schedule before writing,
+          // so --every reaches CI too (the other workflow has no cron to template).
+          if (src === 'evolve.yml') {
+            const templated = fs
+              .readFileSync(srcPath, 'utf8')
+              .replace(/-\s*cron:\s*'[^']*'[^\n]*/, `- cron: '${hourlyCron(hours)}'  # every ${hours}h`);
+            fs.writeFileSync(destPath, templated);
+          } else {
+            fs.copyFileSync(srcPath, destPath);
+          }
           console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
         }
       }
@@ -247,8 +278,8 @@ export const initCommand = new Command('init')
         const envKey = getAgentEnvKey(agent, authMode);
         if (!envKey || process.env[envKey]) {
           try {
-            installLocalSchedule({ agent, authMode, model: getDefaultModel(agent), hours: 4, projectDir: process.cwd() });
-            console.log('Local schedule installed: every 4h (.evolve/evolve.log)');
+            installLocalSchedule({ agent, authMode, model: getDefaultModel(agent), hours, projectDir: process.cwd() });
+            console.log(`Local schedule installed: every ${hours}h (.evolve/evolve.log)`);
             localScheduled = true;
           } catch (err) {
             console.warn(`  ⚠ Could not install local cron job: ${(err as Error).message}`);
@@ -305,7 +336,7 @@ export const initCommand = new Command('init')
     }
     console.log(`  ${step++}. ${getAgentEnvHint(agent, authMode)}`);
     if (localScheduled) {
-      console.log(`  ${step++}. Local evolution runs every 4h. Run now: code-evolve run`);
+      console.log(`  ${step++}. Local evolution runs every ${hours}h. Run now: code-evolve run`);
     } else {
       console.log(`  ${step++}. Run: code-evolve run`);
     }
@@ -419,6 +450,29 @@ async function promptForMode(fallback: ExecutionMode | undefined): Promise<Execu
       rl.question('Select [local/ci/both/skip] (default skip): ', resolve);
     });
     return resolveModeSelection(raw) ?? fallback;
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Ask how often evolution should run (hours). Empty/invalid input keeps the
+ * current `fallback`. Free-text to match the other init prompts' style.
+ */
+async function promptForInterval(fallback: number): Promise<number> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const raw = await new Promise<string>((resolve) => {
+      rl.on('close', () => resolve(''));
+      rl.question(`How often should evolution run, in hours? [1-24] (default ${fallback}): `, resolve);
+    });
+    if (!raw.trim()) return fallback;
+    const parsed = parseInterval(raw);
+    if (parsed === null) {
+      console.log(`  Invalid interval — using ${fallback}h.`);
+      return fallback;
+    }
+    return parsed;
   } finally {
     rl.close();
   }
