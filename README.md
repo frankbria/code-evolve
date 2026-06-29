@@ -157,6 +157,7 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 
 | Command | What it does |
 |---------|-------------|
+| `code-evolve setup` | Guided wizard: agent → interview → mode → schedule → ready (re-runnable) |
 | `code-evolve init` | Scaffold `.evolve/` with vision and spec templates |
 | `code-evolve vision` | Guided Socratic interview to generate `.evolve/vision.md` |
 | `code-evolve spec` | Guided interview to generate `.evolve/spec.md` |
@@ -166,6 +167,19 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 | `code-evolve run` | Run one cycle manually |
 | `code-evolve status` | Check progress — day count, features done, schedule |
 | `code-evolve eject` | Remove the framework, keep everything the agent built |
+
+### `setup`
+
+The one-command front door for new projects. On a terminal it chains the whole
+onboarding flow — agent + auth picker, vision + spec interview, execution mode
+(local/ci/both), and schedule — then installs everything and tells you you're
+live. Re-run it any time to reconfigure; it honors your existing config and
+preserves evolution history.
+
+```bash
+code-evolve setup            # guided: nothing → fully configured, ready to evolve
+code-evolve setup --agent codex --mode ci --every 6   # same flags as init, non-interactive
+```
 
 ### `init`
 

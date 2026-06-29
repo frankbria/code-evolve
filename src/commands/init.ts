@@ -27,6 +27,15 @@ const DEFAULT_EVERY_HOURS = 4;
 // Files that contain user/agent evolution history — never overwrite
 const PRESERVE_STATE_FILES = ['JOURNAL.md', 'LEARNINGS.md', 'DAY_COUNT', '.birth_date'];
 
+export interface InitOptions {
+  withCi?: boolean;
+  force?: boolean;
+  agent: string;
+  authMode: string;
+  mode?: string;
+  every?: string;
+}
+
 export const initCommand = new Command('init')
   .description('Initialize .evolve/ in the current project')
   .option('--with-ci', 'Install GitHub Actions workflows')
@@ -35,7 +44,14 @@ export const initCommand = new Command('init')
   .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
-  .action(async (options: { withCi?: boolean; force?: boolean; agent: string; authMode: string; mode?: string; every?: string }) => {
+  .action(runInit);
+
+/**
+ * Run the init flow: create `.evolve/`, pick agent/auth/mode/schedule (interactive
+ * on a TTY), copy templates, install CI/cron, optionally run the vision+spec
+ * interviews, and print next steps. Exported so the `setup` wizard reuses it.
+ */
+export async function runInit(options: InitOptions): Promise<void> {
     const evolveDir = getEvolveDir();
     const templatesDir = getTemplatesDir();
 
@@ -345,7 +361,7 @@ export const initCommand = new Command('init')
       console.log('  To choose where evolution runs (local / ci / both):');
       console.log('    code-evolve init --mode <local|ci|both> --force');
     }
-  });
+}
 
 /** Ask a yes/no question on the current TTY. Defaults to no on empty/EOF. */
 async function promptYesNo(question: string): Promise<boolean> {

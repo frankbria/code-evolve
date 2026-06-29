@@ -18,7 +18,8 @@ code-evolve/                  # npm package source
 ├── src/                      # CLI source (TypeScript)
 │   ├── cli.ts                # Entrypoint (commander)
 │   ├── commands/
-│   │   ├── init.ts           # code-evolve init
+│   │   ├── init.ts           # code-evolve init (exports runInit)
+│   │   ├── setup.ts          # code-evolve setup (guided wizard → runInit)
 │   │   ├── run.ts            # code-evolve run
 │   │   ├── status.ts         # code-evolve status
 │   │   └── eject.ts          # code-evolve eject

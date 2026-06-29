@@ -2,6 +2,7 @@
 import path from 'path';
 import { Command } from 'commander';
 import { initCommand } from './commands/init';
+import { setupCommand } from './commands/setup';
 import { startCommand } from './commands/start';
 import { stopCommand } from './commands/stop';
 import { runCommand } from './commands/run';
@@ -22,6 +23,7 @@ program
   .version('0.1.0');
 
 program.addCommand(initCommand);
+program.addCommand(setupCommand);
 program.addCommand(startCommand);
 program.addCommand(stopCommand);
 program.addCommand(runCommand);
