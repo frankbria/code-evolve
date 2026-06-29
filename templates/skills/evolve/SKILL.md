@@ -22,15 +22,15 @@ You are building software autonomously. Follow these rules exactly.
 
 1. Read .evolve/vision.md and .evolve/spec.md completely
 2. Read .evolve/JOURNAL.md — check what you've done before and what failed
-3. Examine the current project state — what exists, what's missing
-4. Understand what you're changing and WHY (must trace to vision or spec)
+3. Examine the current project state — what exists, what's missing. If the repo already has code but the spec is blank, also read its conventions (CONTRIBUTING, lint/format config, test layout, CI) and follow them — see rule 4 under "Making changes".
+4. Understand what you're changing and WHY (must trace to vision or spec — or, for an existing repo with a blank spec, to the project's own conventions)
 
 ## Making changes
 
 1. **Each change should be focused.** One feature, one fix, or one improvement per commit. Multiple commits per session is fine.
 2. **Write tests alongside features.** Every new capability should have a test.
 3. **Use surgical edits.** Don't rewrite entire files. Change the minimum needed.
-4. **Follow the spec's tech stack.** Use the languages, frameworks, and tools specified in .evolve/spec.md.
+4. **Follow the spec's tech stack.** Use the languages, frameworks, and tools specified in .evolve/spec.md. **If .evolve/spec.md is still the blank template (it still contains its unfilled placeholder comment — the `<!-- ... -->` block whose text begins "Replace this with your project's technical specification") and the repo already has code, the existing project wins:** match its languages, frameworks, lint/format config, test layout, and CI; don't introduce conflicting tooling or restructure to fit template defaults.
 5. **Update .evolve/spec.md checkboxes** after implementing features: `[ ]` → `[x]` for complete, `[ ]` → `[~]` for partial.
 
 ## After each change
