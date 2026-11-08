@@ -18,8 +18,9 @@ tag and push. Run every command from the project root.
 
 A cycle commits, so it needs write access to the repository's `.git` directory. Some sandboxes make
 `.git` read-only (Codex's `workspace-write` does). If prepare reports that the git directory is not
-writable, stop and tell the user to grant just that directory; for Codex, start the session with
-`-c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]'`. Do not ask for full sandbox access.
+writable, stop and tell the user to grant just the directory it names (in a linked worktree that is
+the main repository's `.git`); for Codex, start the session with the `-c
+'sandbox_workspace_write.writable_roots=[...]'` line prepare prints. Do not ask for full sandbox access.
 
 ## 1. Prepare
 
@@ -31,7 +32,8 @@ bash .evolve/scripts/evolve.sh prepare
 - **"already running"**: another cycle holds the lock. Stop and tell the user; do not retry in a loop.
 - **"a prepared session is still pending"**: an earlier in-session cycle was never finalized. Ask
   the user whether to finish it or abandon it (`rm -rf .evolve/run`, then prepare again). If no one
-  can answer, finish it. To finish it, go to step 2: the prompt is still in `.evolve/run/PROMPT.md`;
+  can answer, stop and report it: its own agent may still be working, and the engine discards it
+  once it is abandoned. To finish it, go to step 2: the prompt is still in `.evolve/run/PROMPT.md`;
   check `git log` for what that session already committed and complete the rest before verifying.
 
 ## 2. Do the work

@@ -69,6 +69,15 @@ chmod u+w .git
 [ "$readonly_status" -ne 0 ] && grep -q "is not writable, and a cycle must write there" "$stub_dir/readonly.log" \
     && ok "a read-only .git is reported clearly instead of as a lock failure" || bad "read-only .git: exit $readonly_status: $(tail -2 "$stub_dir/readonly.log")"
 
+# A linked worktree commits into the main .git, so a read-only main .git fails fast there too.
+git worktree add -q "$stub_dir/linked"
+chmod a-w .git
+linked_status=0; (cd "$stub_dir/linked" && engine prepare) > "$stub_dir/linked.log" 2>&1 || linked_status=$?
+chmod u+w .git
+git worktree remove --force "$stub_dir/linked"
+[ "$linked_status" -ne 0 ] && grep -q "writable_roots=\[\"$work_dir/.git\"\]" "$stub_dir/linked.log" \
+    && ok "a worktree whose shared .git is read-only names that .git to grant" || bad "linked worktree: exit $linked_status: $(tail -2 "$stub_dir/linked.log")"
+
 usage_status=0
 engine finalise > "$stub_dir/usage.log" 2>&1 || usage_status=$?
 [ "$usage_status" -eq 2 ] && grep -q "Usage" "$stub_dir/usage.log" \
