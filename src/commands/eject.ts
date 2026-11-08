@@ -1,10 +1,9 @@
 import { Command } from 'commander';
-import { execSync } from 'child_process';
+import { removeProjectCron } from '../utils/crontab';
 import fs from 'fs';
 import readline from 'readline';
 import { getEvolveDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 
-const CRON_MARKER = 'code-evolve';
 // Stable marker embedded in the workflow templates so eject recognizes files it
 // installed regardless of which package version wrote them (kept in sync with
 // templates/workflows/*.yml). A user's own same-named workflow won't contain it.
@@ -31,7 +30,14 @@ export const ejectCommand = new Command('eject')
 
     // Stop cron job if running
     if (process.platform !== 'win32') {
-      const removed = removeCron(process.cwd());
+      let removed = false;
+      try {
+        removed = removeProjectCron(process.cwd());
+      } catch (err) {
+        // Abort before deleting anything: removing .evolve/ would leave a cron entry firing at missing scripts.
+        console.error(`Could not update the crontab, so nothing was ejected: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
       if (removed) {
         console.log('Stopped evolution engine (cron job removed).');
       }
@@ -100,24 +106,6 @@ export const ejectCommand = new Command('eject')
     console.log('');
     console.log('Ejected. vision.md and spec.md have been copied to the project root.');
   });
-
-function removeCron(projectDir: string): boolean {
-  try {
-    const existing = execSync('crontab -l 2>/dev/null', { encoding: 'utf8' });
-    if (!existing) return false;
-
-    const marker = `${CRON_MARKER}:${projectDir}`;
-    const lines = existing.split('\n');
-    const filtered = lines.filter((line) => !line.includes(marker));
-    if (filtered.length === lines.length) return false;
-
-    const cleaned = filtered.join('\n').replace(/\n{3,}/g, '\n\n');
-    execSync(`echo ${JSON.stringify(cleaned)} | crontab -`, { encoding: 'utf8' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function confirm(question: string): Promise<boolean> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

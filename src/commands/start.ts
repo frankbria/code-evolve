@@ -1,11 +1,10 @@
 import { Command } from 'commander';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
 import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel, AuthMode } from '../utils/config';
 
-const CRON_MARKER = 'code-evolve';
 
 /** Build the "every N hours" cron expression (top of the hour). */
 export function hourlyCron(hours: number): string {
@@ -51,8 +50,6 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   // Write .env file for cron (cron doesn't inherit shell env)
   writeEnvFile(envFile, model, agent, authMode);
 
-  // Remove any existing code-evolve cron entry for this project
-  removeExistingCron(projectDir);
 
   // Build cron expression
   const cronSchedule = hourlyCron(hours);
@@ -65,12 +62,13 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
     `&& EVOLVE_DIR="${EVOLVE_DIR_NAME}" PROJECT_DIR="." AGENT="${agent}"`,
     `bash "${scriptPath}"`,
     `>> "${logFile}" 2>&1`,
-    `# ${CRON_MARKER}:${projectDir}`,
+    cronEntryMarker(projectDir),
   ].join(' ');
 
-  const existing = getCrontab();
-  const updated = existing ? existing + '\n' + cronCommand + '\n' : cronCommand + '\n';
-  setCrontab(updated);
+  // One read and one write: replace this project's entry (if any) and append the new one.
+  const { table: existing } = withoutProjectEntry(getCrontab(), projectDir);
+  const base = existing && !existing.endsWith('\n') ? `${existing}\n` : existing;
+  setCrontab(`${base}${cronCommand}\n`);
 
   // Save schedule config for `status` display / `stop` cleanup (not a run gate)
   const scheduleConfig = { every: hours, model, agent, authMode: authMode || 'api-key', started: new Date().toISOString() };
@@ -218,24 +216,3 @@ function ensureEnvGitignored(projectDir: string): void {
   }
 }
 
-function getCrontab(): string {
-  try {
-    return execSync('crontab -l 2>/dev/null', { encoding: 'utf8' });
-  } catch {
-    return '';
-  }
-}
-
-function setCrontab(content: string): void {
-  execSync(`echo ${JSON.stringify(content)} | crontab -`, { encoding: 'utf8' });
-}
-
-function removeExistingCron(projectDir: string): void {
-  const existing = getCrontab();
-  if (!existing) return;
-
-  const marker = `${CRON_MARKER}:${projectDir}`;
-  const lines = existing.split('\n').filter((line) => !line.includes(marker));
-  const cleaned = lines.join('\n').replace(/\n{3,}/g, '\n\n');
-  setCrontab(cleaned);
-}
