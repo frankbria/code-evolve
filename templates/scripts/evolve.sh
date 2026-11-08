@@ -99,7 +99,7 @@ RUN_TMP=$(mktemp -d)
 # ── Session state (shared by prepare, verify and finalize) ──
 # session.env is plain KEY=value lines read by a whitelist parser, never sourced: in the
 # split flow the agent can write to it, and sourcing would run whatever it planted.
-SESSION_STATE_KEYS="SESSION_START_SHA DAY DATE SESSION_TIME BOUNDARY_NONCE BOUNDARY_BEGIN BOUNDARY_END STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO EVOLVE_DIR PROJECT_DIR"
+SESSION_STATE_KEYS="SESSION_START_SHA DAY DATE SESSION_TIME BOUNDARY_NONCE BOUNDARY_BEGIN BOUNDARY_END STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD SUBSTACKS_JSON ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO EVOLVE_DIR PROJECT_DIR"
 load_session_state() {
     local line key value
     while IFS= read -r line || [ -n "$line" ]; do
@@ -614,7 +614,7 @@ if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
 fi
 SESSION_START_SHA=$(git rev-parse HEAD)
 snapshot_protected_paths
-git ls-files --others --exclude-standard | sort > "$PROTECTED_SNAPSHOT/untracked_at_start"
+git -c core.quotePath=false ls-files --others --exclude-standard -- "$PROJECT_DIR" | sort > "$PROTECTED_SNAPSHOT/untracked_at_start"
 echo "-> Starting evolution session..."
 echo ""
 
@@ -854,6 +854,13 @@ verify_single_stack() {
     fi
 }
 
+# A digest of the work tree (HEAD, changes, untracked files), so finalize can tell whether
+# the code it is about to commit is the code verify passed.
+worktree_fingerprint() {
+    { git rev-parse HEAD; git -c core.quotePath=false status --porcelain=v1 -uall -- "$PROJECT_DIR"; git diff HEAD -- "$PROJECT_DIR"; } \
+        | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1
+}
+
 # One verification pass: auto-format fix, then build, test and lint for every detected stack.
 # Leaves the combined error output in $ERRORS; returns 0 when there is none.
 run_verification_round() {
@@ -898,11 +905,21 @@ revert_session_and_capture_req() {
         git rm -rfq --ignore-unmatch -- "$PROJECT_DIR" >/dev/null 2>&1 || true
         git clean -fdq -- "$PROJECT_DIR" >/dev/null 2>&1 || true
     fi
-    # Untracked files the session created would otherwise be committed by `git add -A` below.
+    # Untracked files created during the session would otherwise be committed by `git add -A`
+    # below. They are stashed, not deleted: a person may have created some of them meanwhile.
     if [ -f "$PROTECTED_SNAPSHOT/untracked_at_start" ]; then
-        git ls-files --others --exclude-standard | sort \
-            | comm -13 "$PROTECTED_SNAPSHOT/untracked_at_start" - \
-            | while IFS= read -r session_file; do rm -f -- "$session_file"; done
+        local session_files=() session_file
+        while IFS= read -r session_file; do
+            session_files+=("$session_file")
+        done < <(git -c core.quotePath=false ls-files --others --exclude-standard -- "$PROJECT_DIR" | sort \
+            | comm -13 "$PROTECTED_SNAPSHOT/untracked_at_start" -)
+        if [ "${#session_files[@]}" -gt 0 ]; then
+            if git stash push --include-untracked -q -m "code-evolve: untracked files from the reverted Day $DAY ($SESSION_TIME) session" -- "${session_files[@]}"; then
+                echo "  Stashed ${#session_files[@]} untracked file(s) from the reverted session (see: git stash list)."
+            else
+                echo "  WARNING: could not stash untracked files from the reverted session; they may be committed."
+            fi
+        fi
     fi
     git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
 
@@ -927,7 +944,9 @@ revert_session_and_capture_req() {
     fi
 }
 
-SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
+DETECTED_SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
+# Same rule as the commands above: the substacks found at session start win.
+case "${SUBSTACKS_JSON:-}" in ''|'[]') SUBSTACKS_JSON="$DETECTED_SUBSTACKS_JSON" ;; esac
 ERRORS=""
 HAS_VERIFICATION=false
 if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
@@ -966,8 +985,10 @@ FIXEOF
         fi ;;
     verify)
         echo "-> Verifying the session's work..."
+        touch "$RUN_DIR/session.env"   # an active session: restart the pending window
         if [ "$HAS_VERIFICATION" = false ] || run_verification_round; then
             echo pass > "$RUN_DIR/verify.status"
+            worktree_fingerprint > "$RUN_DIR/verify.fingerprint"
             rm -f "$RUN_DIR/ERRORS.md"
             [ "$HAS_VERIFICATION" = true ] && echo "  Build: PASS" || echo "  No build, test or lint commands detected; nothing to verify."
             exit 0
@@ -979,14 +1000,19 @@ FIXEOF
     finalize)
         echo "-> Finalizing the Day $DAY session..."
         restore_protected_paths
-        case "$(cat "$RUN_DIR/verify.status" 2>/dev/null || true)" in
-            pass) ;;
-            fail)
-                ERRORS=$(cat "$RUN_DIR/ERRORS.md" 2>/dev/null || true)
-                echo "  Last verify failed — reverting to pre-session state"
-                revert_session_and_capture_req ;;
-            *) echo "  Warning: verify was not run for this session; finalizing without a build check." ;;
-        esac ;;
+        VERIFY_RESULT=$(cat "$RUN_DIR/verify.status" 2>/dev/null || true)
+        if [ "$VERIFY_RESULT" = "pass" ] && [ "$(cat "$RUN_DIR/verify.fingerprint" 2>/dev/null)" != "$(worktree_fingerprint)" ]; then
+            VERIFY_RESULT=""   # the tree changed after verify passed
+        fi
+        if [ -z "$VERIFY_RESULT" ] && [ "$HAS_VERIFICATION" = true ]; then
+            echo "  Verify did not pass on this exact tree; verifying now."
+            run_verification_round && VERIFY_RESULT=pass || VERIFY_RESULT=fail
+        fi
+        if [ "$VERIFY_RESULT" = "fail" ]; then
+            [ -n "$ERRORS" ] || ERRORS=$(cat "$RUN_DIR/ERRORS.md" 2>/dev/null || true)
+            echo "  Verification failed — reverting to pre-session state"
+            revert_session_and_capture_req
+        fi ;;
 esac
 
 # ── Step 6b: Ensure journal was written ──
