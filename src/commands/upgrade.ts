@@ -1,23 +1,36 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
-import { compareVersions, evolveFile, isInitialized, packageVersion } from '../utils/paths';
+import os from 'os';
+import { spawn, spawnSync } from 'child_process';
+import { compareVersions, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
 import { readConfig } from '../utils/config';
 import { runInit } from './init';
 
 /**
- * True while another process holds the engine's run lock (the kernel flock hold_lock.py takes).
- * shortcut: checked, not held, so a cycle starting during the upgrade is not stopped; hold the lock
- * for the whole upgrade if that race ever matters.
+ * Take the engine's run lock (the kernel flock hold_lock.py holds) for as long as this process lives,
+ * so no cycle can start, snapshot the old engine and later restore it over the upgrade.
  */
-function cycleIsRunning(): boolean {
+async function holdRunLock(): Promise<'locked' | 'busy' | 'failed'> {
   const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
-  const probe = spawnSync(
+  // Private (0700) dir: the holder writes status.tmp next to the status file.
+  const statusDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-evolve-upgrade-'));
+  const statusFile = path.join(statusDir, 'status');
+  const holder = spawn(
     'python3',
-    ['-c', 'import fcntl,sys;f=open(sys.argv[1],"a");fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)', path.join(gitDir, 'code-evolve.lock')],
+    [path.join(getTemplatesDir(), 'scripts', 'hold_lock.py'), path.join(gitDir, 'code-evolve.lock'), String(process.pid), statusFile],
+    { stdio: 'ignore' },
   );
-  return probe.status !== 0;
+  holder.on('error', () => undefined);
+  holder.unref();
+  // Release the lock as soon as the upgrade ends, rather than at the holder's next once-a-second check.
+  process.on('exit', () => holder.kill());
+  for (let attempt = 0; attempt < 50 && !fs.existsSync(statusFile); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const status = fs.existsSync(statusFile) ? fs.readFileSync(statusFile, 'utf8').trim() : '';
+  fs.rmSync(statusDir, { recursive: true, force: true });
+  return status === 'locked' || status === 'busy' ? status : 'failed';
 }
 
 /**
@@ -44,13 +57,18 @@ export const upgradeCommand = new Command('upgrade')
     }
 
     // A prepared or running cycle restores protected files from its start-of-session snapshot,
-    // which would put the old engine back over the upgrade.
-    if (fs.existsSync(evolveFile('run'))) {
-      console.error('An in-session cycle is prepared (.evolve/run/). Finish it with `bash .evolve/scripts/evolve.sh finalize`, or remove .evolve/run to abandon it, then upgrade.');
+    // which would put the old engine back over the upgrade. Holding the lock keeps new cycles out.
+    const lock = await holdRunLock();
+    if (lock === 'busy') {
+      console.error('A cycle is running (it holds the code-evolve run lock). Upgrade after it finishes.');
       process.exit(1);
     }
-    if (cycleIsRunning()) {
-      console.error('A cycle is running (it holds the code-evolve run lock). Upgrade after it finishes.');
+    if (lock === 'failed') {
+      console.error('Could not take the code-evolve run lock (is python3 installed?), so the upgrade was not started.');
+      process.exit(1);
+    }
+    if (fs.existsSync(evolveFile('run'))) {
+      console.error('An in-session cycle is prepared (.evolve/run/). Finish it with `bash .evolve/scripts/evolve.sh finalize`, or remove .evolve/run to abandon it, then upgrade.');
       process.exit(1);
     }
 

@@ -102,6 +102,22 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null || true
 check "upgrade refuses while a cycle holds the run lock" "$status" "1"
 check "the refusal says a cycle is running" "$(grep -c 'cycle is running' "$stub_dir/lock.log")" "1"
 
+# The upgrade holds the run lock itself, so no cycle can start mid-upgrade and restore the old engine.
+slow_bin="$stub_dir/slow"; mkdir -p "$slow_bin"
+printf '#!/bin/bash\nsleep 2\necho "claude 0.0.0-stub"\n' > "$slow_bin/claude"; chmod +x "$slow_bin/claude"
+PATH="$slow_bin:$PATH" node "$CLI" upgrade </dev/null >/dev/null 2>&1 &
+upgrader=$!
+held=no
+for _ in $(seq 1 40); do
+    if ! python3 -c "import fcntl,sys;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)" "$lock_file" 2>/dev/null; then held=yes; break; fi
+    sleep 0.1
+done
+wait "$upgrader" || true
+check "the run lock is held while the upgrade runs" "$held" "yes"
+check "the run lock is released after the upgrade" \
+    "$(python3 -c "import fcntl,sys;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB);print('free')" "$lock_file" 2>/dev/null || echo held)" "free"
+git add -A && git commit -qm "upgraded again" >/dev/null || true
+
 # A newer engine is never downgraded by an older CLI.
 node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
 git add -A && git commit -qm "newer engine"
