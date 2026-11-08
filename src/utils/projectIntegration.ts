@@ -63,9 +63,19 @@ function operatorSkillNames(operatorSkillsDir: string): string[] {
 /** Frontmatter line that marks a skill directory as installed (and owned) by code-evolve. */
 export const MANAGED_SKILL_MARKER = 'managed-by: code-evolve';
 
+function frontmatter(skillFile: string): string {
+  const match = fs.readFileSync(skillFile, 'utf8').match(/^---\n([\s\S]*?)\n---\n/);
+  return match ? match[1] : '';
+}
+
+/** Owned only if the marker is in the frontmatter (a user's skill could mention it in its body). */
 function isManagedSkill(skillPath: string): boolean {
   const skillFile = path.join(skillPath, 'SKILL.md');
-  return fs.existsSync(skillFile) && fs.readFileSync(skillFile, 'utf8').includes(MANAGED_SKILL_MARKER);
+  return fs.existsSync(skillFile) && frontmatter(skillFile).split('\n').some((line) => line.trim() === MANAGED_SKILL_MARKER);
+}
+
+function isSymlink(target: string): boolean {
+  return fs.lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink() ?? false;
 }
 
 /** True if <relativeDir> or any directory above it (inside the project) is a symlink. */
@@ -80,6 +90,8 @@ function crossesSymlink(projectDir: string, relativeDir: string): boolean {
 export interface SkillInstallResult {
   installed: string[];
   skipped: string[];
+  /** Skill directories (and their parents) that did not exist before; eject may remove them. */
+  createdDirs: string[];
 }
 
 /**
@@ -89,11 +101,14 @@ export interface SkillInstallResult {
  */
 export function installOperatorSkills(projectDir: string, operatorSkillsDir: string): SkillInstallResult {
   const names = operatorSkillNames(operatorSkillsDir);
-  const result: SkillInstallResult = { installed: names, skipped: [] };
+  const result: SkillInstallResult = { installed: names, skipped: [], createdDirs: [] };
   for (const skillDir of AGENT_SKILL_DIRS) {
     if (crossesSymlink(projectDir, skillDir)) {
       result.skipped.push(`${skillDir} (symlinked directory)`);
       continue;
+    }
+    for (const dir of [path.dirname(skillDir), skillDir]) {
+      if (!fs.existsSync(path.join(projectDir, dir))) result.createdDirs.push(dir);
     }
     for (const name of names) {
       const destination = path.join(projectDir, skillDir, name);
@@ -108,8 +123,9 @@ export function installOperatorSkills(projectDir: string, operatorSkillsDir: str
   return result;
 }
 
-/** Removes the operator skills code-evolve installed (never a user's own), and emptied dirs. */
-export function removeOperatorSkills(projectDir: string, operatorSkillsDir: string): void {
+/** Removes the operator skills code-evolve installed (never a user's own), and the skill dirs
+ * init created once they are empty. */
+export function removeOperatorSkills(projectDir: string, operatorSkillsDir: string, createdPaths: string[]): void {
   const names = operatorSkillNames(operatorSkillsDir);
   for (const skillDir of AGENT_SKILL_DIRS) {
     if (crossesSymlink(projectDir, skillDir)) continue;
@@ -117,8 +133,9 @@ export function removeOperatorSkills(projectDir: string, operatorSkillsDir: stri
       const skillPath = path.join(projectDir, skillDir, name);
       if (isManagedSkill(skillPath)) fs.rmSync(skillPath, { recursive: true, force: true });
     }
-    removeIfEmpty(path.join(projectDir, skillDir));
-    removeIfEmpty(path.dirname(path.join(projectDir, skillDir)));
+    for (const dir of [skillDir, path.dirname(skillDir)]) {
+      if (createdPaths.includes(dir)) removeIfEmpty(path.join(projectDir, dir));
+    }
   }
 }
 
@@ -137,20 +154,27 @@ function instructionFiles(projectDir: string): string[] {
   return files;
 }
 
-export function upsertAgentInstructions(projectDir: string): void {
+/** Adds or refreshes the code-evolve section; returns the files it created. Symlinked
+ * instruction files are skipped, since they usually point at instructions shared across projects. */
+export function upsertAgentInstructions(projectDir: string): string[] {
+  const created: string[] = [];
   for (const file of instructionFiles(projectDir)) {
-    const content = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    if (isSymlink(file)) continue;
+    const existed = fs.existsSync(file);
+    const content = existed ? fs.readFileSync(file, 'utf8') : '';
     fs.writeFileSync(file, withManagedSection(content, AGENTS_SECTION));
+    if (!existed) created.push(path.basename(file));
   }
+  return created;
 }
 
-/** Removes the code-evolve section; deletes a file the section was the only content of. */
-export function removeAgentInstructions(projectDir: string): void {
+/** Removes the code-evolve section; deletes the file only if init created it and nothing else remains. */
+export function removeAgentInstructions(projectDir: string, createdPaths: string[]): void {
   for (const name of ['AGENTS.md', 'CLAUDE.md']) {
     const file = path.join(projectDir, name);
-    if (!fs.existsSync(file)) continue;
+    if (!fs.existsSync(file) || isSymlink(file)) continue;
     const remaining = withoutManagedSection(fs.readFileSync(file, 'utf8'));
-    if (remaining.trim() === '') fs.rmSync(file);
+    if (remaining.trim() === '' && createdPaths.includes(name)) fs.rmSync(file);
     else fs.writeFileSync(file, remaining);
   }
 }

@@ -97,7 +97,7 @@ export const ejectCommand = new Command('eject')
       const linesToRemove = new Set(installConfig.gitignoreLinesAdded ?? MANAGED_GITIGNORE_LINES);
       const kept = fs.readFileSync(gitignorePath, 'utf8').split('\n').filter((line) => !linesToRemove.has(line));
       const cleaned = kept.join('\n');
-      if (installConfig.gitignoreCreated && cleaned.trim() === '') {
+      if ((installConfig.createdPaths ?? []).includes('.gitignore') && cleaned.trim() === '') {
         fs.rmSync(gitignorePath);
         console.log('Removed .gitignore (init had created it for code-evolve entries only)');
       } else {
@@ -107,8 +107,8 @@ export const ejectCommand = new Command('eject')
     }
 
     // Operator skills and the code-evolve section in AGENTS.md / CLAUDE.md
-    removeOperatorSkills(process.cwd(), getOperatorSkillsDir());
-    removeAgentInstructions(process.cwd());
+    removeOperatorSkills(process.cwd(), getOperatorSkillsDir(), installConfig.createdPaths ?? []);
+    removeAgentInstructions(process.cwd(), installConfig.createdPaths ?? []);
     console.log('Removed code-evolve skills and agent instructions');
 
     console.log('');

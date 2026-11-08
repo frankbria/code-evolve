@@ -182,9 +182,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Copy skills (always overwrite — framework definitions)
     copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
 
-    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Never on a fresh
-    // --yes install: those root files are the project's own documents.
-    if (forceExplicit || wasInitialized) {
+    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Only on an explicit
+    // --force: under --yes those root files are the project's own documents.
+    if (forceExplicit) {
       for (const file of ['vision.md', 'spec.md']) {
         const rootPath = projectFile(file);
         const evolvePath = evolveFile(file);
@@ -303,7 +303,16 @@ export async function runInit(options: InitOptions): Promise<void> {
     // the key is set, matching init's "set your key as a next step" model.
     let localScheduled = false;
     // A refresh keeps the user's schedule (cadence, model) unless they asked to change it.
-    const keepSchedule = wasInitialized && !modeExplicit && !everyExplicit && fs.existsSync(evolveFile('schedule.json'));
+    const previousConfig = readConfig();
+    const agentChanged = agent !== previousConfig.agent;
+    const authChanged = authMode !== (previousConfig.authMode ?? 'api-key');
+    const keepSchedule = wasInitialized && !interactive && !modeExplicit && !everyExplicit
+      && !agentChanged && !authChanged && fs.existsSync(evolveFile('schedule.json'));
+    // Reinstalling for a changed agent or auth keeps the cadence the user already chose.
+    if (wasInitialized && !everyExplicit && !interactive) {
+      const previousEvery = readScheduleEvery();
+      if (previousEvery !== null) hours = previousEvery;
+    }
     if (keepSchedule && wantLocal) {
       console.log('  Keeping the existing local schedule');
     } else if (wantLocal) {
@@ -329,11 +338,16 @@ export async function runInit(options: InitOptions): Promise<void> {
     const currentConfig = readConfig();
     const gitignoreChange = updateGitignore();
     const gitignoreLinesAdded = [...(currentConfig.gitignoreLinesAdded ?? []), ...gitignoreChange.added];
-    const gitignoreCreated = Boolean(currentConfig.gitignoreCreated) || gitignoreChange.created;
 
     // Operator skills where agents discover them, plus a short note for any agent working here.
     const skills = installOperatorSkills(process.cwd(), getOperatorSkillsDir());
-    upsertAgentInstructions(process.cwd());
+    const createdInstructionFiles = upsertAgentInstructions(process.cwd());
+    const createdPaths = [...new Set([
+      ...(currentConfig.createdPaths ?? []),
+      ...(gitignoreChange.created ? ['.gitignore'] : []),
+      ...skills.createdDirs,
+      ...createdInstructionFiles,
+    ])];
     console.log(`  Installed skills (${skills.installed.join(', ')}) into ${AGENT_SKILL_DIRS.join(' and ')}`);
     for (const skipped of skills.skipped) console.warn(`  ⚠ Left alone: ${skipped}`);
 
@@ -343,8 +357,8 @@ export async function runInit(options: InitOptions): Promise<void> {
       agent,
       authMode,
       ...(mode ? { mode } : {}),
-      ...(gitignoreLinesAdded.length > 0 ? { gitignoreLinesAdded } : {}),
-      ...(gitignoreCreated ? { gitignoreCreated } : {}),
+      gitignoreLinesAdded,
+      createdPaths,
     });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
@@ -549,6 +563,19 @@ async function promptForInterval(fallback: number): Promise<number> {
     return parsed;
   } finally {
     rl.close();
+  }
+}
+
+/** The cadence of the installed local schedule, or null when there is none (or it is unreadable). */
+function readScheduleEvery(): number | null {
+  try {
+    const schedule: unknown = JSON.parse(fs.readFileSync(evolveFile('schedule.json'), 'utf8'));
+    if (typeof schedule === 'object' && schedule !== null && 'every' in schedule && typeof schedule.every === 'number') {
+      return schedule.every;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

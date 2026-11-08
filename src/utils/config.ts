@@ -9,9 +9,10 @@ export interface EvolveConfig {
   model?: string;
   authMode?: AuthMode;
   mode?: ExecutionMode;
-  /** .gitignore lines init added (eject removes exactly these), and whether init created the file. */
+  /** .gitignore lines init added; eject removes exactly these. */
   gitignoreLinesAdded?: string[];
-  gitignoreCreated?: boolean;
+  /** Files and directories init created outside .evolve/; eject deletes only these (when empty). */
+  createdPaths?: string[];
 }
 
 const CONFIG_FILE = 'config.json';
