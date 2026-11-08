@@ -97,6 +97,22 @@ if ! declare -f agent_detect_error >/dev/null; then
     agent_detect_error() { return 1; }
 fi
 
+# Prints how many lines of <file> match <regex>, always as one integer. grep -c already prints
+# "0" on no match but exits 1, so falling back to printing another 0 would print it twice.
+count_lines_matching() {
+    [ -f "$2" ] || { echo 0; return; }
+    grep -c -- "$1" "$2" || true
+}
+
+# Next REQ id in <ledger>: highest REQ-#### + 1, zero-padded. Only real ids count, so the
+# template's "## REQ-NNNN" format example is not a REQ, and deleting a lower REQ cannot make
+# a later capture reuse an id that is still in the ledger.
+next_req_number() {
+    local highest
+    highest=$( { grep -oE '^## REQ-[0-9]{4}:' "$1" 2>/dev/null || true; } | tr -dc '0-9\n' | sort -n | tail -1)
+    printf '%04d' $(( 10#${highest:-0} + 1 ))
+}
+
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
     BIRTH_DATE=$(cat "$EVOLVE_DIR/.birth_date")
@@ -259,7 +275,7 @@ if command -v gh &>/dev/null; then
         > "$RUN_TMP/issues_raw.json" 2>/dev/null || true
 
     python3 "$EVOLVE_DIR/scripts/format_issues.py" "$RUN_TMP/issues_raw.json" "$SPONSORS_FILE" "$DAY" > "$ISSUES_FILE" 2>/dev/null || echo "No issues found." > "$ISSUES_FILE"
-    echo "  $(grep -c '^### Issue' "$ISSUES_FILE" 2>/dev/null || echo 0) issues loaded."
+    echo "  $(count_lines_matching '^### Issue' "$ISSUES_FILE") issues loaded."
 else
     echo "  gh CLI not available. Skipping issue fetch."
     echo "No issues available." > "$ISSUES_FILE"
@@ -665,8 +681,7 @@ FIXEOF
             # PROOF9: Auto-capture REQ from revert
             # $ERRORS was captured before ERRORS_FILE was deleted — use it directly
             if [ -f "$EVOLVE_DIR/REQUIREMENTS.md" ]; then
-                REQ_COUNT=$(grep -c '^## REQ-' "$EVOLVE_DIR/REQUIREMENTS.md" 2>/dev/null || echo 0)
-                NEXT_REQ_NUM=$(printf "%04d" $((REQ_COUNT + 1)))
+                NEXT_REQ_NUM=$(next_req_number "$EVOLVE_DIR/REQUIREMENTS.md")
                 ERROR_SUMMARY=$(printf '%s' "$ERRORS" | tail -c 200 | tr '\n' ' ' | tr -cd '[:print:]')
                 # Assign gates heuristically from error text
                 REQ_GATES="[BUILD]"
@@ -732,7 +747,7 @@ JEOF
 fi
 
 # ── Step 6c: Ensure issue responses ──
-ISSUE_COUNT=$(grep -c '^### Issue' "$ISSUES_FILE" 2>/dev/null || echo 0)
+ISSUE_COUNT=$(count_lines_matching '^### Issue' "$ISSUES_FILE")
 SESSION_COMMITS=$(git log --oneline "$SESSION_START_SHA"..HEAD --format="%s" | grep -v "session wrap-up\|auto-format\|journal entry" || true)
 if [ "$ISSUE_COUNT" -gt 0 ] && [ -n "$SESSION_COMMITS" ] && [ ! -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then
     echo "  Issues existed but no ISSUE_RESPONSE.md — running agent to write responses..."
