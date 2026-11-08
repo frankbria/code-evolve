@@ -40,20 +40,25 @@ engine prepare > "$stub_dir/prepare.log" 2>&1 || prepare_status=$?
 grep -q "=== PHASE 1: Assess Current State ===" .evolve/run/PROMPT.md 2>/dev/null \
     && ok "prepare writes the cycle prompt to .evolve/run/PROMPT.md" || bad "no prompt in .evolve/run/PROMPT.md"
 
-session_values=$( (set -u; . .evolve/run/session.env && printf '%s|%s|%s|%s|%s|%s|%s\n' \
-    "$SESSION_START_SHA" "$DAY" "$SESSION_TIME" "$BOUNDARY_NONCE" "$STACK" "$BUILD_CMD|$TEST_CMD" "$PROTECTED_SNAPSHOT") 2>&1) || true
-IFS='|' read -r start_sha day session_time nonce stack build_cmd test_cmd snapshot <<<"$session_values"
+# session.env is plain KEY=value (the engine never sources it), so read it the same way.
+session_value() { sed -n "s/^$1=//p" .evolve/run/session.env 2>/dev/null; }
+start_sha=$(session_value SESSION_START_SHA); day=$(session_value DAY); session_time=$(session_value SESSION_TIME)
+nonce=$(session_value BOUNDARY_NONCE); stack=$(session_value STACK); build_cmd=$(session_value BUILD_CMD)
+test_cmd=$(session_value TEST_CMD); snapshot=$(session_value PROTECTED_SNAPSHOT)
+session_values="$start_sha|$day|$stack"
 [ "$start_sha" = "$(git rev-parse HEAD)" ] && ok "session.env records the baseline SHA" || bad "SESSION_START_SHA='$start_sha' ($session_values)"
 [ "$day" = "0" ] && [ -n "$session_time" ] && [ -n "$nonce" ] && ok "session.env records day, time and nonce" || bad "day/time/nonce: '$day' '$session_time' '$nonce'"
 [ "$stack" = "javascript" ] && [ "$build_cmd" = "npm run build" ] && [ "$test_cmd" = "npm run test" ] \
     && ok "session.env records the detected stack commands" || bad "stack '$stack' build '$build_cmd' test '$test_cmd'"
 [ -s "$snapshot/manifest" ] && grep -qxF ".evolve/IDENTITY.md" "$snapshot/manifest" \
     && ok "the protected-path snapshot survives the prepare process" || bad "no persisted snapshot at '$snapshot'"
-issues_file=$( (. .evolve/run/session.env && printf '%s' "$ISSUES_FILE") 2>/dev/null || true)
-recorded_dirs=$( (. .evolve/run/session.env && printf '%s|%s' "$EVOLVE_DIR" "$PROJECT_DIR") 2>/dev/null || true)
+issues_file=$(session_value ISSUES_FILE)
+recorded_dirs="$(session_value EVOLVE_DIR)|$(session_value PROJECT_DIR)"
 [ -n "$issues_file" ] && [ -r "$issues_file" ] \
     && ok "the issue list in session.env is still readable after prepare exits" || bad "ISSUES_FILE '$issues_file' is not readable"
 [ "$recorded_dirs" = ".evolve|." ] && ok "session.env records EVOLVE_DIR and PROJECT_DIR" || bad "recorded dirs: '$recorded_dirs'"
+grep -qvE '^[A-Z_]+=' .evolve/run/session.env \
+    && bad "session.env has a line that is not KEY=value" || ok "session.env holds only KEY=value lines"
 [ -z "$(git status --porcelain -- .evolve/run)" ] && ok ".evolve/run/ is ignored by git" || bad ".evolve/run shows in git status"
 
 usage_status=0
@@ -61,6 +66,8 @@ engine finalise > "$stub_dir/usage.log" 2>&1 || usage_status=$?
 [ "$usage_status" -eq 2 ] && grep -q "Usage" "$stub_dir/usage.log" \
     && ok "an unknown phase exits 2 with usage" || bad "unknown phase exited $usage_status"
 
+# A full cycle skips while a prepared session is pending (#78), so clear it first.
+rm -rf .evolve/run
 cycle_status=0
 engine > "$stub_dir/cycle.log" 2>&1 || cycle_status=$?
 grep -q "agent called" "$stub_dir/agent-calls" 2>/dev/null && grep -q "Day 0 complete" "$stub_dir/cycle.log" \

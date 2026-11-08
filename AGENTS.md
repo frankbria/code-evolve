@@ -104,6 +104,7 @@ Installation and publishing are documented in [INSTALL.md](INSTALL.md).
 - **`.evolve/` namespace**: All framework files live in `.evolve/` to avoid polluting the project root
 - **`PROJECT_DIR=.`**: The project being built IS the repo root (not a subdirectory)
 - **`EVOLVE_DIR` env var**: All paths in `evolve.sh` are relative to this variable
+- **Engine phases**: `evolve.sh [cycle|prepare|verify|finalize [--no-agent]]`. `cycle` (default) is the headless run; `prepare` / `verify` / `finalize --no-agent` let an agent drive a cycle from inside its own session, with state in `.evolve/run/`
 - **Templates shipped with npm package**: `init` copies from `node_modules/code-evolve/templates/`
 - **vision.md and spec.md in .evolve/**: User documents live alongside other state files to avoid filename collisions
 
