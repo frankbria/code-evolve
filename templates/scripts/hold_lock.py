@@ -40,6 +40,11 @@ def main() -> None:
         write_status(status_path, "busy")
         return
     write_status(status_path, "locked")
+    # shortcut: the lock follows the engine, not agents it spawned, so SIGKILLing only the
+    # engine can let its orphaned agent overlap the next cycle (holding the lock for every
+    # descendant would let one stray dev server block all future cycles). Also, a PID reused
+    # within one poll second would hold the lock until that process exits. Upgrade to
+    # process-group tracking if either is seen.
     while parent_is_alive(parent_pid):
         time.sleep(1)
 

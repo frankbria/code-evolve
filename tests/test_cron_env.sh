@@ -21,7 +21,7 @@ trap 'rm -rf "$stub_dir" "$work_dir"' EXIT
 cat > "$stub_dir/claude" <<STUB
 #!/bin/bash
 [ "\${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
-echo "argv=\$* key=\${ANTHROPIC_API_KEY:-<unset>} run=\${RUN_ID:-cron}" >> "$stub_dir/agent-calls"
+echo "argv=\$* key=\${ANTHROPIC_API_KEY:-<unset>} model_env=\${MODEL:-<unset>} run=\${RUN_ID:-cron}" >> "$stub_dir/agent-calls"
 cat >/dev/null
 sleep "\${SLEEP_SECONDS:-0}"
 STUB
@@ -65,8 +65,8 @@ run_with_timeout 120 env -i HOME="$HOME" PATH=/usr/bin:/bin SHELL=/bin/sh GIT_AU
     /bin/sh -c "$cron_command" || true
 
 first_call=$(head -1 "$stub_dir/agent-calls" 2>/dev/null || true)
-if [ "$first_call" = "argv=-p --model my-model --allowedTools Bash,Read,Write,Edit,Glob,Grep key=$tricky_key run=cron" ]; then
-    ok "cron run: agent got MODEL and the exact API key from .env"
+if [ "$first_call" = "argv=-p --model my-model --allowedTools Bash,Read,Write,Edit,Glob,Grep key=$tricky_key model_env=my-model run=cron" ]; then
+    ok "cron run: agent env has MODEL and the exact API key from .env"
 else
     bad "cron run: agent call was '$first_call'; log tail: $(tail -5 .evolve/evolve.log 2>/dev/null)"
 fi
