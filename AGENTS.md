@@ -109,10 +109,14 @@ Installation and publishing are documented in [INSTALL.md](INSTALL.md).
 
 ## Protected Files (in templates)
 
-These must not be modified by the evolution agent:
+These must not be modified by the evolution agent. The canonical list is
+`templates/scripts/protected-paths.txt` (installed as `.evolve/scripts/protected-paths.txt`);
+`evolve.sh` snapshots those paths at session start and restores them after every agent call.
+
 - `.evolve/IDENTITY.md` — agent constitution
 - `.evolve/scripts/evolve.sh` — orchestrator
 - `.evolve/scripts/format_issues.py` — input sanitization
 - `.evolve/scripts/hold_lock.py` — single-run lock (keeps two cycles from editing the repo at once)
+- `.evolve/scripts/*` and `.evolve/skills/*` — the rest of the engine and the runtime skills
 - `.github/workflows/evolve.yml` — auto-evolution workflow
 - `.github/workflows/evolve-ci.yml` — CI/CD safety net (installed by `init --with-ci` from `templates/workflows/ci.yml`, renamed so it never clobbers the target repo's own `ci.yml`)

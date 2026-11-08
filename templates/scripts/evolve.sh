@@ -113,6 +113,65 @@ next_req_number() {
     printf '%04d' $(( 10#${highest:-0} + 1 ))
 }
 
+# ── Protected paths ──
+# protected_path_matches <path>: true if <path> matches a pattern in the session's protected
+# list. The list is the copy taken at session start, so editing it mid-session changes nothing.
+protected_path_matches() {
+    local pattern
+    while IFS= read -r pattern; do
+        case "$pattern" in ''|'#'*) continue ;; esac
+        # shellcheck disable=SC2254
+        case "$1" in $pattern) return 0 ;; esac
+    done < "$PROTECTED_SNAPSHOT/patterns"
+    return 1
+}
+
+# Files in the work tree (tracked or untracked, minus ignored) that match the protected list.
+list_protected_files() {
+    local candidate
+    git ls-files --cached --others --exclude-standard | sort -u | while IFS= read -r candidate; do
+        if protected_path_matches "$candidate"; then printf '%s\n' "$candidate"; fi
+    done
+}
+
+# Copies every protected file into the private run dir at session start.
+snapshot_protected_paths() {
+    local protected_file
+    PROTECTED_SNAPSHOT="$RUN_TMP/protected"
+    mkdir -p "$PROTECTED_SNAPSHOT/files"
+    grep -v '^[[:space:]]*\(#\|$\)' "$EVOLVE_DIR/scripts/protected-paths.txt" > "$PROTECTED_SNAPSHOT/patterns" 2>/dev/null || true
+    list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
+    while IFS= read -r protected_file; do
+        [ -e "$protected_file" ] || continue
+        mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
+        cp -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
+    done < "$PROTECTED_SNAPSHOT/manifest"
+}
+
+# Undoes any agent change to a protected path since the snapshot: modified or deleted files
+# get their snapshot back, new matching files are removed. The wrap-up commit records it.
+restore_protected_paths() {
+    local protected_file restored=()
+    [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
+    while IFS= read -r protected_file; do
+        if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
+            if [ -e "$PROTECTED_SNAPSHOT/files/$protected_file" ] \
+                && ! cmp -s "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"; then
+                mkdir -p "$(dirname "$protected_file")"
+                cp -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"
+                restored+=("$protected_file")
+            fi
+        else
+            git rm -qf --cached --ignore-unmatch -- "$protected_file" >/dev/null 2>&1 || true
+            rm -f -- "$protected_file"
+            restored+=("$protected_file (added)")
+        fi
+    done < <( { cat "$PROTECTED_SNAPSHOT/manifest"; list_protected_files; } | sort -u)
+    if [ "${#restored[@]}" -gt 0 ]; then
+        echo "  Restored protected paths changed by the agent: ${restored[*]}"
+    fi
+}
+
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
     BIRTH_DATE=$(cat "$EVOLVE_DIR/.birth_date")
@@ -353,6 +412,7 @@ if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
     echo "  Seeded initial commit (greenfield repo)"
 fi
 SESSION_START_SHA=$(git rev-parse HEAD)
+snapshot_protected_paths
 echo "-> Starting evolution session..."
 echo ""
 
@@ -416,7 +476,9 @@ You are code-evolve, an autonomous project builder. Read these files in order:
 5. $EVOLVE_DIR/ISSUES_TODAY.md (community requests)
 
 The evolution framework lives in $EVOLVE_DIR/. Project source files are at the project root.
-Do NOT modify files inside $EVOLVE_DIR/ except JOURNAL.md, LEARNINGS.md, and ISSUE_RESPONSE.md.
+Inside $EVOLVE_DIR/ you may edit only: JOURNAL.md, LEARNINGS.md, ISSUE_RESPONSE.md,
+REQUIREMENTS.md and spec.md (checkboxes). Paths listed in $EVOLVE_DIR/scripts/protected-paths.txt
+(IDENTITY.md, scripts/, skills/, the evolve workflows) are restored automatically if you change them.
 
 ${PROJECT_TREE:+
 === CURRENT PROJECT STATE ===
@@ -549,6 +611,7 @@ AGENT_LOG=$(mktemp)
 # (pipefail makes PIPESTATUS[0] reachable, but `|| true` would reset it).
 AGENT_RC=0
 run_agent "$PROMPT_FILE" "$MODEL" "$TIMEOUT_CMD" "$TIMEOUT" 2>&1 | tee "$AGENT_LOG" || AGENT_RC=$?
+restore_protected_paths
 
 rm -f "$PROMPT_FILE"
 
@@ -657,6 +720,7 @@ Steps:
 4. Commit: git add -A && git commit -m "Day $DAY ($SESSION_TIME): fix build errors"
 FIXEOF
             run_agent "$FIX_PROMPT" "$MODEL" "$TIMEOUT_CMD" "300" || true
+            restore_protected_paths
             rm -f "$FIX_PROMPT"
         else
             echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
@@ -727,6 +791,7 @@ Be specific and honest. Then commit: git add $EVOLVE_DIR/JOURNAL.md && git commi
 JEOF
 
     run_agent "$JOURNAL_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || true
+    restore_protected_paths
     rm -f "$JOURNAL_PROMPT"
 
     # Bash fallback if agent still didn't write it
@@ -773,6 +838,7 @@ IEOF
 
     AGENT_EXIT=0
     run_agent "$ISSUE_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || AGENT_EXIT=$?
+    restore_protected_paths
     rm -f "$ISSUE_PROMPT"
 
     if [ "$AGENT_EXIT" -ne 0 ]; then
