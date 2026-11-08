@@ -119,6 +119,8 @@ printf '#!/bin/bash\necho "codex 0.0.0-stub"\n' > "$stub_dir/codex"; chmod +x "$
 OPENAI_API_KEY=sk-test cli init --yes --agent codex || bad "agent-change refresh failed"
 grep -q 'AGENT="codex"' "$stub_dir/table" && grep -q '"agent": "codex"' .evolve/schedule.json && grep -q '"every": 6' .evolve/schedule.json \
     && ok "an explicit agent change on refresh reinstalls the schedule for the new agent" || bad "schedule still uses the old agent: $(grep -o 'AGENT=[^ ]*' "$stub_dir/table")"
+ANTHROPIC_API_KEY=sk-test cli eject --yes || bad "local eject failed"
+[ ! -e .gitignore ] && ok "eject removes the .gitignore a local-mode init created" || bad "left .gitignore: $(cat .gitignore)"
 cd / && rm -rf "$project" "$outside"
 
 echo "----"

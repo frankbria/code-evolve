@@ -296,6 +296,12 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.log(`  CI secret: ${ciProfile.secretHint}`);
     }
 
+    // Update .gitignore before scheduling (which also touches it), remembering exactly what was
+    // added so eject can remove only that
+    const currentConfig = readConfig();
+    const gitignoreChange = updateGitignore();
+    const gitignoreLinesAdded = [...(currentConfig.gitignoreLinesAdded ?? []), ...gitignoreChange.added];
+
     // Install the local cron schedule for local/both modes. Native Windows has
     // no cron, so skip with a pointer to CI. We only install when the agent's
     // API key is already in the environment (or none is needed); otherwise the
@@ -334,10 +340,6 @@ export async function runInit(options: InitOptions): Promise<void> {
       }
     }
 
-    // Update .gitignore, remembering exactly what was added so eject can remove only that
-    const currentConfig = readConfig();
-    const gitignoreChange = updateGitignore();
-    const gitignoreLinesAdded = [...(currentConfig.gitignoreLinesAdded ?? []), ...gitignoreChange.added];
 
     // Operator skills where agents discover them, plus a short note for any agent working here.
     const skills = installOperatorSkills(process.cwd(), getOperatorSkillsDir());
