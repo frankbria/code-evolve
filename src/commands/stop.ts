@@ -1,9 +1,8 @@
 import { Command } from 'commander';
-import { execSync } from 'child_process';
+import { removeProjectCron } from '../utils/crontab';
 import fs from 'fs';
 import { evolveFile, isInitialized } from '../utils/paths';
 
-const CRON_MARKER = 'code-evolve';
 
 export const stopCommand = new Command('stop')
   .description('Stop the evolution engine (removes the local cron job)')
@@ -19,7 +18,7 @@ export const stopCommand = new Command('stop')
     }
 
     const projectDir = process.cwd();
-    const removed = removeExistingCron(projectDir);
+    const removed = removeProjectCron(projectDir);
 
     if (removed) {
       console.log('Evolution engine stopped. Cron job removed.');
@@ -34,29 +33,3 @@ export const stopCommand = new Command('stop')
     }
   });
 
-function getCrontab(): string {
-  try {
-    return execSync('crontab -l 2>/dev/null', { encoding: 'utf8' });
-  } catch {
-    return '';
-  }
-}
-
-function setCrontab(content: string): void {
-  execSync(`echo ${JSON.stringify(content)} | crontab -`, { encoding: 'utf8' });
-}
-
-function removeExistingCron(projectDir: string): boolean {
-  const existing = getCrontab();
-  if (!existing) return false;
-
-  const marker = `${CRON_MARKER}:${projectDir}`;
-  const lines = existing.split('\n');
-  const filtered = lines.filter((line) => !line.includes(marker));
-
-  if (filtered.length === lines.length) return false;
-
-  const cleaned = filtered.join('\n').replace(/\n{3,}/g, '\n\n');
-  setCrontab(cleaned);
-  return true;
-}
