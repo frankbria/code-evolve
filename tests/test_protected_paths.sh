@@ -96,6 +96,42 @@ ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
     && ok "gitignored, list-less install: tampered evolve.sh is restored" || bad "ignored evolve.sh still tampered"
 cd / && rm -rf "$second_dir"
 
+# Third project (CI mode): the agent turns .github/workflows into a symlink to a directory
+# outside the protected tree, clears evolve.sh's exec bit, and deletes a protected skill that
+# was a symlink at session start.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e .evolve/.stub-ran ] && exit 0
+touch .evolve/.stub-ran
+mkdir -p outside && cp .github/workflows/evolve.yml outside/evolve.yml && echo "# tampered" >> outside/evolve.yml
+rm -rf .github/workflows && ln -s ../outside .github/workflows
+chmod -x .evolve/scripts/evolve.sh
+rm .evolve/skills/linked-skill
+STUB
+third_dir="$(mktemp -d)"
+cd "$third_dir"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude --mode ci </dev/null >/dev/null 2>&1 || bad "third init failed"
+printf '.evolve/.stub-ran\n' >> .gitignore
+ln -s plan .evolve/skills/linked-skill
+git add -A && git commit -qm "baseline, CI mode"
+workflow_before=$(cat .github/workflows/evolve.yml)
+ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine3.log" 2>&1 || true
+[ ! -L .github/workflows ] && [ -d .github/workflows ] && [ "$(cat .github/workflows/evolve.yml)" = "$workflow_before" ] \
+    && ok "a workflows dir swapped for a symlink is replaced and evolve.yml restored" \
+    || bad "workflows dir symlink not undone: $(ls -la .github 2>&1 | tail -2)"
+grep -q "# tampered" outside/evolve.yml 2>/dev/null \
+    && ok "restoring did not write through the directory symlink into outside/" || bad "outside/evolve.yml was overwritten"
+[ -x .evolve/scripts/evolve.sh ] && ok "a cleared exec bit on evolve.sh is restored" || bad "evolve.sh lost its exec bit"
+[ -L .evolve/skills/linked-skill ] && [ "$(readlink .evolve/skills/linked-skill)" = "plan" ] \
+    && ok "a protected symlink deleted by the agent is restored as a symlink" || bad "linked-skill not restored"
+cd / && rm -rf "$third_dir"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

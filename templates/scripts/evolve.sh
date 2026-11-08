@@ -128,21 +128,33 @@ protected_path_matches() {
 
 # Every file or symlink on disk that matches the protected list. Walks the filesystem rather
 # than asking git, so gitignored protected files (and planted files hidden by a new ignore
-# rule) are still covered. Only each pattern's top-level directory is searched.
+# rule) are still covered. Only each pattern's first path segment is searched, so a pattern
+# must start with a literal directory or file name (not a glob). find -H follows a top-level
+# symlink (a user may symlink .evolve) but never symlinks inside it.
 list_protected_files() {
     local pattern search_root candidate
     while IFS= read -r pattern; do
         case "$pattern" in ''|'#'*) continue ;; esac
         search_root="${pattern%%/*}"
         [ -e "$search_root" ] || [ -L "$search_root" ] || continue
-        find "$search_root" \( -type f -o -type l \) 2>/dev/null
+        find -H "$search_root" \( -type f -o -type l \) 2>/dev/null
     done < "$PROTECTED_SNAPSHOT/patterns" | sort -u | while IFS= read -r candidate; do
         if protected_path_matches "$candidate"; then printf '%s\n' "$candidate"; fi
     done
 }
 
-# Copies every protected file into the private run dir at session start. Installs from before
-# protected-paths.txt existed fall back to the built-in list instead of going unprotected.
+# Directories between the project root and <path> that are symlinks right now.
+symlinked_ancestors() {
+    local directory
+    directory=$(dirname "$1")
+    while [ "$directory" != "." ] && [ "$directory" != "/" ]; do
+        [ -L "$directory" ] && printf '%s\n' "$directory"
+        directory=$(dirname "$directory")
+    done
+}
+
+# Copies every protected file (and protected symlink, as a link) into the private run dir at
+# session start. Installs from before protected-paths.txt existed use the built-in list.
 snapshot_protected_paths() {
     local protected_file
     PROTECTED_SNAPSHOT="$RUN_TMP/protected"
@@ -150,36 +162,54 @@ snapshot_protected_paths() {
     if [ -f "$EVOLVE_DIR/scripts/protected-paths.txt" ]; then
         cp "$EVOLVE_DIR/scripts/protected-paths.txt" "$PROTECTED_SNAPSHOT/patterns"
     else
+        # Keep in sync with templates/scripts/protected-paths.txt.
         printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
             .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
     fi
     list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
+    : > "$PROTECTED_SNAPSHOT/symlinked_ancestors"
     while IFS= read -r protected_file; do
-        [ -f "$protected_file" ] && [ ! -L "$protected_file" ] || continue
         mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
-        cp -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
+        cp -P -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
+        symlinked_ancestors "$protected_file" >> "$PROTECTED_SNAPSHOT/symlinked_ancestors"
     done < "$PROTECTED_SNAPSHOT/manifest"
 }
 
+# True if <path> differs from its snapshot: content, symlink target, or the executable bit.
+protected_file_changed() {
+    local saved="$PROTECTED_SNAPSHOT/files/$1"
+    if [ -L "$saved" ]; then
+        [ ! -L "$1" ] || [ "$(readlink "$saved")" != "$(readlink "$1")" ]
+        return
+    fi
+    [ -L "$1" ] || [ ! -f "$1" ] || ! cmp -s "$saved" "$1" || { [ -x "$saved" ] && [ ! -x "$1" ]; } || { [ ! -x "$saved" ] && [ -x "$1" ]; }
+}
+
 # Undoes any agent change to a protected path since the snapshot: modified or deleted files
-# get their snapshot back, new matching files are removed. The wrap-up commit records it.
+# get their snapshot back, new matching files are removed, and a directory the agent turned
+# into a symlink is replaced by a real one first (writes would otherwise land wherever the link
+# points). Restores go through a temp file and mv, so a running evolve.sh keeps its old inode.
 restore_protected_paths() {
-    local protected_file restored=()
+    local protected_file ancestor temporary_copy restored=()
     [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
     while IFS= read -r protected_file; do
+        while IFS= read -r ancestor; do
+            grep -qxF -- "$ancestor" "$PROTECTED_SNAPSHOT/symlinked_ancestors" && continue
+            rm -f -- "$ancestor" 2>/dev/null || true
+            restored+=("$ancestor (directory symlink removed)")
+        done < <(symlinked_ancestors "$protected_file")
         if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
-            [ -e "$PROTECTED_SNAPSHOT/files/$protected_file" ] || continue
-            # A symlink or directory now at the path is removed first: copying through a symlink
-            # would overwrite whatever it points at instead of restoring the protected file.
+            protected_file_changed "$protected_file" || continue
             if [ -L "$protected_file" ] || { [ -e "$protected_file" ] && [ ! -f "$protected_file" ]; }; then
                 rm -rf -- "$protected_file"
-            elif cmp -s "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"; then
-                continue
             fi
             mkdir -p "$(dirname "$protected_file")"
-            if cp -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"; then
+            temporary_copy="$(dirname "$protected_file")/.restore.$$.$(basename "$protected_file")"
+            if cp -P -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$temporary_copy" \
+                && mv -f -- "$temporary_copy" "$protected_file"; then
                 restored+=("$protected_file")
             else
+                rm -f -- "$temporary_copy" 2>/dev/null || true
                 echo "  WARNING: could not restore protected file $protected_file"
             fi
         else
