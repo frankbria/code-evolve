@@ -178,7 +178,9 @@ snapshot_protected_paths() {
     done < "$PROTECTED_SNAPSHOT/manifest"
     sort -u -o "$PROTECTED_SNAPSHOT/ancestor_links" "$PROTECTED_SNAPSHOT/ancestor_links"
     while IFS= read -r protected_file; do
-        git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1 && printf '%s\n' "$protected_file"
+        if git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1; then
+            printf '%s\n' "$protected_file"
+        fi
     done < "$PROTECTED_SNAPSHOT/manifest" > "$PROTECTED_SNAPSHOT/tracked"
 }
 
