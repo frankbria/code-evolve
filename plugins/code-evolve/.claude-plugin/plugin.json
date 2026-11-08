@@ -2,6 +2,7 @@
   "name": "code-evolve",
   "version": "0.2.0",
   "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status.",
+  "icon": "./assets/logo.png",
   "author": {
     "name": "Frank Bria"
   },

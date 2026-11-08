@@ -50,13 +50,15 @@ code-evolve/                  # npm package source
 │       └── __tests__/        # Jest unit tests
 ├── tests/                    # Shell tests (test_*.sh) driving the built CLI and engine scripts
 ├── .claude-plugin/marketplace.json  # The repo is its own Claude Code marketplace (serves plugins/code-evolve)
-├── plugins/code-evolve/      # Self-contained plugin: .claude-plugin/plugin.json (version synced by `npm version`)
+├── plugins/code-evolve/      # Self-contained plugin: plugin.json (Agent Plugins 1.0, Codex etc.) + .claude-plugin/plugin.json; versions synced by `npm version`
+│   ├── assets/               # logo.png, composer-icon.png
 │   └── skills/               # Operator skills (evolve-setup/-run/-status); init copies them into .claude/skills + .agents/skills
 ├── templates/                # Files installed by `init` into a target project
 │   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, hold_lock.py, agents/ (per-backend adapters)
 │   ├── skills/               # Runtime skills (6 dirs, Agent Skills SKILL.md format; indexed into the cycle prompt)
 │   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, REQUIREMENTS.md, DAY_COUNT, vision.md, spec.md
 │   └── workflows/            # GitHub Actions (evolve.yml, ci.yml)
+├── scripts/                  # Repo tooling: sync-plugin-version.js (npm version hook), pack-codex-plugin (plugin ZIP)
 ├── docs/                     # INSTALL.md, STATUS.md, PROOF9.md
 ├── dist/                     # Compiled output (gitignored; built on publish)
 └── .github/workflows/        # CI for this package

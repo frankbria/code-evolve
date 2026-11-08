@@ -1,0 +1,45 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "code-evolve",
+  "version": "0.2.0",
+  "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status.",
+  "author": {
+    "name": "Frank Bria",
+    "url": "https://github.com/frankbria"
+  },
+  "homepage": "https://github.com/frankbria/code-evolve",
+  "repository": "https://github.com/frankbria/code-evolve",
+  "license": "MIT",
+  "keywords": [
+    "autonomous",
+    "self-evolving",
+    "agent",
+    "skills"
+  ],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/evolve-setup/SKILL.md",
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "code-evolve",
+        "shortDescription": "Let your codebase evolve",
+        "longDescription": "Turn a project into a self-evolving codebase. evolve-setup installs code-evolve and drafts the vision and spec with you; evolve-run drives one build-verify-commit cycle from your session; evolve-status reports progress, open requirements and anything that needs attention. Cycles run local shell scripts and git in your repository.",
+        "developerName": "Frank Bria",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Interactive",
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Set up code-evolve in this project",
+          "Run one code-evolve cycle",
+          "How is this project evolving?"
+        ],
+        "websiteURL": "https://github.com/frankbria/code-evolve",
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/composer-icon.png"
+      }
+    }
+  }
+}
