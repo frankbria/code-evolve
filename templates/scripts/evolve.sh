@@ -161,7 +161,9 @@ snapshot_protected_paths() {
     PROTECTED_SNAPSHOT="$RUN_TMP/protected"
     mkdir -p "$PROTECTED_SNAPSHOT/files"
     if [ -f "$EVOLVE_DIR/scripts/protected-paths.txt" ]; then
-        cp "$EVOLVE_DIR/scripts/protected-paths.txt" "$PROTECTED_SNAPSHOT/patterns"
+        # The list is written for the default .evolve; follow an EVOLVE_DIR override.
+        awk -v dir="${EVOLVE_DIR%/}" '{ if (index($0, ".evolve/") == 1) $0 = dir substr($0, 8); print }' \
+            "$EVOLVE_DIR/scripts/protected-paths.txt" > "$PROTECTED_SNAPSHOT/patterns"
     else
         # Keep in sync with templates/scripts/protected-paths.txt.
         printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
