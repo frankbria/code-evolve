@@ -95,6 +95,20 @@ grep -q "verifying now" "$log_dir/finalize.log" && grep -q '"test":"true"' packa
     && ok "finalize re-verifies a tree that changed after verify, and reverts it" || bad "changed tree finalized unchecked: $(tail -4 "$log_dir/finalize.log")"
 cd / && rm -rf "$changed_dir"
 
+# ── Editing an untracked file after verify also counts as a change ──
+new_project true
+untracked_dir="$PWD"
+engine prepare > "$log_dir/prepare.log" 2>&1 || bad "prepare (untracked edit) failed"
+printf '{"name":"demo","scripts":{"build":"true","test":"node check.js"}}\n' > package.json
+git commit -qam "Day 0: tests read check.js"
+echo "process.exit(0)" > check.js
+engine verify > "$log_dir/verify.log" 2>&1 || bad "verify (untracked edit) failed: $(tail -2 "$log_dir/verify.log")"
+echo "process.exit(1)" > check.js
+engine finalize --no-agent > "$log_dir/finalize.log" 2>&1 || true
+grep -q "verifying now" "$log_dir/finalize.log" \
+    && ok "an untracked file edited after verify triggers re-verification" || bad "untracked edit not noticed: $(grep -iE 'verif' "$log_dir/finalize.log" | head -2)"
+cd / && rm -rf "$untracked_dir"
+
 # ── finalize without any verify still checks the work ──
 new_project true
 unverified_dir="$PWD"

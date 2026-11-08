@@ -803,7 +803,7 @@ fi  # end of the cycle/prepare region
 # Commands detected when the session started win: re-detecting from the agent-edited tree
 # would let a session drop a failing check. Re-detection only fills ones that were empty
 # (a bootstrap session creates the project files).
-PREPARED_BUILD_CMD="${BUILD_CMD:-}"; PREPARED_TEST_CMD="${TEST_CMD:-}"
+PREPARED_STACK="${STACK:-}"; PREPARED_BUILD_CMD="${BUILD_CMD:-}"; PREPARED_TEST_CMD="${TEST_CMD:-}"
 PREPARED_LINT_CMD="${LINT_CMD:-}"; PREPARED_FORMAT_CMD="${FORMAT_CMD:-}"
 # Re-detect stack in case bootstrap session created project files
 STACK_JSON=$(bash "$EVOLVE_DIR/scripts/detect_stack.sh" "$PROJECT_DIR" 2>/dev/null || echo '{"stack":"unknown","build":"","test":"","lint":"","format":""}')
@@ -812,6 +812,7 @@ BUILD_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sy
 TEST_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['test'])" 2>/dev/null || echo "")
 LINT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['lint'])" 2>/dev/null || echo "")
 FORMAT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['format'])" 2>/dev/null || echo "")
+case "$PREPARED_STACK" in ''|unknown) ;; *) STACK="$PREPARED_STACK" ;; esac
 BUILD_CMD="${PREPARED_BUILD_CMD:-$BUILD_CMD}"; TEST_CMD="${PREPARED_TEST_CMD:-$TEST_CMD}"
 LINT_CMD="${PREPARED_LINT_CMD:-$LINT_CMD}"; FORMAT_CMD="${PREPARED_FORMAT_CMD:-$FORMAT_CMD}"
 
@@ -857,7 +858,11 @@ verify_single_stack() {
 # A digest of the work tree (HEAD, changes, untracked files), so finalize can tell whether
 # the code it is about to commit is the code verify passed.
 worktree_fingerprint() {
-    { git rev-parse HEAD; git -c core.quotePath=false status --porcelain=v1 -uall -- "$PROJECT_DIR"; git diff HEAD -- "$PROJECT_DIR"; } \
+    local untracked_file
+    { git rev-parse HEAD; git -c core.quotePath=false status --porcelain=v1 -uall -- "$PROJECT_DIR"; git diff HEAD -- "$PROJECT_DIR"
+      git ls-files --others --exclude-standard -z -- "$PROJECT_DIR" | while IFS= read -r -d '' untracked_file; do
+          git hash-object -- "$untracked_file" 2>/dev/null || true
+      done; } \
         | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1
 }
 
