@@ -950,8 +950,20 @@ revert_session_and_capture_req() {
 }
 
 DETECTED_SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
-# Same rule as the commands above: the substacks found at session start win.
-case "${SUBSTACKS_JSON:-}" in ''|'[]') SUBSTACKS_JSON="$DETECTED_SUBSTACKS_JSON" ;; esac
+# Same rule as the commands above: substacks found at session start keep their commands, and
+# subprojects the session added are verified too.
+SUBSTACKS_JSON=$(PREPARED="${SUBSTACKS_JSON:-[]}" DETECTED="$DETECTED_SUBSTACKS_JSON" python3 -c '
+import json, os
+def load(name):
+    try:
+        value = json.loads(os.environ[name] or "[]")
+        return value if isinstance(value, list) else []
+    except ValueError:
+        return []
+merged = load("PREPARED")
+known = {entry.get("dir") for entry in merged}
+merged += [entry for entry in load("DETECTED") if entry.get("dir") not in known]
+print(json.dumps(merged))' 2>/dev/null || echo "$DETECTED_SUBSTACKS_JSON")
 ERRORS=""
 HAS_VERIFICATION=false
 if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
