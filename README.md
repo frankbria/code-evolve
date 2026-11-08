@@ -44,7 +44,9 @@ claude plugin install code-evolve@code-evolve --scope project
 
 (Inside a session, the same works as `/plugin marketplace add frankbria/code-evolve` and `/plugin install code-evolve@code-evolve`; Claude Code 2.1.275 or later also takes `/plugin install code-evolve --marketplace frankbria/code-evolve`.) Then run `/code-evolve:evolve-setup`.
 
-Setup installs the same skills into your project's `.claude/skills/`, so the plugin's copies (`/code-evolve:evolve-run`) and the project's (`/evolve-run`) both appear. **Use the project copies once setup has run:** they match the engine version installed in `.evolve/`, and they reach teammates and other agents without the plugin. Remove the plugin afterwards with `claude plugin uninstall code-evolve --scope project`.
+Setup installs the same skills into your project's `.claude/skills/`, so the plugin's copies (`/code-evolve:evolve-run`) and the project's (`/evolve-run`) both appear. **Use the project copies once setup has run:** they match the engine version installed in `.evolve/`, and they reach teammates and other agents without the plugin. You can remove the plugin afterwards with `claude plugin uninstall code-evolve --scope project`, but keep it if you want its protected-files hook.
+
+**Protected-files hook.** The plugin adds a `PreToolUse` hook that stops the agent from editing code-evolve's protected files (`.evolve/IDENTITY.md`, the engine in `.evolve/scripts/` and `.evolve/skills/`, and the evolve workflows; the list is `.evolve/scripts/protected-paths.txt`) and tells it why. It catches file edits and obvious shell writes (`>`, `sed -i`, `rm`, `git checkout --`, …), not every possible command. The engine still restores those files after every agent call, so this is a time-saver, not the enforcement; `claude --bare` skips plugin hooks entirely.
 
 ### From inside Codex and other Agent Plugins clients
 
@@ -55,7 +57,9 @@ codex plugin marketplace add frankbria/code-evolve
 codex plugin add code-evolve@code-evolve
 ```
 
-Then start Codex in your project and run `$evolve-setup`. As with Claude Code, setup also installs the skills into `.agents/skills/`; once it has run, prefer those copies and remove the plugin with `codex plugin remove code-evolve@code-evolve`.
+Then start Codex in your project and run `$evolve-setup`. As with Claude Code, setup also installs the skills into `.agents/skills/`; once it has run, prefer those copies; removing the plugin (`codex plugin remove code-evolve@code-evolve`) also removes the protected-files hook.
+
+Codex runs a plugin's hooks only after you trust them: open `/hooks` in Codex and approve the code-evolve hook (approve it again after each plugin update, since trust is tied to the hook's contents). Until then Codex warns at startup and skips it.
 
 Any other agent that reads `SKILL.md` files can take just the skills: `npx skills add frankbria/code-evolve`.
 

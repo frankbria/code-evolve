@@ -52,6 +52,7 @@ code-evolve/                  # npm package source
 ├── .claude-plugin/marketplace.json  # The repo is its own Claude Code marketplace (serves plugins/code-evolve)
 ├── plugins/code-evolve/      # Self-contained plugin: plugin.json (Agent Plugins 1.0, Codex etc.) + .claude-plugin/plugin.json; versions synced by `npm version`
 │   ├── assets/               # logo.png, composer-icon.png
+│   ├── hooks/                # PreToolUse guard for protected files (hooks.json for Claude Code; Codex via plugin.json)
 │   └── skills/               # Operator skills (evolve-setup/-run/-status); init copies them into .claude/skills + .agents/skills
 ├── templates/                # Files installed by `init` into a target project
 │   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, hold_lock.py, agents/ (per-backend adapters)
