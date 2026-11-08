@@ -90,9 +90,9 @@ export const statusCommand = new Command('status')
     // Same rule as the engine: a session older than PENDING_SESSION_MAX_MINUTES is abandoned.
     const sessionFile = evolveFile(path.join('run', 'session.env'));
     const maxPendingMinutes = Number(process.env.PENDING_SESSION_MAX_MINUTES ?? '240');
-    const sessionAgeMinutes = fs.existsSync(sessionFile)
-      ? (Date.now() - fs.statSync(sessionFile).mtimeMs) / 60000
-      : null;
+    // finalize may delete session.env between checks, so a missing file means no session.
+    const sessionModifiedMs = fs.statSync(sessionFile, { throwIfNoEntry: false })?.mtimeMs;
+    const sessionAgeMinutes = sessionModifiedMs === undefined ? null : (Date.now() - sessionModifiedMs) / 60000;
     const pendingSession = sessionAgeMinutes !== null && sessionAgeMinutes < maxPendingMinutes;
     const abandonedSession = sessionAgeMinutes !== null && !pendingSession;
 

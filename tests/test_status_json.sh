@@ -28,6 +28,9 @@ check "requirements are counted by status" "$(status_field 'v.requirements')" '{
 check "a prepared session is reported as pending" "$(status_field 'v.pendingSession')" "true"
 check "an old prepared session is reported as abandoned, not pending" \
     "$(PENDING_SESSION_MAX_MINUTES=0 status_field '[v.pendingSession, v.abandonedSession]')" "[false,true]"
+rm .evolve/run/session.env
+check "a session finalize already removed is neither pending nor abandoned" \
+    "$(status_field '[v.pendingSession, v.abandonedSession]')" "[false,false]"
 
 echo "---"
 echo "passed: $pass  failed: $fail"
