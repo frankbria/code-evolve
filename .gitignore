@@ -33,3 +33,6 @@ tasks/
 
 # jest coverage reports
 coverage/
+
+# Runtime state written by the engine when this repo itself is evolved
+.birth_date
