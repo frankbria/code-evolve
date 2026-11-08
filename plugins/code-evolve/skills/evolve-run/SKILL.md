@@ -1,6 +1,8 @@
 ---
 name: evolve-run
 description: Run one code-evolve evolution cycle inside this agent session (prepare, do the work, verify, finalize). Use only when the user explicitly asks to run or continue an evolution cycle here.
+metadata:
+  managed-by: code-evolve
 ---
 
 # Run an evolution cycle in this session

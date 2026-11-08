@@ -9,6 +9,9 @@ export interface EvolveConfig {
   model?: string;
   authMode?: AuthMode;
   mode?: ExecutionMode;
+  /** .gitignore lines init added (eject removes exactly these), and whether init created the file. */
+  gitignoreLinesAdded?: string[];
+  gitignoreCreated?: boolean;
 }
 
 const CONFIG_FILE = 'config.json';

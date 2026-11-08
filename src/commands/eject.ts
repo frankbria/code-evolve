@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { readConfig } from '../utils/config';
 import { MANAGED_GITIGNORE_LINES, removeAgentInstructions, removeOperatorSkills } from '../utils/projectIntegration';
 import { removeProjectCron } from '../utils/crontab';
 import fs from 'fs';
@@ -58,6 +59,9 @@ export const ejectCommand = new Command('eject')
       }
     }
 
+    // Read the install record before .evolve/ (and its config.json) is removed.
+    const installConfig = readConfig();
+
     // Remove .evolve/
     const evolveDir = getEvolveDir();
     fs.rmSync(evolveDir, { recursive: true, force: true });
@@ -86,15 +90,16 @@ export const ejectCommand = new Command('eject')
       console.log('  Note: a legacy .github/workflows/evolve/ directory exists (inert) — remove it manually if it was code-evolve\'s.');
     }
 
-    // Clean .gitignore entries (the same list init and start add)
+    // Clean .gitignore: remove exactly the lines init recorded adding (older installs did not
+    // record them, so fall back to the full managed list), leaving everything else byte for byte.
     const gitignorePath = projectFile('.gitignore');
     if (fs.existsSync(gitignorePath)) {
-      const managed = new Set(MANAGED_GITIGNORE_LINES);
-      const kept = fs.readFileSync(gitignorePath, 'utf8').split('\n').filter((line) => !managed.has(line));
-      const cleaned = kept.join('\n').replace(/\n{3,}/g, '\n\n');
-      if (cleaned.trim() === '') {
+      const linesToRemove = new Set(installConfig.gitignoreLinesAdded ?? MANAGED_GITIGNORE_LINES);
+      const kept = fs.readFileSync(gitignorePath, 'utf8').split('\n').filter((line) => !linesToRemove.has(line));
+      const cleaned = kept.join('\n');
+      if (installConfig.gitignoreCreated && cleaned.trim() === '') {
         fs.rmSync(gitignorePath);
-        console.log('Removed .gitignore (it only held code-evolve entries)');
+        console.log('Removed .gitignore (init had created it for code-evolve entries only)');
       } else {
         fs.writeFileSync(gitignorePath, cleaned);
         console.log('Cleaned .gitignore');

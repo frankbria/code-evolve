@@ -68,6 +68,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     const modeExplicit = flagPassed('--mode');
     const everyExplicit = flagPassed('--every');
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !options.yes;
+    const wasInitialized = isInitialized();
+    const forceExplicit = Boolean(options.force);
     // --yes refreshes an existing install the way --force does, so an agent can re-run it safely.
     if (options.yes) options.force = true;
 
@@ -180,8 +182,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Copy skills (always overwrite — framework definitions)
     copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
 
-    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path)
-    if (options.force) {
+    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Never on a fresh
+    // --yes install: those root files are the project's own documents.
+    if (forceExplicit || wasInitialized) {
       for (const file of ['vision.md', 'spec.md']) {
         const rootPath = projectFile(file);
         const evolvePath = evolveFile(file);
@@ -299,7 +302,11 @@ export async function runInit(options: InitOptions): Promise<void> {
     // cron .env would be written without it — defer to `code-evolve start` once
     // the key is set, matching init's "set your key as a next step" model.
     let localScheduled = false;
-    if (wantLocal) {
+    // A refresh keeps the user's schedule (cadence, model) unless they asked to change it.
+    const keepSchedule = wasInitialized && !modeExplicit && !everyExplicit && fs.existsSync(evolveFile('schedule.json'));
+    if (keepSchedule && wantLocal) {
+      console.log('  Keeping the existing local schedule');
+    } else if (wantLocal) {
       if (process.platform === 'win32') {
         console.warn('  ⚠ Local scheduling is not supported on native Windows — use WSL or ci mode.');
       } else {
@@ -318,17 +325,27 @@ export async function runInit(options: InitOptions): Promise<void> {
       }
     }
 
-    // Update .gitignore (appends only if marker not already present)
-    updateGitignore();
+    // Update .gitignore, remembering exactly what was added so eject can remove only that
+    const currentConfig = readConfig();
+    const gitignoreChange = updateGitignore();
+    const gitignoreLinesAdded = [...(currentConfig.gitignoreLinesAdded ?? []), ...gitignoreChange.added];
+    const gitignoreCreated = Boolean(currentConfig.gitignoreCreated) || gitignoreChange.created;
 
     // Operator skills where agents discover them, plus a short note for any agent working here.
-    const operatorSkills = installOperatorSkills(process.cwd(), getOperatorSkillsDir());
+    const skills = installOperatorSkills(process.cwd(), getOperatorSkillsDir());
     upsertAgentInstructions(process.cwd());
-    console.log(`  Installed skills (${operatorSkills.join(', ')}) into ${AGENT_SKILL_DIRS.join(' and ')}`);
+    console.log(`  Installed skills (${skills.installed.join(', ')}) into ${AGENT_SKILL_DIRS.join(' and ')}`);
+    for (const skipped of skills.skipped) console.warn(`  ⚠ Left alone: ${skipped}`);
 
     // Write agent config (persist execution mode when one was chosen)
-    const currentConfig = readConfig();
-    writeConfig({ ...currentConfig, agent, authMode, ...(mode ? { mode } : {}) });
+    writeConfig({
+      ...currentConfig,
+      agent,
+      authMode,
+      ...(mode ? { mode } : {}),
+      ...(gitignoreLinesAdded.length > 0 ? { gitignoreLinesAdded } : {}),
+      ...(gitignoreCreated ? { gitignoreCreated } : {}),
+    });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
     }
@@ -535,13 +552,15 @@ async function promptForInterval(fallback: number): Promise<number> {
   }
 }
 
-function updateGitignore(): void {
+function updateGitignore(): { added: string[]; created: boolean } {
   const gitignorePath = projectFile('.gitignore');
-  const content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+  const created = !fs.existsSync(gitignorePath);
+  const content = created ? '' : fs.readFileSync(gitignorePath, 'utf8');
   const existing = new Set(content.split('\n'));
-  const missing = MANAGED_GITIGNORE_LINES.filter((line) => !existing.has(line));
-  if (missing.length === 0) return;
+  const added = MANAGED_GITIGNORE_LINES.filter((line) => !existing.has(line));
+  if (added.length === 0) return { added, created: false };
   const separator = content === '' || content.endsWith('\n') ? '' : '\n';
-  fs.writeFileSync(gitignorePath, `${content}${separator}${missing.join('\n')}\n`);
+  fs.writeFileSync(gitignorePath, `${content}${separator}${added.join('\n')}\n`);
   console.log('  Updated .gitignore');
+  return { added, created };
 }

@@ -60,25 +60,62 @@ function operatorSkillNames(operatorSkillsDir: string): string[] {
     .map((entry) => entry.name);
 }
 
-/** Copies each operator skill into every agent skill directory, replacing earlier copies. */
-export function installOperatorSkills(projectDir: string, operatorSkillsDir: string): string[] {
+/** Frontmatter line that marks a skill directory as installed (and owned) by code-evolve. */
+export const MANAGED_SKILL_MARKER = 'managed-by: code-evolve';
+
+function isManagedSkill(skillPath: string): boolean {
+  const skillFile = path.join(skillPath, 'SKILL.md');
+  return fs.existsSync(skillFile) && fs.readFileSync(skillFile, 'utf8').includes(MANAGED_SKILL_MARKER);
+}
+
+/** True if <relativeDir> or any directory above it (inside the project) is a symlink. */
+function crossesSymlink(projectDir: string, relativeDir: string): boolean {
+  const parts = relativeDir.split('/');
+  return parts.some((_, index) => {
+    const candidate = path.join(projectDir, ...parts.slice(0, index + 1));
+    return fs.existsSync(candidate) && fs.lstatSync(candidate).isSymbolicLink();
+  });
+}
+
+export interface SkillInstallResult {
+  installed: string[];
+  skipped: string[];
+}
+
+/**
+ * Copies each operator skill into every agent skill directory. Earlier code-evolve copies are
+ * replaced; a same-named skill the user wrote is left alone, and a skill directory reached
+ * through a symlink is skipped (writing through it would change files outside the project).
+ */
+export function installOperatorSkills(projectDir: string, operatorSkillsDir: string): SkillInstallResult {
   const names = operatorSkillNames(operatorSkillsDir);
+  const result: SkillInstallResult = { installed: names, skipped: [] };
   for (const skillDir of AGENT_SKILL_DIRS) {
+    if (crossesSymlink(projectDir, skillDir)) {
+      result.skipped.push(`${skillDir} (symlinked directory)`);
+      continue;
+    }
     for (const name of names) {
       const destination = path.join(projectDir, skillDir, name);
+      if (fs.existsSync(destination) && !isManagedSkill(destination)) {
+        result.skipped.push(`${skillDir}/${name} (not installed by code-evolve)`);
+        continue;
+      }
       fs.rmSync(destination, { recursive: true, force: true });
       fs.cpSync(path.join(operatorSkillsDir, name), destination, { recursive: true });
     }
   }
-  return names;
+  return result;
 }
 
-/** Removes the operator skills init installed, and skill directories that end up empty. */
+/** Removes the operator skills code-evolve installed (never a user's own), and emptied dirs. */
 export function removeOperatorSkills(projectDir: string, operatorSkillsDir: string): void {
   const names = operatorSkillNames(operatorSkillsDir);
   for (const skillDir of AGENT_SKILL_DIRS) {
+    if (crossesSymlink(projectDir, skillDir)) continue;
     for (const name of names) {
-      fs.rmSync(path.join(projectDir, skillDir, name), { recursive: true, force: true });
+      const skillPath = path.join(projectDir, skillDir, name);
+      if (isManagedSkill(skillPath)) fs.rmSync(skillPath, { recursive: true, force: true });
     }
     removeIfEmpty(path.join(projectDir, skillDir));
     removeIfEmpty(path.dirname(path.join(projectDir, skillDir)));

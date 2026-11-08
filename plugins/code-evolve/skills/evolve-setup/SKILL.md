@@ -1,6 +1,8 @@
 ---
 name: evolve-setup
 description: Install code-evolve in the current project and get it ready to evolve the codebase on its own. Use when the user wants to set up, install or onboard code-evolve, or when .evolve/ is missing.
+metadata:
+  managed-by: code-evolve
 ---
 
 # Set up code-evolve

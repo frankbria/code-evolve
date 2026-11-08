@@ -1,6 +1,8 @@
 ---
 name: evolve-status
 description: Report the state of code-evolve in this project (day, recent sessions, schedule). Use when the user asks how evolution is going or what code-evolve has done.
+metadata:
+  managed-by: code-evolve
 ---
 
 # code-evolve status
