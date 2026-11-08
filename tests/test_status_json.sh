@@ -38,6 +38,11 @@ check "no run dir: neither pending nor abandoned" \
 printf '\n## REQ-0004: d\n- **Status**: waived\n- **Waiver expires**: Day 0\n\n## REQ-0005: e\n- **Status**: waived\n- **Waiver expires**: Day 99\n' >> .evolve/REQUIREMENTS.md
 echo 3 > .evolve/DAY_COUNT
 check "an expired waiver counts as open; a live one as waived" "$(status_field 'v.requirements')" '{"open":2,"regressed":1,"satisfied":1,"waived":1}'
+# Same day as `proof`: without DAY_COUNT the day comes from the birth date (10 days ago -> Day 10).
+rm .evolve/DAY_COUNT
+node -e "require('fs').writeFileSync('.evolve/.birth_date', new Date(Date.now() - 10 * 86400000).toISOString())"
+sed -i 's/Waiver expires\*\*: Day 99/Waiver expires**: Day 5/' .evolve/REQUIREMENTS.md
+check "waiver expiry uses the birth-date day when DAY_COUNT is missing" "$(status_field 'v.requirements')" '{"open":3,"regressed":1,"satisfied":1,"waived":0}'
 
 check "fresh install: engine matches this version" "$(status_field 'v.engineDrift')" "[]"
 echo "# stale" >> .evolve/scripts/agents/claude.sh
