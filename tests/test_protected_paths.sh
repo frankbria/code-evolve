@@ -27,6 +27,8 @@ git add .evolve/IDENTITY.md && git commit -qm "agent edits its constitution"
 echo "# tampered" >> .github/workflows/evolve.yml
 printf '#!/bin/bash\necho planted\n' > .evolve/scripts/planted.sh
 : > .evolve/scripts/protected-paths.txt
+git rm -q --cached .github/workflows/evolve-ci.yml && echo ".github/workflows/evolve-ci.yml" >> .gitignore
+git commit -qm "untrack and ignore the CI workflow"
 echo "feature" > feature.txt
 git add feature.txt && git commit -qm "real project work"
 STUB
@@ -58,6 +60,9 @@ ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
     && ok "emptying the protected list mid-session neither disables the guard nor sticks" || bad "protected-paths.txt left empty"
 [ "$(cat feature.txt 2>/dev/null)" = "feature" ] && git ls-files --error-unmatch feature.txt >/dev/null 2>&1 \
     && ok "legitimate project work survives" || bad "feature.txt lost"
+git cat-file -e HEAD:.github/workflows/evolve-ci.yml 2>/dev/null \
+    && ok "a protected file the agent untracked and gitignored is still in the final commit" \
+    || bad "evolve-ci.yml is missing from HEAD"
 grep -q "Restored protected" "$stub_dir/engine.log" \
     && ok "the restoration is logged" || bad "no restoration log line"
 [ -z "$(git status --porcelain -- .evolve/IDENTITY.md .github/workflows .evolve/scripts)" ] \

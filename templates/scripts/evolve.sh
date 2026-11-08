@@ -177,6 +177,9 @@ snapshot_protected_paths() {
         done < <(path_ancestors "$protected_file") >> "$PROTECTED_SNAPSHOT/ancestor_links"
     done < "$PROTECTED_SNAPSHOT/manifest"
     sort -u -o "$PROTECTED_SNAPSHOT/ancestor_links" "$PROTECTED_SNAPSHOT/ancestor_links"
+    while IFS= read -r protected_file; do
+        git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1 && printf '%s\n' "$protected_file"
+    done < "$PROTECTED_SNAPSHOT/manifest" > "$PROTECTED_SNAPSHOT/tracked"
 }
 
 # Makes every directory above <path> what it was at session start: a symlink the user had keeps
@@ -241,6 +244,13 @@ restore_protected_paths() {
             restored="$restored $protected_file (added)"
         fi
     done < <( { cat "$PROTECTED_SNAPSHOT/manifest"; list_protected_files; } | sort -u)
+    # Protected files tracked at session start stay tracked, even if the agent untracked them and
+    # added an ignore rule (the wrap-up `git add -A` would skip them and commit their deletion).
+    while IFS= read -r protected_file; do
+        git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1 && continue
+        [ -e "$protected_file" ] || [ -L "$protected_file" ] || continue
+        git add -f -- "$protected_file" 2>/dev/null && restored="$restored $protected_file (re-tracked)"
+    done < "$PROTECTED_SNAPSHOT/tracked"
     if [ -n "$restored" ]; then
         echo "  Restored protected paths changed by the agent:$restored"
     fi
