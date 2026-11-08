@@ -97,15 +97,16 @@ if ! declare -f agent_detect_error >/dev/null; then
     agent_detect_error() { return 1; }
 fi
 
-# Prints how many lines of <file> match <regex>, always as one integer. (grep -c prints "0" and
-# exits 1 on no match, so an "echo 0" fallback after it printed "0" twice.)
+# Prints how many lines of <file> match <regex>, always as one integer. grep -c already prints
+# "0" on no match but exits 1, so falling back to printing another 0 would print it twice.
 count_lines_matching() {
     [ -f "$2" ] || { echo 0; return; }
     grep -c -- "$1" "$2" || true
 }
 
-# Next REQ id in <ledger>: highest REQ-NNNN + 1, zero-padded. Only real ids count, so the
-# template's "## REQ-NNNN" format example is not a REQ, and deleted REQs leave no reused ids.
+# Next REQ id in <ledger>: highest REQ-#### + 1, zero-padded. Only real ids count, so the
+# template's "## REQ-NNNN" format example is not a REQ, and deleting a lower REQ cannot make
+# a later capture reuse an id that is still in the ledger.
 next_req_number() {
     local highest
     highest=$( { grep -oE '^## REQ-[0-9]{4}:' "$1" 2>/dev/null || true; } | tr -dc '0-9\n' | sort -n | tail -1)
