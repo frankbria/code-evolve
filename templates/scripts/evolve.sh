@@ -703,7 +703,8 @@ if [ "$ENGINE_PHASE" = "prepare" ]; then
     mv "$PROMPT_FILE" "$RUN_DIR/PROMPT.md"
     # printf %q quotes each value so the file is safe to source from bash.
     for state_name in SESSION_START_SHA DAY DATE SESSION_TIME BOUNDARY_NONCE BOUNDARY_BEGIN BOUNDARY_END \
-        STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO; do
+        STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO \
+        EVOLVE_DIR PROJECT_DIR; do
         printf '%s=%q\n' "$state_name" "${!state_name:-}"
     done > "$RUN_DIR/session.env"
     echo "-> Prepared Day $DAY session: prompt at $RUN_DIR/PROMPT.md, state in $RUN_DIR/session.env"

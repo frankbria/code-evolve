@@ -49,6 +49,11 @@ IFS='|' read -r start_sha day session_time nonce stack build_cmd test_cmd snapsh
     && ok "session.env records the detected stack commands" || bad "stack '$stack' build '$build_cmd' test '$test_cmd'"
 [ -s "$snapshot/manifest" ] && grep -qxF ".evolve/IDENTITY.md" "$snapshot/manifest" \
     && ok "the protected-path snapshot survives the prepare process" || bad "no persisted snapshot at '$snapshot'"
+issues_file=$( (. .evolve/run/session.env && printf '%s' "$ISSUES_FILE") 2>/dev/null || true)
+recorded_dirs=$( (. .evolve/run/session.env && printf '%s|%s' "$EVOLVE_DIR" "$PROJECT_DIR") 2>/dev/null || true)
+[ -n "$issues_file" ] && [ -r "$issues_file" ] \
+    && ok "the issue list in session.env is still readable after prepare exits" || bad "ISSUES_FILE '$issues_file' is not readable"
+[ "$recorded_dirs" = ".evolve|." ] && ok "session.env records EVOLVE_DIR and PROJECT_DIR" || bad "recorded dirs: '$recorded_dirs'"
 [ -z "$(git status --porcelain -- .evolve/run)" ] && ok ".evolve/run/ is ignored by git" || bad ".evolve/run shows in git status"
 
 usage_status=0
