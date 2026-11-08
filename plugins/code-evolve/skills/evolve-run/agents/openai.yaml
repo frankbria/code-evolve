@@ -1,0 +1,6 @@
+interface:
+  display_name: "Run an evolution cycle"
+  short_description: "Evolve the code one cycle"
+  default_prompt: "Run one code-evolve evolution cycle in this session."
+policy:
+  allow_implicit_invocation: false
