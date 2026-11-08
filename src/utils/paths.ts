@@ -13,6 +13,11 @@ export function getTemplatesDir(): string {
   return path.join(__dirname, '..', '..', 'templates');
 }
 
+/** This package's version, the one an install records as its engine version. */
+export function packageVersion(): string {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')).version;
+}
+
 /** Operator skills (evolve-setup, evolve-run, ...), shared with the plugin manifests. */
 export function getOperatorSkillsDir(): string {
   return path.join(__dirname, '..', '..', 'plugins', 'code-evolve', 'skills');

@@ -9,7 +9,7 @@ metadata:
 
 1. Run `npx code-evolve status`. When its output is not a terminal it prints JSON with `day`,
    `features` (total, done, partial, remaining), `mode`, `schedule`, `requirements` (open, regressed,
-   satisfied, waived), `pendingSession`, `abandonedSession`, `engineDrift` and `lastEntry`.
+   satisfied, waived), `pendingSession`, `abandonedSession`, `engineVersion`, `engineDrift` and `lastEntry`.
 2. Summarize in a few sentences: the day count and spec progress, how cycles run (`schedule` is the
    local cron; `mode` `ci` or `both` means GitHub Actions also runs them; with neither, cycles are
    run by hand or from an agent session), how many
@@ -20,8 +20,9 @@ metadata:
    - `pendingSession` true: an in-session cycle was prepared recently and not finalized, so
      scheduled cycles are skipping. Offer to finish it with the `evolve-run` skill.
    - `abandonedSession` true: an old unfinished session; the next cycle will discard it.
-   - `engineDrift` not empty: the installed engine files differ from this code-evolve version.
-     Offer to refresh them with `npx code-evolve init --yes` (it keeps state and history).
+   - `engineDrift` not empty, or `engineVersion` older than `npx code-evolve --version`: the installed
+     engine is out of date. Offer `npx code-evolve upgrade` (it needs a clean git tree and keeps the
+     vision, spec, history and config).
      `null` means they could not be compared (an unreadable file); say so.
    - No features in the spec: offer the `evolve-setup` skill to draft one.
 4. For more history, read the newest entries at the top of `.evolve/JOURNAL.md`.

@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, packageVersion, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
 import {
   readConfig,
@@ -182,6 +182,14 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Copy skills (always overwrite — framework definitions)
     copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
 
+    // The agent's constitution is framework code too (protected from the agent), so it is refreshed.
+    const identityPath = path.join(evolveDir, 'IDENTITY.md');
+    const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
+    if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
+      console.log('  IDENTITY.md replaced with this version (your previous copy stays in git history)');
+    }
+    fs.writeFileSync(identityPath, shippedIdentity);
+
     // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Only on an explicit
     // --force: under --yes those root files are the project's own documents.
     if (forceExplicit) {
@@ -198,7 +206,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
 
     // Copy state files (skip if they already exist — these contain evolution history)
-    const allStateFiles = ['IDENTITY.md', 'REQUIREMENTS.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
+    const allStateFiles = ['REQUIREMENTS.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
     for (const file of allStateFiles) {
       const src = path.join(templatesDir, 'state', file);
       const dest = path.join(evolveDir, file);
@@ -361,6 +369,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       ...(mode ? { mode } : {}),
       gitignoreLinesAdded,
       createdPaths,
+      engineVersion: packageVersion(),
     });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
