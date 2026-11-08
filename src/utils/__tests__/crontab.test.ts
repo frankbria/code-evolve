@@ -47,6 +47,7 @@ describe('tableFromListing', () => {
 
   it('treats "no crontab for <user>" as an empty table', () => {
     expect(tableFromListing({ status: 1, stdout: '', stderr: 'no crontab for frank\n' })).toBe('');
+    expect(tableFromListing({ status: 1, stdout: '', stderr: "crontab: can't open 'frank': No such file or directory\n" })).toBe('');
   });
 
   it('throws on any other failure instead of reporting an empty table', () => {

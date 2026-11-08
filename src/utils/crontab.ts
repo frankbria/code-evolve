@@ -23,7 +23,8 @@ export function tableFromListing(listing: CrontabListing): string {
   if (listing.error && 'code' in listing.error && listing.error.code === 'ENOENT') return '';
   if (listing.error) throw new Error(`Could not run crontab: ${listing.error.message}`);
   if (listing.status === 0) return listing.stdout;
-  if (/no crontab for/i.test(listing.stderr)) return '';
+  // cronie/vixie: "no crontab for <user>"; BusyBox (Alpine): "can't open '<user>': No such file or directory".
+  if (/no crontab for|can't open .*no such file or directory/i.test(listing.stderr)) return '';
   throw new Error(`crontab -l failed (exit ${listing.status}): ${listing.stderr.trim()}`);
 }
 
