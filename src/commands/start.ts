@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
-import { cronEntryMarker, getCrontab, removeProjectCron, setCrontab } from '../utils/crontab';
+import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
 import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel, AuthMode } from '../utils/config';
 
 
@@ -50,8 +50,6 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   // Write .env file for cron (cron doesn't inherit shell env)
   writeEnvFile(envFile, model, agent, authMode);
 
-  // Remove any existing code-evolve cron entry for this project
-  removeProjectCron(projectDir);
 
   // Build cron expression
   const cronSchedule = hourlyCron(hours);
@@ -67,7 +65,8 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
     cronEntryMarker(projectDir),
   ].join(' ');
 
-  const existing = getCrontab();
+  // One read and one write: replace this project's entry (if any) and append the new one.
+  const { table: existing } = withoutProjectEntry(getCrontab(), projectDir);
   const base = existing && !existing.endsWith('\n') ? `${existing}\n` : existing;
   setCrontab(`${base}${cronCommand}\n`);
 

@@ -11,7 +11,7 @@ export interface CrontabListing {
   status: number | null;
   stdout: string;
   stderr: string;
-  error?: Error;
+  error?: NodeJS.ErrnoException;
 }
 
 /**
@@ -19,6 +19,8 @@ export interface CrontabListing {
  * because treating it as empty would make the next write erase the user's whole schedule.
  */
 export function tableFromListing(listing: CrontabListing): string {
+  // No crontab binary means no cron entries exist to protect (e.g. a CI-only container).
+  if (listing.error && 'code' in listing.error && listing.error.code === 'ENOENT') return '';
   if (listing.error) throw new Error(`Could not run crontab: ${listing.error.message}`);
   if (listing.status === 0) return listing.stdout;
   if (/no crontab for/i.test(listing.stderr)) return '';

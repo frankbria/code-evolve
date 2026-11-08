@@ -92,6 +92,16 @@ rm -f "$stub_dir/list-fails"
     && ok "eject aborts and keeps .evolve/ when the crontab cannot be updated" \
     || bad "eject after a crontab error: exit $eject_status, .evolve present: $([ -d app3/.evolve ] && echo yes || echo no)"
 
+# On a machine without crontab at all (e.g. a CI-only container), stop and eject must still work.
+mkdir app4 && (cd app4 && git init -q && node "$CLI" init --agent claude </dev/null >/dev/null 2>&1)
+node_only_path="$(dirname "$(command -v node)")"
+[ ! -x "$node_only_path/crontab" ] || bad "test setup: node dir unexpectedly contains crontab"
+stop_status=0; (cd app4 && env -i PATH="$node_only_path" HOME="$HOME" node "$CLI" stop >/dev/null 2>&1) || stop_status=$?
+eject_status=0; (cd app4 && env -i PATH="$node_only_path" HOME="$HOME" node "$CLI" eject --yes >/dev/null 2>&1) || eject_status=$?
+[ "$stop_status" -eq 0 ] && [ "$eject_status" -eq 0 ] && [ ! -d app4/.evolve ] \
+    && ok "stop and eject work on a machine with no crontab binary" \
+    || bad "no-crontab machine: stop exit $stop_status, eject exit $eject_status, .evolve present: $([ -d app4/.evolve ] && echo yes || echo no)"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

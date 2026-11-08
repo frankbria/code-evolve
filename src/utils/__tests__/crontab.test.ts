@@ -53,8 +53,13 @@ describe('tableFromListing', () => {
     expect(() => tableFromListing({ status: 1, stdout: '', stderr: 'crontab: permission denied\n' })).toThrow(
       'crontab -l failed (exit 1): crontab: permission denied'
     );
-    expect(() => tableFromListing({ status: null, stdout: '', stderr: '', error: new Error('spawn crontab ENOENT') })).toThrow(
-      'Could not run crontab: spawn crontab ENOENT'
+    expect(() => tableFromListing({ status: null, stdout: '', stderr: '', error: new Error('spawn crontab EACCES') })).toThrow(
+      'Could not run crontab: spawn crontab EACCES'
     );
+  });
+
+  it('treats a missing crontab binary as an empty table', () => {
+    const missingBinary = Object.assign(new Error('spawn crontab ENOENT'), { code: 'ENOENT' });
+    expect(tableFromListing({ status: null, stdout: '', stderr: '', error: missingBinary })).toBe('');
   });
 });
