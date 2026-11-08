@@ -261,7 +261,13 @@ export async function runInit(options: InitOptions): Promise<void> {
     // The evolve workflow is templated for the configured agent (CLI install, secret,
     // AGENT/MODEL). Ollama has no CI profile — it needs local model compute — so its
     // install is skipped rather than scheduling a workflow that times out every cycle.
-    const ciProfile = wantCi ? getAgentCiProfile(agent) : null;
+    // Our workflows stay managed after a switch to local mode (`start` leaves them in place), so a
+    // refresh updates any that exist even when it would not install them.
+    const ourWorkflowsInstalled = ['evolve.yml', 'evolve-ci.yml'].some((name) => {
+      const file = projectFile(path.join('.github', 'workflows', name));
+      return fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(WORKFLOW_MARKER);
+    });
+    const ciProfile = wantCi || ourWorkflowsInstalled ? getAgentCiProfile(agent) : null;
     if (wantCi && !ciProfile) {
       console.warn(
         `  ⚠ Skipping GitHub Actions install: "${agent}" runs models locally and isn't supported on hosted CI runners. Use local execution (code-evolve start) for "${agent}".`
@@ -271,8 +277,8 @@ export async function runInit(options: InitOptions): Promise<void> {
       if (mode === 'ci' || mode === 'both') {
         mode = 'local';
       }
-    } else if (wantCi && ciProfile) {
-      console.log('Installing GitHub Actions workflows...');
+    } else if (ciProfile) {
+      console.log(wantCi ? 'Installing GitHub Actions workflows...' : 'Refreshing installed GitHub Actions workflows...');
       const workflowDir = projectFile('.github/workflows');
       fs.mkdirSync(workflowDir, { recursive: true });
       const workflowMap: Record<string, string> = {
@@ -285,6 +291,7 @@ export async function runInit(options: InitOptions): Promise<void> {
         if (!fs.existsSync(srcPath)) continue;
         const installed = fs.existsSync(destPath) ? fs.readFileSync(destPath, 'utf8') : null;
         const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
+        if (installed === null && !wantCi) continue;
         if (installed !== null && !ours) {
           // A same-named file already exists — leave it untouched, but make clear our
           // workflow was NOT installed so the user knows evolution/CI won't run from it.

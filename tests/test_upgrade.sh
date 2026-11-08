@@ -71,10 +71,36 @@ ci_project="$(mktemp -d)"
     node "$CLI" upgrade </dev/null >/dev/null 2>&1
     node -e "const c=require('./.evolve/config.json');delete c.engineVersion;console.log(JSON.stringify(c))" > "$stub_dir/config.after"
     [ "$(cat .github/workflows/evolve.yml)" = "$shipped_workflow" ] && echo refreshed > "$stub_dir/workflow" || echo stale > "$stub_dir/workflow"
+    # `start` saves mode local without removing the CI workflows; they are still ours to refresh.
+    node -e "const f='.evolve/config.json';const c=require('./'+f);c.mode='local';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+    rm .github/workflows/evolve-ci.yml
+    echo "# stale workflow" >> .github/workflows/evolve.yml
+    git add -A && git commit -qm "switched to local"
+    node "$CLI" upgrade </dev/null >/dev/null 2>&1
+    [ "$(cat .github/workflows/evolve.yml)" = "$shipped_workflow" ] && echo refreshed > "$stub_dir/workflow.local" || echo stale > "$stub_dir/workflow.local"
+    [ -e .github/workflows/evolve-ci.yml ] && echo present > "$stub_dir/ci-workflow.local" || echo absent > "$stub_dir/ci-workflow.local"
 )
 rm -rf "$ci_project"
 check "a CI install's evolve workflow is refreshed" "$(cat "$stub_dir/workflow")" "refreshed"
+check "workflows installed earlier are refreshed after a switch to local mode" "$(cat "$stub_dir/workflow.local")" "refreshed"
+check "local mode creates no workflow that was never installed" "$(cat "$stub_dir/ci-workflow.local")" "absent"
 check "every other config key survives the upgrade (mode, model, ...)" "$(cat "$stub_dir/config.after")" "$(cat "$stub_dir/config.before")"
+
+# An unfinished cycle would restore the old engine from its snapshot, so upgrade waits for it.
+git add -A && git commit -qm "upgraded"
+mkdir -p .evolve/run && echo "DAY=3" > .evolve/run/session.env && printf '*\n' > .evolve/run/.gitignore
+status=0; node "$CLI" upgrade </dev/null > "$stub_dir/session.log" 2>&1 || status=$?
+check "upgrade refuses while an in-session cycle is prepared" "$status" "1"
+check "the refusal says to finish or abandon the cycle" "$(grep -c 'evolve.sh finalize' "$stub_dir/session.log")" "1"
+rm -rf .evolve/run
+lock_file="$(git rev-parse --absolute-git-dir)/code-evolve.lock"
+python3 -c "import fcntl,sys,time;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX);time.sleep(30)" "$lock_file" &
+holder=$!
+until python3 -c "import fcntl,sys;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)" "$lock_file" 2>/dev/null; [ $? -ne 0 ]; do sleep 0.1; done
+status=0; node "$CLI" upgrade </dev/null > "$stub_dir/lock.log" 2>&1 || status=$?
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null || true
+check "upgrade refuses while a cycle holds the run lock" "$status" "1"
+check "the refusal says a cycle is running" "$(grep -c 'cycle is running' "$stub_dir/lock.log")" "1"
 
 # A newer engine is never downgraded by an older CLI.
 node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
