@@ -33,6 +33,11 @@ STUB
 printf '#!/bin/bash\nexit 1\n' > "$stub_dir/gh"
 chmod +x "$stub_dir/claude" "$stub_dir/crontab" "$stub_dir/gh"
 
+# GNU timeout is not on stock macOS; fall back to perl's alarm, which is.
+run_with_timeout() { # <seconds> <command...>
+    if command -v timeout >/dev/null 2>&1; then timeout "$@"; else perl -e 'alarm shift; exec @ARGV' "$@"; fi
+}
+
 base_path="$stub_dir:$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin"
 tricky_key='sk-"quoted"-$HOME-`echo pwned`-'"'single'"
 
@@ -55,9 +60,9 @@ cron_line=$(grep "code-evolve:" "$stub_dir/crontab.table" 2>/dev/null || true)
 # Run the cron command the way cron would: /bin/sh with cron's minimal environment.
 cron_command=$(sed -E 's/^([^ ]+ +){5}//' <<<"$cron_line")
 rm -f "$stub_dir/agent-calls"
-env -i HOME="$HOME" PATH=/usr/bin:/bin SHELL=/bin/sh GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com \
+run_with_timeout 120 env -i HOME="$HOME" PATH=/usr/bin:/bin SHELL=/bin/sh GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com \
     GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com \
-    timeout 120 /bin/sh -c "$cron_command" || true
+    /bin/sh -c "$cron_command" || true
 
 first_call=$(head -1 "$stub_dir/agent-calls" 2>/dev/null || true)
 if [ "$first_call" = "argv=-p --model my-model --allowedTools Bash,Read,Write,Edit,Glob,Grep key=$tricky_key run=cron" ]; then
@@ -90,26 +95,25 @@ grep -q "Day .* complete" "$stub_dir/first.log" \
 grep -q " run=first$" "$stub_dir/agent-calls" 2>/dev/null && ! grep -q " run=second$" "$stub_dir/agent-calls" \
     && ok "overlap: only the first cycle called the agent" \
     || bad "overlap: agent calls: $(cat "$stub_dir/agent-calls" 2>/dev/null)"
-lock_dir="$(git rev-parse --absolute-git-dir)/code-evolve.lock"
-[ ! -e "$lock_dir" ] && ok "lock released after the cycle" || bad "lock left behind"
+# The kernel lock dies with its holder: no lock state survives a finished cycle...
+lock_file="$(git rev-parse --absolute-git-dir)/code-evolve.lock"
+lock_holders=$( (pgrep -f "hold_lock.py $lock_file" || true) | wc -l | tr -d " ")
+[ "$lock_holders" = "0" ] && ok "lock released after the cycle (no holder left)" || bad "lock holder still running"
 
-# Stale locks must not block the next cycle: a dead PID, a live PID that belongs to a
-# different process than the one that took the lock (PID reuse: start time differs), and
-# an owner-less lock left minutes ago. A fresh owner-less lock is a cycle mid-acquire.
-for stale_case in "dead-pid:999999 Thu Jan  1 00:00:00 1970" "reused-pid:$$ Thu Jan  1 00:00:00 1970" "old-no-owner:"; do
-    mkdir -p "$lock_dir"
-    if [ -n "${stale_case#*:}" ]; then echo "${stale_case#*:}" > "$lock_dir/owner"; else touch -d '5 minutes ago' "$lock_dir"; fi
-    stale_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/stale.log" stale || stale_status=$?
-    grep -q "Day .* complete" "$stub_dir/stale.log" \
-        && ok "stale lock (${stale_case%%:*}) is reclaimed" \
-        || bad "stale lock (${stale_case%%:*}) blocked the cycle (exit $stale_status): $(tail -3 "$stub_dir/stale.log")"
-done
-mkdir -p "$lock_dir"
-fresh_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/fresh.log" fresh || fresh_status=$?
-grep -q "already running" "$stub_dir/fresh.log" && [ "$fresh_status" -eq 0 ] \
-    && ok "fresh owner-less lock (cycle mid-acquire) is respected" \
-    || bad "fresh owner-less lock was not respected: $(tail -3 "$stub_dir/fresh.log")"
-rm -rf "$lock_dir"
+# ...or a crashed one: kill -9 a cycle mid-run, and the next cycle must still run.
+SLEEP_SECONDS=30 run_engine "$stub_dir/crashed.log" crashed & crashed_pid=$!
+for _ in $(seq 1 100); do grep -q " run=crashed$" "$stub_dir/agent-calls" 2>/dev/null && break; sleep 0.1; done
+engine_pid=$( (pgrep -P "$crashed_pid" -f "evolve.sh" || true) | head -1)
+kill -9 "$engine_pid" 2>/dev/null || true
+wait "$crashed_pid" 2>/dev/null || true
+pkill -f "$stub_dir/claude" 2>/dev/null || true
+sleep 2
+[ -n "$engine_pid" ] && ! grep -q "Day .* complete" "$stub_dir/crashed.log" \
+    && ok "the crashed cycle really died mid-run" || bad "crash setup failed (engine pid '$engine_pid')"
+after_crash_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/after-crash.log" after-crash || after_crash_status=$?
+grep -q "Day .* complete" "$stub_dir/after-crash.log" \
+    && ok "a cycle killed with -9 leaves no stale lock" \
+    || bad "lock outlived a crashed cycle (exit $after_crash_status): $(tail -3 "$stub_dir/after-crash.log")"
 
 # Re-running start over a world-readable .env must leave it 0600 (it holds the API key).
 chmod 644 .evolve/.env
@@ -117,6 +121,9 @@ env -i PATH="$base_path" HOME="$HOME" ANTHROPIC_API_KEY=k node "$CLI" start --ev
     || bad "second start failed"
 env_mode=$(stat -c '%a' .evolve/.env 2>/dev/null || stat -f '%Lp' .evolve/.env)
 [ "$env_mode" = "600" ] && ok ".env is 0600 after start rewrites it" || bad ".env mode after rewrite: $env_mode"
+
+grep -qxF ".evolve/.env*" .gitignore \
+    && ok ".gitignore covers .env and its temporary rewrite file" || bad ".gitignore lacks .evolve/.env*"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

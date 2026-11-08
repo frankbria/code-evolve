@@ -45,11 +45,11 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   const logFile = path.join(evolveDir, 'evolve.log');
   const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
 
+  // Ignore .env (and its temporary rewrite file) before any key is written
+  ensureEnvGitignored(projectDir);
+
   // Write .env file for cron (cron doesn't inherit shell env)
   writeEnvFile(envFile, model, agent, authMode);
-
-  // Ensure .evolve/.env is gitignored
-  ensureEnvGitignored(projectDir);
 
   // Remove any existing code-evolve cron entry for this project
   removeExistingCron(projectDir);
@@ -195,13 +195,18 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode?: 
   // existing file that has looser permissions (`mode` only applies when a file is created).
   const temporaryFile = `${envFile}.${process.pid}.tmp`;
   fs.rmSync(temporaryFile, { force: true });
-  fs.writeFileSync(temporaryFile, lines.join('\n') + '\n', { mode: 0o600, flag: 'wx' });
-  fs.renameSync(temporaryFile, envFile);
+  try {
+    fs.writeFileSync(temporaryFile, lines.join('\n') + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporaryFile, envFile);
+  } finally {
+    fs.rmSync(temporaryFile, { force: true });
+  }
 }
 
 function ensureEnvGitignored(projectDir: string): void {
   const gitignorePath = path.join(projectDir, '.gitignore');
-  const entry = `${EVOLVE_DIR_NAME}/.env`;
+  // The wildcard also covers the temporary file writeEnvFile renames into place.
+  const entry = `${EVOLVE_DIR_NAME}/.env*`;
 
   let content = '';
   if (fs.existsSync(gitignorePath)) {

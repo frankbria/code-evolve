@@ -32,41 +32,35 @@ AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 
 # ── Single-run lock ──
-# A slow cycle must not overlap the next cron tick. mkdir is atomic on every filesystem
-# (flock is not on macOS, hard links are not everywhere). The lock lives in the git dir so
-# `git add -A` never commits it, at an absolute path because the script cd's before the
-# EXIT trap runs. Its owner file holds "<pid> <start time>", so a process that reused the
-# PID is not mistaken for the cycle that took the lock.
-LOCK_DIR="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
-process_identity() { echo "$1 $(LC_ALL=C TZ=UTC ps -o lstart= -p "$1" 2>/dev/null)"; }
-lock_is_live() { # <owner record>
-    if [ -z "$1" ]; then
-        # No owner yet: a cycle is between mkdir and writing it, unless that was minutes ago.
-        [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin -1 2>/dev/null)" ]
-        return
-    fi
-    kill -0 "${1%% *}" 2>/dev/null && [ "$(process_identity "${1%% *}")" = "$1" ]
-}
-skip_run() { echo "Another evolution cycle is already running${1:+ (pid $1)}; skipping this run."; exit 0; }
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    LOCK_OWNER=$(cat "$LOCK_DIR/owner" 2>/dev/null || true)
-    if lock_is_live "$LOCK_OWNER"; then skip_run "${LOCK_OWNER%% *}"; fi
-    # Take the stale lock over by renaming it away: only one contender's rename succeeds.
-    STALE_LOCK="$LOCK_DIR.stale.$$"
-    mv "$LOCK_DIR" "$STALE_LOCK" 2>/dev/null || skip_run ""
-    if [ "$(cat "$STALE_LOCK/owner" 2>/dev/null || true)" != "$LOCK_OWNER" ]; then
-        # Another cycle took the lock after we judged it stale: hand it back.
-        # shortcut: if a third cycle created the lock in that instant, the hand-back nests
-        # inside it; needs three simultaneous starts. Upgrade if overlapping runs are seen.
-        mv "$STALE_LOCK" "$LOCK_DIR" 2>/dev/null || true
-        skip_run ""
-    fi
-    echo "Removed stale lock (${LOCK_OWNER:-no owner})."
-    rm -rf "$STALE_LOCK"
-    mkdir "$LOCK_DIR" 2>/dev/null || skip_run ""
+# A slow cycle must not overlap the next cron tick. hold_lock.py takes a kernel flock
+# (portable to Linux and macOS, unlike flock(1)) and holds it until this script exits, so
+# acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
+# the git dir so `git add -A` never commits it.
+LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
+LOCK_STATUS_FILE=$(mktemp)
+LOCK_HOLDER_PID=""
+if command -v python3 >/dev/null 2>&1; then
+    python3 "$EVOLVE_DIR/scripts/hold_lock.py" "$LOCK_FILE" $$ "$LOCK_STATUS_FILE" </dev/null >/dev/null 2>&1 &
+    LOCK_HOLDER_PID=$!
+    for _ in $(seq 1 50); do
+        [ -s "$LOCK_STATUS_FILE" ] && break
+        sleep 0.1
+    done
 fi
-process_identity $$ > "$LOCK_DIR/owner.$$" && mv "$LOCK_DIR/owner.$$" "$LOCK_DIR/owner"
-trap 'rm -rf "$LOCK_DIR"' EXIT
+LOCK_STATUS=$(cat "$LOCK_STATUS_FILE" 2>/dev/null || true)
+rm -f "$LOCK_STATUS_FILE"
+case "$LOCK_STATUS" in
+    locked)
+        trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true' EXIT ;;
+    busy)
+        echo "Another evolution cycle is already running; skipping this run."
+        exit 0 ;;
+    *)
+        # shortcut: without python3 (or if the holder fails) cycles are not locked against
+        # overlap; python3 is already required for stack detection, so this is rare.
+        echo "Warning: could not take the run lock (python3 unavailable?); continuing unlocked."
+        [ -n "$LOCK_HOLDER_PID" ] && kill "$LOCK_HOLDER_PID" 2>/dev/null || true ;;
+esac
 
 # ── Source agent adapter ──
 # Validate agent name (alphanumeric only — prevents path traversal)
