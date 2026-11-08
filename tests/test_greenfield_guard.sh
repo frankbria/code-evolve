@@ -51,7 +51,7 @@ rm -rf "$T2"
 # ── Case 3: revert path survives an empty seed commit (greenfield build-fail) ──
 # Extract the real revert checkout line and run it where the baseline tree is empty
 # but the agent has since added files. It must not abort under set -e.
-REVERT=$(sed -n '/if git checkout "\$SESSION_START_SHA" -- "\$PROJECT_DIR\/" 2>\/dev\/null; then/,/^            fi$/p' "$SCRIPT")
+REVERT=$(sed -n '/if git checkout "\$SESSION_START_SHA" -- "\$PROJECT_DIR\/" 2>\/dev\/null; then/,/^    fi$/p' "$SCRIPT")
 [ -n "$REVERT" ] || { echo "  FAIL: could not extract revert block from evolve.sh"; exit 1; }
 T3=$(mktemp -d); R3=$(mktemp)   # result file lives OUTSIDE the repo (git clean would remove it)
 ( cd "$T3"

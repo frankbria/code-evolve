@@ -9,10 +9,15 @@
 # - Language/framework agnostic
 #
 # Usage:
-#   ANTHROPIC_API_KEY=sk-... .evolve/scripts/evolve.sh [cycle|prepare]
-#     cycle    (default) one full evolution cycle: prepare, run the agent, verify, wrap up
-#     prepare  everything up to the agent call; writes .evolve/run/PROMPT.md and
-#              .evolve/run/session.env so an in-session agent can do the work itself
+#   ANTHROPIC_API_KEY=sk-... .evolve/scripts/evolve.sh [cycle|prepare|verify|finalize [--no-agent]]
+#     cycle     (default) one full evolution cycle: prepare, run the agent, verify, wrap up
+#     prepare   everything up to the agent call; writes .evolve/run/PROMPT.md and
+#               .evolve/run/session.env so an in-session agent can do the work itself
+#     verify    after the work: format-fix, build, test, lint; writes .evolve/run/ERRORS.md
+#               and exits non-zero on failure (no agent call)
+#     finalize  restore protected paths, revert if the last verify failed, journal and issue
+#               responses, wrap-up commit, tag, push. --no-agent uses only the bash
+#               fallbacks, so an in-session caller never starts a nested headless agent.
 #
 # Environment:
 #   ANTHROPIC_API_KEY  — required (used by claude CLI)
@@ -34,9 +39,19 @@ PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 ENGINE_PHASE="${1:-cycle}"
+AGENT_CALLS_ALLOWED=true
 case "$ENGINE_PHASE" in
-    cycle|prepare) ;;
-    *) echo "Usage: evolve.sh [cycle|prepare]  (unknown phase: $ENGINE_PHASE)" >&2; exit 2 ;;
+    cycle) [ "$#" -le 1 ] || { echo "Usage: evolve.sh cycle takes no options" >&2; exit 2; } ;;
+    prepare|verify)
+        [ "$#" -le 1 ] || { echo "Usage: evolve.sh $ENGINE_PHASE takes no options" >&2; exit 2; }
+        AGENT_CALLS_ALLOWED=false ;;
+    finalize)
+        case "${2:-}" in
+            "") ;;
+            --no-agent) AGENT_CALLS_ALLOWED=false ;;
+            *) echo "Usage: evolve.sh finalize [--no-agent]  (unknown option: $2)" >&2; exit 2 ;;
+        esac ;;
+    *) echo "Usage: evolve.sh [cycle|prepare|verify|finalize [--no-agent]]  (unknown phase: $ENGINE_PHASE)" >&2; exit 2 ;;
 esac
 # Session state shared between phases. Its own .gitignore keeps the wrap-up `git add -A`
 # from committing it, even in installs whose root .gitignore predates it.
@@ -100,7 +115,8 @@ fi
 # shellcheck source=/dev/null
 source "$AGENT_ADAPTER"
 
-if ! check_agent; then
+# Only phases that may call the agent need its CLI (an in-session caller may not have it).
+if [ "$AGENT_CALLS_ALLOWED" = true ] && ! check_agent; then
     echo "Error: Agent '$AGENT' CLI binary not found. Install it first."
     exit 1
 fi
@@ -296,6 +312,41 @@ restore_protected_paths() {
     fi
 }
 
+# Use timeout if available
+TIMEOUT_CMD="timeout"
+if ! command -v timeout &>/dev/null; then
+    if command -v gtimeout &>/dev/null; then
+        TIMEOUT_CMD="gtimeout"
+    else
+        TIMEOUT_CMD=""
+    fi
+fi
+
+# ── Phase dispatch ──
+# verify and finalize continue a session that prepare started, so they load its state.
+# A scheduled full cycle leaves a recently prepared session alone (an agent may still be
+# working on it in an interactive session) and discards one that was abandoned.
+PENDING_SESSION_MAX_MINUTES="${PENDING_SESSION_MAX_MINUTES:-240}"
+case "$ENGINE_PHASE" in
+    verify|finalize)
+        if [ ! -f "$RUN_DIR/session.env" ]; then
+            echo "Error: no prepared session ($RUN_DIR/session.env missing). Run: evolve.sh prepare" >&2
+            exit 2
+        fi
+        # shellcheck source=/dev/null
+        . "$RUN_DIR/session.env" ;;
+    cycle)
+        if [ -f "$RUN_DIR/session.env" ]; then
+            if [ -n "$(find "$RUN_DIR/session.env" -mmin "-$PENDING_SESSION_MAX_MINUTES" 2>/dev/null)" ]; then
+                echo "An in-session cycle was prepared less than $PENDING_SESSION_MAX_MINUTES minutes ago and not finalized; skipping this run."
+                exit 0
+            fi
+            echo "Discarding an abandoned prepared session (older than $PENDING_SESSION_MAX_MINUTES minutes)."
+            rm -rf "$RUN_DIR"
+        fi ;;
+esac
+
+if [ "$ENGINE_PHASE" = "cycle" ] || [ "$ENGINE_PHASE" = "prepare" ]; then
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
     BIRTH_DATE=$(cat "$EVOLVE_DIR/.birth_date")
@@ -578,15 +629,6 @@ with appropriate build tooling as specified in \$EVOLVE_DIR/spec.md. After creat
 verify it builds and tests pass before committing."
 fi
 
-# Use timeout if available
-TIMEOUT_CMD="timeout"
-if ! command -v timeout &>/dev/null; then
-    if command -v gtimeout &>/dev/null; then
-        TIMEOUT_CMD="gtimeout"
-    else
-        TIMEOUT_CMD=""
-    fi
-fi
 
 PROMPT_FILE=$(mktemp)
 cat > "$PROMPT_FILE" <<PROMPT
@@ -733,6 +775,8 @@ rm -f "$AGENT_LOG"
 echo ""
 echo "-> Session complete. Checking results..."
 
+fi  # end of the cycle/prepare region
+
 # ── Step 6: Verify build (if stack detected) ──
 # Re-detect stack in case bootstrap session created project files
 STACK_JSON=$(bash "$EVOLVE_DIR/scripts/detect_stack.sh" "$PROJECT_DIR" 2>/dev/null || echo '{"stack":"unknown","build":"","test":"","lint":"","format":""}')
@@ -781,39 +825,91 @@ verify_single_stack() {
     fi
 }
 
-if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD" ]; then
-    SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
+# One verification pass: auto-format fix, then build, test and lint for every detected stack.
+# Leaves the combined error output in $ERRORS; returns 0 when there is none.
+run_verification_round() {
+    ERRORS_FILE=$(mktemp)
 
-    FIX_ATTEMPTS=3
-    for FIX_ROUND in $(seq 1 $FIX_ATTEMPTS); do
-        ERRORS_FILE=$(mktemp)
-
-        if [ "$STACK" = "monorepo" ]; then
-            # Verify each substack
-            echo "$SUBSTACKS_JSON" | python3 -c "
+    if [ "$STACK" = "monorepo" ]; then
+        # Verify each substack
+        echo "$SUBSTACKS_JSON" | python3 -c "
 import sys,json
 for s in json.load(sys.stdin):
     print(s['dir'] + '|' + s.get('build','') + '|' + s.get('test','') + '|' + s.get('lint','') + '|' + s.get('format',''))
 " 2>/dev/null | while IFS='|' read -r sdir sbuild stest slint sformat; do
-                verify_single_stack "$PROJECT_DIR/$sdir" "$sbuild" "$stest" "$slint" "$sformat" "$sdir"
-            done
-        else
-            # Single-stack verification (original behavior)
-            verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
+            verify_single_stack "$PROJECT_DIR/$sdir" "$sbuild" "$stest" "$slint" "$sformat" "$sdir"
+        done
+    else
+        # Single-stack verification (original behavior)
+        verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
+    fi
+
+    ERRORS=$(cat "$ERRORS_FILE" 2>/dev/null)
+    rm -f "$ERRORS_FILE"
+
+    [ -z "$ERRORS" ]
+}
+
+# Returns the work tree to the session's starting point after verification kept failing, and
+# records a PROOF9 requirement for the failure. Uses $ERRORS from the last verification round.
+revert_session_and_capture_req() {
+    if git checkout "$SESSION_START_SHA" -- "$PROJECT_DIR/" 2>/dev/null; then
+        # Restored tracked files to baseline. Also drop files the session ADDED
+        # since the baseline, so the revert truly returns to pre-session state.
+        # Scoped to tracked additions vs the baseline → pre-existing untracked
+        # files in an existing repo are never deleted.
+        git diff --name-only --diff-filter=A -z "$SESSION_START_SHA" -- "$PROJECT_DIR" \
+            | while IFS= read -r -d '' f; do
+                git rm -fq --ignore-unmatch -- "$f" >/dev/null 2>&1 || true
+              done
+    else
+        # Empty baseline (greenfield seed had nothing tracked — all files ignored):
+        # no paths to restore, so discard the session's generated files instead.
+        # git clean keeps ignored files (e.g. an ignored .evolve), so the framework survives.
+        git rm -rfq --ignore-unmatch -- "$PROJECT_DIR" >/dev/null 2>&1 || true
+        git clean -fdq -- "$PROJECT_DIR" >/dev/null 2>&1 || true
+    fi
+    git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
+
+    # PROOF9: Auto-capture REQ from revert
+    # $ERRORS was captured before ERRORS_FILE was deleted — use it directly
+    if [ -f "$EVOLVE_DIR/REQUIREMENTS.md" ]; then
+        NEXT_REQ_NUM=$(next_req_number "$EVOLVE_DIR/REQUIREMENTS.md")
+        ERROR_SUMMARY=$(printf '%s' "$ERRORS" | tail -c 200 | tr '\n' ' ' | tr -cd '[:print:]')
+        # Assign gates heuristically from error text
+        REQ_GATES="[BUILD]"
+        if printf '%s' "$ERRORS" | grep -qi "test\|spec\|assert\|jest\|pytest"; then
+            REQ_GATES="[UNIT, BUILD]"
         fi
+        REQ_TITLE="Build failed after revert — $(printf '%s' "$ERROR_SUMMARY" | cut -c1-60)"
+        # Use src/** as scope (broad but avoids literal PROJECT_DIR expansion issues)
+        REQ_SCOPE="src/**,**/*.ts,**/*.py,**/*.js"
+        printf '\n## REQ-%s: %s\n- **Source**: Day %s session revert\n- **Severity**: high\n- **Scope**: %s\n- **Obligations**: %s\n- **Evidence**: (none yet)\n- **Status**: open\n' \
+            "$NEXT_REQ_NUM" "$REQ_TITLE" "$DAY" "$REQ_SCOPE" "$REQ_GATES" \
+            >> "$EVOLVE_DIR/REQUIREMENTS.md"
+        git add "$EVOLVE_DIR/REQUIREMENTS.md" && git commit -m "Day $DAY ($SESSION_TIME): auto-capture REQ-${NEXT_REQ_NUM} from revert" || true
+        echo "  PROOF9: Created REQ-${NEXT_REQ_NUM} from session revert"
+    fi
+}
 
-        ERRORS=$(cat "$ERRORS_FILE" 2>/dev/null)
-        rm -f "$ERRORS_FILE"
+SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
+ERRORS=""
+HAS_VERIFICATION=false
+if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD" ]; then HAS_VERIFICATION=true; fi
 
-        if [ -z "$ERRORS" ]; then
-            echo "  Build: PASS"
-            break
-        fi
-
-        if [ "$FIX_ROUND" -lt "$FIX_ATTEMPTS" ]; then
-            echo "  Build issues (attempt $FIX_ROUND/$FIX_ATTEMPTS) — running agent to fix..."
-            FIX_PROMPT=$(mktemp)
-            cat > "$FIX_PROMPT" <<FIXEOF
+case "$ENGINE_PHASE" in
+    cycle)
+        if [ "$HAS_VERIFICATION" = true ]; then
+            FIX_ATTEMPTS=3
+            for FIX_ROUND in $(seq 1 $FIX_ATTEMPTS); do
+                if run_verification_round; then
+                    echo "  Build: PASS"
+                    break
+                fi
+                if [ "$FIX_ROUND" -lt "$FIX_ATTEMPTS" ]; then
+                    echo "  Build issues (attempt $FIX_ROUND/$FIX_ATTEMPTS) — running agent to fix..."
+                    FIX_PROMPT=$(mktemp)
+                    cat > "$FIX_PROMPT" <<FIXEOF
 Your code has errors. Fix them NOW. Do not add features — only fix these errors.
 
 $ERRORS
@@ -824,51 +920,39 @@ Steps:
 3. Run the verification commands and keep fixing until they pass
 4. Commit: git add -A && git commit -m "Day $DAY ($SESSION_TIME): fix build errors"
 FIXEOF
-            run_agent "$FIX_PROMPT" "$MODEL" "$TIMEOUT_CMD" "300" || true
-            restore_protected_paths
-            rm -f "$FIX_PROMPT"
-        else
-            echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
-            if git checkout "$SESSION_START_SHA" -- "$PROJECT_DIR/" 2>/dev/null; then
-                # Restored tracked files to baseline. Also drop files the session ADDED
-                # since the baseline, so the revert truly returns to pre-session state.
-                # Scoped to tracked additions vs the baseline → pre-existing untracked
-                # files in an existing repo are never deleted.
-                git diff --name-only --diff-filter=A -z "$SESSION_START_SHA" -- "$PROJECT_DIR" \
-                    | while IFS= read -r -d '' f; do
-                        git rm -fq --ignore-unmatch -- "$f" >/dev/null 2>&1 || true
-                      done
-            else
-                # Empty baseline (greenfield seed had nothing tracked — all files ignored):
-                # no paths to restore, so discard the session's generated files instead.
-                # git clean keeps ignored files (e.g. an ignored .evolve), so the framework survives.
-                git rm -rfq --ignore-unmatch -- "$PROJECT_DIR" >/dev/null 2>&1 || true
-                git clean -fdq -- "$PROJECT_DIR" >/dev/null 2>&1 || true
-            fi
-            git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
-
-            # PROOF9: Auto-capture REQ from revert
-            # $ERRORS was captured before ERRORS_FILE was deleted — use it directly
-            if [ -f "$EVOLVE_DIR/REQUIREMENTS.md" ]; then
-                NEXT_REQ_NUM=$(next_req_number "$EVOLVE_DIR/REQUIREMENTS.md")
-                ERROR_SUMMARY=$(printf '%s' "$ERRORS" | tail -c 200 | tr '\n' ' ' | tr -cd '[:print:]')
-                # Assign gates heuristically from error text
-                REQ_GATES="[BUILD]"
-                if printf '%s' "$ERRORS" | grep -qi "test\|spec\|assert\|jest\|pytest"; then
-                    REQ_GATES="[UNIT, BUILD]"
+                    run_agent "$FIX_PROMPT" "$MODEL" "$TIMEOUT_CMD" "300" || true
+                    restore_protected_paths
+                    rm -f "$FIX_PROMPT"
+                else
+                    echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
+                    revert_session_and_capture_req
                 fi
-                REQ_TITLE="Build failed after revert — $(printf '%s' "$ERROR_SUMMARY" | cut -c1-60)"
-                # Use src/** as scope (broad but avoids literal PROJECT_DIR expansion issues)
-                REQ_SCOPE="src/**,**/*.ts,**/*.py,**/*.js"
-                printf '\n## REQ-%s: %s\n- **Source**: Day %s session revert\n- **Severity**: high\n- **Scope**: %s\n- **Obligations**: %s\n- **Evidence**: (none yet)\n- **Status**: open\n' \
-                    "$NEXT_REQ_NUM" "$REQ_TITLE" "$DAY" "$REQ_SCOPE" "$REQ_GATES" \
-                    >> "$EVOLVE_DIR/REQUIREMENTS.md"
-                git add "$EVOLVE_DIR/REQUIREMENTS.md" && git commit -m "Day $DAY ($SESSION_TIME): auto-capture REQ-${NEXT_REQ_NUM} from revert" || true
-                echo "  PROOF9: Created REQ-${NEXT_REQ_NUM} from session revert"
-            fi
+            done
+        fi ;;
+    verify)
+        echo "-> Verifying the session's work..."
+        if [ "$HAS_VERIFICATION" = false ] || run_verification_round; then
+            echo pass > "$RUN_DIR/verify.status"
+            rm -f "$RUN_DIR/ERRORS.md"
+            [ "$HAS_VERIFICATION" = true ] && echo "  Build: PASS" || echo "  No build, test or lint commands detected; nothing to verify."
+            exit 0
         fi
-    done
-fi
+        printf '%s\n' "$ERRORS" > "$RUN_DIR/ERRORS.md"
+        echo fail > "$RUN_DIR/verify.status"
+        echo "  Build: FAIL — details in $RUN_DIR/ERRORS.md"
+        exit 1 ;;
+    finalize)
+        echo "-> Finalizing the Day $DAY session..."
+        restore_protected_paths
+        case "$(cat "$RUN_DIR/verify.status" 2>/dev/null || true)" in
+            pass) ;;
+            fail)
+                ERRORS=$(cat "$RUN_DIR/ERRORS.md" 2>/dev/null || true)
+                echo "  Last verify failed — reverting to pre-session state"
+                revert_session_and_capture_req ;;
+            *) echo "  Warning: verify was not run for this session; finalizing without a build check." ;;
+        esac ;;
+esac
 
 # ── Step 6b: Ensure journal was written ──
 if ! grep -q "## Day $DAY.*$SESSION_TIME" "$EVOLVE_DIR/JOURNAL.md" 2>/dev/null; then
@@ -895,8 +979,10 @@ Then 2-4 sentences: what you did, what worked, what's next.
 Be specific and honest. Then commit: git add $EVOLVE_DIR/JOURNAL.md && git commit -m "Day $DAY ($SESSION_TIME): journal entry"
 JEOF
 
-    run_agent "$JOURNAL_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || true
-    restore_protected_paths
+    if [ "$AGENT_CALLS_ALLOWED" = true ]; then
+        run_agent "$JOURNAL_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || true
+        restore_protected_paths
+    fi
     rm -f "$JOURNAL_PROMPT"
 
     # Bash fallback if agent still didn't write it
@@ -942,8 +1028,10 @@ Separate multiple with "---". Only claim "fixed" if fully resolved.
 IEOF
 
     AGENT_EXIT=0
-    run_agent "$ISSUE_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || AGENT_EXIT=$?
-    restore_protected_paths
+    if [ "$AGENT_CALLS_ALLOWED" = true ]; then
+        run_agent "$ISSUE_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || AGENT_EXIT=$?
+        restore_protected_paths
+    fi
     rm -f "$ISSUE_PROMPT"
 
     if [ "$AGENT_EXIT" -ne 0 ]; then
@@ -1081,4 +1169,7 @@ git push || echo "  Push failed (maybe no remote or auth issue)"
 git push --tags || echo "  Tag push failed (non-fatal)"
 
 echo ""
+# The session is over; a later cycle or prepare starts fresh.
+if [ "$ENGINE_PHASE" = "finalize" ]; then rm -rf "$RUN_DIR"; fi
+
 echo "=== Day $DAY complete ==="

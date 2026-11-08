@@ -61,6 +61,8 @@ engine finalise > "$stub_dir/usage.log" 2>&1 || usage_status=$?
 [ "$usage_status" -eq 2 ] && grep -q "Usage" "$stub_dir/usage.log" \
     && ok "an unknown phase exits 2 with usage" || bad "unknown phase exited $usage_status"
 
+# A full cycle skips while a prepared session is pending (#78), so clear it first.
+rm -rf .evolve/run
 cycle_status=0
 engine > "$stub_dir/cycle.log" 2>&1 || cycle_status=$?
 grep -q "agent called" "$stub_dir/agent-calls" 2>/dev/null && grep -q "Day 0 complete" "$stub_dir/cycle.log" \
