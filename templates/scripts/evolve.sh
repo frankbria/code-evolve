@@ -31,6 +31,26 @@ PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 
+# ── Single-run lock ──
+# A slow cycle must not overlap the next cron tick. mkdir is atomic and portable
+# (flock is not on macOS). The lock lives in the git dir so `git add -A` never commits it.
+LOCK_DIR="$(git rev-parse --git-dir 2>/dev/null || echo "$EVOLVE_DIR")/code-evolve.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        echo "Another evolution cycle is already running (pid $LOCK_PID); skipping this run."
+        exit 0
+    fi
+    echo "Removing stale lock from pid ${LOCK_PID:-unknown}."
+    rm -rf "$LOCK_DIR"
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "Another evolution cycle took the lock first; skipping this run."
+        exit 0
+    fi
+fi
+echo $$ > "$LOCK_DIR/pid"
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
 # ── Source agent adapter ──
 # Validate agent name (alphanumeric only — prevents path traversal)
 if ! echo "$AGENT" | grep -qE '^[a-z]+$'; then
