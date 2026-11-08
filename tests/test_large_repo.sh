@@ -38,8 +38,8 @@ engine_status=0
 ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
     bash .evolve/scripts/evolve.sh > "$stub_dir/engine.log" 2>&1 || engine_status=$?
 
-[ -s "$stub_dir/prompt.txt" ] \
-    && ok "cycle on a 5000-file repo reached the agent" \
+[ -s "$stub_dir/prompt.txt" ] && [ "$engine_status" -eq 0 ] \
+    && ok "cycle on a 5000-file repo reached the agent and exited 0" \
     || bad "agent never ran (exit $engine_status): $(tail -3 "$stub_dir/engine.log")"
 listed=$(grep -c '^\./' "$stub_dir/prompt.txt" 2>/dev/null || true)
 [ "$listed" = "100" ] && ok "prompt lists 100 files" || bad "prompt lists $listed files"
@@ -49,9 +49,9 @@ grep -qE "\(50[0-9][0-9] files, first 100 shown\)" "$stub_dir/prompt.txt" 2>/dev
 grep -qE "50[0-9][0-9] files, first 100 shown in" "$stub_dir/engine.log" \
     && ok "engine log reports the true total" || bad "log: $(grep 'first 100\|files in' "$stub_dir/engine.log")"
 
-! grep -nE '/tmp/' "$ROOT/templates/scripts/evolve.sh" >/dev/null \
+! grep -nE '/tmp\b' "$ROOT/templates/scripts/evolve.sh" >/dev/null \
     && ok "evolve.sh uses no fixed /tmp paths" \
-    || bad "fixed /tmp paths remain: $(grep -nE '/tmp/' "$ROOT/templates/scripts/evolve.sh" | head -3)"
+    || bad "fixed /tmp paths remain: $(grep -nE '/tmp\b' "$ROOT/templates/scripts/evolve.sh" | head -3)"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

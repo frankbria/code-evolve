@@ -37,7 +37,7 @@ BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 # acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
 # the git dir so `git add -A` never commits it.
 LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
-# Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in shared /tmp.
+# Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in the shared temp dir.
 LOCK_STATUS_DIR=$(mktemp -d)
 LOCK_STATUS_FILE="$LOCK_STATUS_DIR/status"
 LOCK_HOLDER_PID=""
@@ -63,10 +63,12 @@ case "$LOCK_STATUS" in
         exit 1 ;;
 esac
 
-# Private per-run scratch dir: fixed /tmp names collide between projects and users, and a
-# sponsor list planted in the shared temp dir could grant sponsor priority to any issue author.
+# Private per-run scratch dir: fixed names in the shared temp dir collide between projects and
+# users, and a planted sponsor list there could grant sponsor priority to any issue author.
+# The trap goes first so the lock holder is released even if mktemp fails.
+RUN_TMP=""
+trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true; [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"' EXIT
 RUN_TMP=$(mktemp -d)
-trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true; rm -rf "$RUN_TMP"' EXIT
 
 # ── Source agent adapter ──
 # Validate agent name (alphanumeric only — prevents path traversal)
