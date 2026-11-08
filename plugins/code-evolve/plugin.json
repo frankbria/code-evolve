@@ -20,6 +20,7 @@
     "com.openai": {
       "onboardingSkill": "./skills/evolve-setup/SKILL.md",
       "requires_local_executor": true,
+      "hooks": "./hooks/hooks.json",
       "interface": {
         "displayName": "code-evolve",
         "shortDescription": "Let your codebase evolve",

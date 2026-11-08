@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|apply_patch|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_protected_paths.py\"",
+            "statusMessage": "Checking code-evolve protected files"
+          }
+        ]
+      }
+    ]
+  }
+}
