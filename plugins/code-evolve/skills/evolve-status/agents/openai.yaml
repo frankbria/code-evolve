@@ -1,0 +1,6 @@
+interface:
+  display_name: "code-evolve status"
+  short_description: "How evolution is going"
+  default_prompt: "How is code-evolve doing in this project?"
+policy:
+  allow_implicit_invocation: true

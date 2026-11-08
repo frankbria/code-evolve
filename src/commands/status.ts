@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import fs from 'fs';
+import path from 'path';
 import { evolveFile, isInitialized } from '../utils/paths';
 import { output } from '../utils/output';
 import { readConfig } from '../utils/config';
@@ -74,12 +75,28 @@ export const statusCommand = new Command('status')
     // Read execution mode from config
     const mode = readConfig().mode ?? null;
 
+    // PROOF9 requirements by status, and whether an in-session cycle is prepared but unfinished
+    const requirements = { open: 0, regressed: 0, satisfied: 0, waived: 0 };
+    try {
+      // The template's format example lives in an HTML comment; it is not a REQ.
+      const ledger = fs.readFileSync(evolveFile('REQUIREMENTS.md'), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+      for (const match of ledger.matchAll(/^- \*\*Status\*\*: (open|regressed|satisfied|waived)\b/gm)) {
+        const status = match[1];
+        if (status === 'open' || status === 'regressed' || status === 'satisfied' || status === 'waived') requirements[status]++;
+      }
+    } catch {
+      // no ledger yet
+    }
+    const pendingSession = fs.existsSync(evolveFile(path.join('run', 'session.env')));
+
     const data = {
       day: dayCount,
       started: birthDate,
       mode,
       features: { total, done, partial, remaining: total - done - partial },
       schedule: schedule ? { every: `${schedule.every}h`, model: schedule.model } : null,
+      requirements,
+      pendingSession,
       lastEntry,
     };
 
@@ -99,6 +116,8 @@ export const statusCommand = new Command('status')
       `  Mode:     ${mode ?? 'not set'}`,
       `  Progress: ${progressLine}`,
       `  Engine:   ${scheduleLine}`,
+      `  REQs:     ${requirements.open} open, ${requirements.regressed} regressed, ${requirements.satisfied} satisfied`,
+      pendingSession ? '  Session:  an in-session cycle is prepared but not finalized (.evolve/run/)' : '',
       lastEntry ? `\n  Last entry:\n  ${lastEntry.split('\n').join('\n  ')}` : '',
     ]
       .filter(Boolean)

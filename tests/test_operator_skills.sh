@@ -28,6 +28,7 @@ for skill_file in "$SKILLS"/*/SKILL.md; do
         && ok "$skill_dir: carries the code-evolve ownership marker" || bad "$skill_dir: no managed-by marker"
 
     openai_yaml="$(dirname "$skill_file")/agents/openai.yaml"
+    [ -f "$openai_yaml" ] || bad "$skill_dir: no agents/openai.yaml"
     if [ -f "$openai_yaml" ]; then
         python3 - "$openai_yaml" <<'PY' && ok "$skill_dir: agents/openai.yaml is valid Codex metadata" || bad "$skill_dir: bad agents/openai.yaml"
 import sys
@@ -67,6 +68,24 @@ PY
     done < <(grep -oE 'npx (-y )?code-evolve(@latest)? [a-z]+[^`]*' "$skill_file" | sed -E 's/npx (-y )?code-evolve(@latest)? /npx code-evolve /')
 done
 ok "every code-evolve command and flag the skills mention exists (failures listed above)"
+
+# evolve-run commits, tags and pushes: both Claude Code and Codex must only run it when asked.
+run_skill="$SKILLS/evolve-run"
+grep -qx "disable-model-invocation: true" "$run_skill/SKILL.md" && grep -qx "  allow_implicit_invocation: false" "$run_skill/agents/openai.yaml" \
+    && ok "evolve-run is explicit-only in Claude Code and Codex" || bad "evolve-run can be invoked implicitly"
+
+# The engine phases and the messages evolve-run reacts to must still exist in evolve.sh.
+engine="$ROOT/templates/scripts/evolve.sh"
+for phase in prepare verify "finalize --no-agent"; do
+    grep -qF "evolve.sh $phase" "$run_skill/SKILL.md" || bad "evolve-run does not run 'evolve.sh $phase'"
+done
+grep -qF 'cycle|prepare|verify|finalize [--no-agent]' "$engine" \
+    && ok "evolve.sh still offers the phases evolve-run uses" || bad "evolve.sh usage no longer lists the phases"
+for message in "Prepared Day" "already running" "a prepared session is still pending"; do
+    grep -qF "$message" "$run_skill/SKILL.md" && grep -qF "$message" "$engine" \
+        || bad "evolve-run reacts to '$message' but evolve.sh no longer prints it"
+done
+ok "evolve-run's expected engine messages exist (failures listed above)"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
