@@ -47,6 +47,7 @@ code-evolve/                  # npm package source
 │       ├── migrate.ts        # Spec/vision document migration
 │       ├── proof.ts          # PROOF9 requirements management
 │       └── __tests__/        # Jest unit tests
+├── tests/                    # Shell tests (test_*.sh) driving the built CLI and engine scripts
 ├── templates/                # Files installed by `init` into a target project
 │   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, agents/ (per-backend adapters)
 │   ├── skills/               # Agent behavior definitions (5 skill dirs, each a SKILL.md)
@@ -82,7 +83,8 @@ npm install           # Install dependencies
 npm run build         # Compile TypeScript to dist/ (prepends shebang, chmods bin)
 npm run dev           # Watch mode
 npm run lint          # Type-check without emitting (tsc --noEmit)
-npm test              # Run the Jest unit suite
+npm test              # Jest unit suite, then every tests/test_*.sh against a fresh build
+npm run test:shell    # Shell tests only (builds first; they drive dist/cli.js)
 ```
 
 Installation and publishing are documented in [INSTALL.md](INSTALL.md).
