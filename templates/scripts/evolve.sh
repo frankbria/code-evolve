@@ -126,23 +126,36 @@ protected_path_matches() {
     return 1
 }
 
-# Files in the work tree (tracked or untracked, minus ignored) that match the protected list.
+# Every file or symlink on disk that matches the protected list. Walks the filesystem rather
+# than asking git, so gitignored protected files (and planted files hidden by a new ignore
+# rule) are still covered. Only each pattern's top-level directory is searched.
 list_protected_files() {
-    local candidate
-    git ls-files --cached --others --exclude-standard | sort -u | while IFS= read -r candidate; do
+    local pattern search_root candidate
+    while IFS= read -r pattern; do
+        case "$pattern" in ''|'#'*) continue ;; esac
+        search_root="${pattern%%/*}"
+        [ -e "$search_root" ] || [ -L "$search_root" ] || continue
+        find "$search_root" \( -type f -o -type l \) 2>/dev/null
+    done < "$PROTECTED_SNAPSHOT/patterns" | sort -u | while IFS= read -r candidate; do
         if protected_path_matches "$candidate"; then printf '%s\n' "$candidate"; fi
     done
 }
 
-# Copies every protected file into the private run dir at session start.
+# Copies every protected file into the private run dir at session start. Installs from before
+# protected-paths.txt existed fall back to the built-in list instead of going unprotected.
 snapshot_protected_paths() {
     local protected_file
     PROTECTED_SNAPSHOT="$RUN_TMP/protected"
     mkdir -p "$PROTECTED_SNAPSHOT/files"
-    grep -v '^[[:space:]]*\(#\|$\)' "$EVOLVE_DIR/scripts/protected-paths.txt" > "$PROTECTED_SNAPSHOT/patterns" 2>/dev/null || true
+    if [ -f "$EVOLVE_DIR/scripts/protected-paths.txt" ]; then
+        cp "$EVOLVE_DIR/scripts/protected-paths.txt" "$PROTECTED_SNAPSHOT/patterns"
+    else
+        printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
+            .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
+    fi
     list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
     while IFS= read -r protected_file; do
-        [ -e "$protected_file" ] || continue
+        [ -f "$protected_file" ] && [ ! -L "$protected_file" ] || continue
         mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
         cp -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
     done < "$PROTECTED_SNAPSHOT/manifest"
@@ -155,15 +168,23 @@ restore_protected_paths() {
     [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
     while IFS= read -r protected_file; do
         if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
-            if [ -e "$PROTECTED_SNAPSHOT/files/$protected_file" ] \
-                && ! cmp -s "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"; then
-                mkdir -p "$(dirname "$protected_file")"
-                cp -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"
+            [ -e "$PROTECTED_SNAPSHOT/files/$protected_file" ] || continue
+            # A symlink or directory now at the path is removed first: copying through a symlink
+            # would overwrite whatever it points at instead of restoring the protected file.
+            if [ -L "$protected_file" ] || { [ -e "$protected_file" ] && [ ! -f "$protected_file" ]; }; then
+                rm -rf -- "$protected_file"
+            elif cmp -s "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"; then
+                continue
+            fi
+            mkdir -p "$(dirname "$protected_file")"
+            if cp -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$protected_file"; then
                 restored+=("$protected_file")
+            else
+                echo "  WARNING: could not restore protected file $protected_file"
             fi
         else
             git rm -qf --cached --ignore-unmatch -- "$protected_file" >/dev/null 2>&1 || true
-            rm -f -- "$protected_file"
+            rm -f -- "$protected_file" 2>/dev/null || true
             restored+=("$protected_file (added)")
         fi
     done < <( { cat "$PROTECTED_SNAPSHOT/manifest"; list_protected_files; } | sort -u)

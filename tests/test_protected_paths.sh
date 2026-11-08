@@ -63,6 +63,39 @@ grep -q "Restored protected" "$stub_dir/engine.log" \
 [ -z "$(git status --porcelain -- .evolve/IDENTITY.md .github/workflows .evolve/scripts)" ] \
     && ok "protected paths are clean in the final commit" || bad "protected paths left dirty: $(git status --porcelain)"
 
+# Second project: .evolve/ is gitignored, the install predates protected-paths.txt, and the
+# agent swaps IDENTITY.md for a symlink to a project file and edits the ignored orchestrator.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e .evolve/.stub-ran ] && exit 0
+touch .evolve/.stub-ran
+rm .evolve/IDENTITY.md && ln -s ../decoy.txt .evolve/IDENTITY.md
+echo "# tampered" >> .evolve/scripts/evolve.sh
+STUB
+second_dir="$(mktemp -d)"
+cd "$second_dir"
+git init -q
+git config user.email test@example.com
+git config user.name test
+echo "decoy" > decoy.txt
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "second init failed"
+rm .evolve/scripts/protected-paths.txt
+printf '.evolve/\n' >> .gitignore
+git add -A && git commit -qm "baseline, .evolve ignored"
+identity_before=$(cat .evolve/IDENTITY.md)
+engine_before=$(cat .evolve/scripts/evolve.sh)
+ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine2.log" 2>&1 || true
+[ ! -L .evolve/IDENTITY.md ] && [ "$(cat .evolve/IDENTITY.md)" = "$identity_before" ] \
+    && ok "IDENTITY.md swapped for a symlink is restored as a real file" || bad "IDENTITY.md not restored (symlink: $([ -L .evolve/IDENTITY.md ] && echo yes || echo no))"
+[ "$(cat decoy.txt)" = "decoy" ] \
+    && ok "restoring did not write through the symlink into decoy.txt" || bad "decoy.txt was overwritten"
+[ "$(cat .evolve/scripts/evolve.sh)" = "$engine_before" ] \
+    && ok "gitignored, list-less install: tampered evolve.sh is restored" || bad "ignored evolve.sh still tampered"
+cd / && rm -rf "$second_dir"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]
