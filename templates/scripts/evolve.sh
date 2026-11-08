@@ -37,7 +37,7 @@ BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 # acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
 # the git dir so `git add -A` never commits it.
 LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
-# Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in shared /tmp.
+# Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in the shared temp dir.
 LOCK_STATUS_DIR=$(mktemp -d)
 LOCK_STATUS_FILE="$LOCK_STATUS_DIR/status"
 LOCK_HOLDER_PID=""
@@ -52,8 +52,7 @@ fi
 LOCK_STATUS=$(cat "$LOCK_STATUS_FILE" 2>/dev/null || true)
 rm -rf "$LOCK_STATUS_DIR"
 case "$LOCK_STATUS" in
-    locked)
-        trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true' EXIT ;;
+    locked) ;;
     busy)
         echo "Another evolution cycle is already running; skipping this run."
         exit 0 ;;
@@ -63,6 +62,13 @@ case "$LOCK_STATUS" in
         echo "Error: could not take the run lock (is python3 installed?); skipping this run."
         exit 1 ;;
 esac
+
+# Private per-run scratch dir: fixed names in the shared temp dir collide between projects and
+# users, and a planted sponsor list there could grant sponsor priority to any issue author.
+# The trap goes first so the lock holder is released even if mktemp fails.
+RUN_TMP=""
+trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true; [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"' EXIT
+RUN_TMP=$(mktemp -d)
 
 # ── Source agent adapter ──
 # Validate agent name (alphanumeric only — prevents path traversal)
@@ -122,28 +128,29 @@ echo "Project dir: $PROJECT_DIR"
 echo ""
 
 # ── Step 0: Sponsor tier gate (optional — skip if no gh CLI) ──
-SPONSORS_FILE="/tmp/sponsor_logins.json"
+SPONSORS_FILE="$RUN_TMP/sponsor_logins.json"
 SPONSOR_TIER=0
 MONTHLY_TOTAL=0
 if command -v gh &>/dev/null && [ "${ENABLE_SPONSORS:-false}" = "true" ]; then
     SPONSOR_GH_TOKEN="${GH_PAT:-${GH_TOKEN:-}}"
-    GH_TOKEN="$SPONSOR_GH_TOKEN" gh api graphql -f query='{ viewer { sponsorshipsAsMaintainer(first: 100, activeOnly: true) { nodes { sponsorEntity { ... on User { login } ... on Organization { login } } tier { monthlyPriceInCents } } } } }' > /tmp/sponsor_raw.json 2>/dev/null || echo '{}' > /tmp/sponsor_raw.json
+    GH_TOKEN="$SPONSOR_GH_TOKEN" gh api graphql -f query='{ viewer { sponsorshipsAsMaintainer(first: 100, activeOnly: true) { nodes { sponsorEntity { ... on User { login } ... on Organization { login } } tier { monthlyPriceInCents } } } } }' > "$RUN_TMP/sponsor_raw.json" 2>/dev/null || echo '{}' > "$RUN_TMP/sponsor_raw.json"
 
-    MONTHLY_TOTAL=$(python3 <<'PYEOF'
-import json
+    MONTHLY_TOTAL=$(RUN_TMP="$RUN_TMP" python3 <<'PYEOF'
+import json, os
+run_tmp = os.environ["RUN_TMP"]
 try:
-    data = json.load(open('/tmp/sponsor_raw.json'))
+    data = json.load(open(os.path.join(run_tmp, 'sponsor_raw.json')))
     nodes = data['data']['viewer']['sponsorshipsAsMaintainer']['nodes']
     logins = [n['sponsorEntity']['login'] for n in nodes if n.get('sponsorEntity', {}).get('login')]
     total_cents = sum(n.get('tier', {}).get('monthlyPriceInCents', 0) for n in nodes)
-    json.dump(logins, open('/tmp/sponsor_logins.json', 'w'))
+    json.dump(logins, open(os.path.join(run_tmp, 'sponsor_logins.json'), 'w'))
     print(total_cents)
 except (KeyError, TypeError, json.JSONDecodeError):
-    json.dump([], open('/tmp/sponsor_logins.json', 'w'))
+    json.dump([], open(os.path.join(run_tmp, 'sponsor_logins.json'), 'w'))
     print(0)
 PYEOF
     ) 2>/dev/null || MONTHLY_TOTAL=0
-    rm -f /tmp/sponsor_raw.json
+    rm -f "$RUN_TMP/sponsor_raw.json"
 
     MONTHLY_DOLLARS=$(( MONTHLY_TOTAL / 100 ))
     if [ "$MONTHLY_DOLLARS" -ge 50 ] 2>/dev/null; then
@@ -249,9 +256,9 @@ if command -v gh &>/dev/null; then
         --label "agent-input" \
         --limit 15 \
         --json number,title,body,labels,reactionGroups,author \
-        > /tmp/issues_raw.json 2>/dev/null || true
+        > "$RUN_TMP/issues_raw.json" 2>/dev/null || true
 
-    python3 "$EVOLVE_DIR/scripts/format_issues.py" /tmp/issues_raw.json "$SPONSORS_FILE" "$DAY" > "$ISSUES_FILE" 2>/dev/null || echo "No issues found." > "$ISSUES_FILE"
+    python3 "$EVOLVE_DIR/scripts/format_issues.py" "$RUN_TMP/issues_raw.json" "$SPONSORS_FILE" "$DAY" > "$ISSUES_FILE" 2>/dev/null || echo "No issues found." > "$ISSUES_FILE"
     echo "  $(grep -c '^### Issue' "$ISSUES_FILE" 2>/dev/null || echo 0) issues loaded."
 else
     echo "  gh CLI not available. Skipping issue fetch."
@@ -296,7 +303,9 @@ echo ""
 echo "-> Capturing project state..."
 PROJECT_TREE=""
 if [ -d "$PROJECT_DIR" ] && [ "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then
-    PROJECT_TREE=$(find "$PROJECT_DIR" -type f \
+    # Write the full sorted listing to a file, then take the first 100: piping sort into
+    # head lets head exit early, and under pipefail sort's SIGPIPE silently killed the cycle.
+    { find "$PROJECT_DIR" -type f \
         -not -path '*/node_modules/*' \
         -not -path '*/.git/*' \
         -not -path '*/target/*' \
@@ -304,10 +313,12 @@ if [ -d "$PROJECT_DIR" ] && [ "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then
         -not -path '*/.next/*' \
         -not -path '*/dist/*' \
         -not -path '*/.venv/*' \
-        -not -path '*/.evolve/*' \
-        | sort | head -100)
-    FILE_COUNT=$(echo "$PROJECT_TREE" | wc -l)
-    echo "  $FILE_COUNT files in $PROJECT_DIR"
+        -not -path '*/.evolve/*' 2>/dev/null || true; } | sort > "$RUN_TMP/project_tree"
+    FILE_COUNT=$(wc -l < "$RUN_TMP/project_tree" | tr -d ' ')
+    PROJECT_TREE=$(head -100 "$RUN_TMP/project_tree")
+    TREE_SUMMARY="$FILE_COUNT files"
+    [ "$FILE_COUNT" -gt 100 ] && TREE_SUMMARY="$FILE_COUNT files, first 100 shown"
+    echo "  $TREE_SUMMARY in $PROJECT_DIR"
 else
     echo "  No project files yet (bootstrap session)"
 fi
@@ -393,7 +404,7 @@ Do NOT modify files inside $EVOLVE_DIR/ except JOURNAL.md, LEARNINGS.md, and ISS
 
 ${PROJECT_TREE:+
 === CURRENT PROJECT STATE ===
-Files in $PROJECT_DIR:
+Files in $PROJECT_DIR (${TREE_SUMMARY:-}):
 $PROJECT_TREE
 }
 ${CI_STATUS_MSG:+
