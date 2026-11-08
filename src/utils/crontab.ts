@@ -26,7 +26,8 @@ export function tableFromListing(listing: CrontabListing): string {
 }
 
 export function getCrontab(): string {
-  const result = spawnSync('crontab', ['-l'], { encoding: 'utf8' });
+  // LC_ALL=C keeps the "no crontab for" message in English for tableFromListing.
+  const result = spawnSync('crontab', ['-l'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
   return tableFromListing({ status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '', error: result.error });
 }
 

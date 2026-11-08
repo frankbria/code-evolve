@@ -21,6 +21,7 @@ table="$stub_dir/crontab.table"
 if [ "\${1:-}" = "-l" ]; then
     [ -f "$stub_dir/list-fails" ] && { echo "crontab: permission denied" >&2; exit 1; }
     [ -f "\$table" ] && cat "\$table" && exit 0
+    [ "\${LC_ALL:-}" = "C" ] || { echo "kein crontab für test" >&2; exit 1; }
     echo "no crontab for test" >&2; exit 1
 fi
 cat > "\$table"
@@ -73,6 +74,23 @@ rm -f "$stub_dir/list-fails"
 [ "$start_status" -ne 0 ] && diff <(cat "$stub_dir/crontab.table") <(printf '%s\n' "$user_lines") >/dev/null \
     && ok "start fails without touching the table when crontab -l errors" \
     || bad "start after a crontab -l error (exit $start_status) left: $(cat "$stub_dir/crontab.table")"
+
+# First install with no crontab at all, under a non-English locale: the "no crontab" message
+# must still be recognized (the stub only says it in English when LC_ALL=C).
+rm -f "$stub_dir/crontab.table"
+first_status=0; (cd app && LANG=de_DE.UTF-8 node "$CLI" start --every 4 >/dev/null 2>&1) || first_status=$?
+[ "$first_status" -eq 0 ] && grep -q "code-evolve:$work_dir/app\$" "$stub_dir/crontab.table" 2>/dev/null \
+    && ok "first install works when crontab -l is localized" \
+    || bad "first install under a localized crontab failed (exit $first_status)"
+
+# If the crontab cannot be updated, eject must abort before deleting .evolve/.
+mkdir app3 && (cd app3 && git init -q && node "$CLI" init --agent claude </dev/null >/dev/null 2>&1)
+touch "$stub_dir/list-fails"
+eject_status=0; (cd app3 && node "$CLI" eject --yes >/dev/null 2>&1) || eject_status=$?
+rm -f "$stub_dir/list-fails"
+[ "$eject_status" -ne 0 ] && [ -d app3/.evolve ] \
+    && ok "eject aborts and keeps .evolve/ when the crontab cannot be updated" \
+    || bad "eject after a crontab error: exit $eject_status, .evolve present: $([ -d app3/.evolve ] && echo yes || echo no)"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

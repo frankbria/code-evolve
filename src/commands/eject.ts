@@ -33,8 +33,10 @@ export const ejectCommand = new Command('eject')
       let removed = false;
       try {
         removed = removeProjectCron(process.cwd());
-      } catch {
-        console.error('Could not update the crontab; remove the code-evolve entry with `crontab -e`.');
+      } catch (err) {
+        // Abort before deleting anything: removing .evolve/ would leave a cron entry firing at missing scripts.
+        console.error(`Could not update the crontab, so nothing was ejected: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
       }
       if (removed) {
         console.log('Stopped evolution engine (cron job removed).');
