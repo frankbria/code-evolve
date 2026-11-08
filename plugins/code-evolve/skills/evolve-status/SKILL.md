@@ -22,5 +22,6 @@ metadata:
    - `abandonedSession` true: an old unfinished session; the next cycle will discard it.
    - `engineDrift` not empty: the installed engine files differ from this code-evolve version.
      Offer to refresh them with `npx code-evolve init --yes` (it keeps state and history).
+     `null` means they could not be compared (an unreadable file); say so.
    - No features in the spec: offer the `evolve-setup` skill to draft one.
 4. For more history, read the newest entries at the top of `.evolve/JOURNAL.md`.

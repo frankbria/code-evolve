@@ -106,7 +106,13 @@ export const statusCommand = new Command('status')
     const pendingSession = sessionModifiedMs !== undefined && (Date.now() - sessionModifiedMs) / 60000 < maxPendingMinutes;
     const abandonedSession = !pendingSession && fs.existsSync(runDir);
 
-    const engineDrift = differingEngineFiles(path.join(getTemplatesDir(), 'scripts'), evolveFile('scripts'));
+    // Sorted because readdir order depends on the filesystem; null when the files cannot be compared.
+    let engineDrift: string[] | null = null;
+    try {
+      engineDrift = differingEngineFiles(path.join(getTemplatesDir(), 'scripts'), evolveFile('scripts')).sort();
+    } catch {
+      // an unreadable engine or template file: report drift as unknown rather than fail status
+    }
 
     const data = {
       day: dayCount,
@@ -139,7 +145,8 @@ export const statusCommand = new Command('status')
       `  Engine:   ${scheduleLine}`,
       `  REQs:     ${requirements.open} open, ${requirements.regressed} regressed, ${requirements.satisfied} satisfied`,
       pendingSession ? '  Session:  an in-session cycle is prepared but not finalized (.evolve/run/)' : '',
-      engineDrift.length ? `  Drift:    installed engine differs from this code-evolve (${engineDrift.join(', ')}); refresh with: code-evolve init --yes` : '',
+      engineDrift === null ? '  Drift:    could not compare the installed engine with this code-evolve' : '',
+      engineDrift?.length ? `  Drift:    installed engine differs from this code-evolve (${engineDrift.join(', ')}); refresh with: code-evolve init --yes` : '',
       lastEntry ? `\n  Last entry:\n  ${lastEntry.split('\n').join('\n  ')}` : '',
     ]
       .filter(Boolean)

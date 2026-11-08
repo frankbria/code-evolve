@@ -43,7 +43,10 @@ check "fresh install: engine matches this version" "$(status_field 'v.engineDrif
 echo "# stale" >> .evolve/scripts/agents/claude.sh
 rm .evolve/scripts/hold_lock.py
 check "edited or missing engine files are reported as drift" "$(status_field 'v.engineDrift')" '["agents/claude.sh","hold_lock.py"]'
-node "$CLI" init --yes --agent claude </dev/null >/dev/null 2>&1
+chmod a-r .evolve/scripts/evolve.sh
+check "an unreadable engine file reports drift as unknown instead of failing" "$(status_field 'v.engineDrift')" "null"
+chmod u+r .evolve/scripts/evolve.sh
+PATH="$stub_dir:$PATH" node "$CLI" init --yes --agent claude </dev/null >/dev/null 2>&1
 check "init --yes clears the drift" "$(status_field 'v.engineDrift')" "[]"
 
 echo "---"
