@@ -9,14 +9,15 @@ metadata:
 
 1. Run `npx code-evolve status`. When its output is not a terminal it prints JSON with `day`,
    `features` (total, done, partial, remaining), `mode`, `schedule`, `requirements` (open, regressed,
-   satisfied, waived), `pendingSession` and `lastEntry`.
+   satisfied, waived), `pendingSession`, `abandonedSession` and `lastEntry`.
 2. Summarize in a few sentences: the day count and spec progress, how cycles run (`mode` and
-   `schedule`; no schedule means cycles are run by hand or from an agent session), and what the
-   last journal entry says.
+   `schedule`; no schedule means cycles are run by hand or from an agent session), how many
+   requirements are open (work the agent owes), and what the last journal entry says.
 3. Call out anything that needs attention:
    - `requirements.regressed` above 0: something that used to work is broken, and the next cycle
      must fix it before new work.
-   - `pendingSession` true: an in-session cycle was prepared and not finalized, so scheduled cycles
-     are skipping. Offer to finish it with the `evolve-run` skill.
+   - `pendingSession` true: an in-session cycle was prepared recently and not finalized, so
+     scheduled cycles are skipping. Offer to finish it with the `evolve-run` skill.
+   - `abandonedSession` true: an old unfinished session; the next cycle will discard it.
    - No features in the spec: offer the `evolve-setup` skill to draft one.
 4. For more history, read the newest entries at the top of `.evolve/JOURNAL.md`.

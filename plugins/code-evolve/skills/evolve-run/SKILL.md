@@ -25,8 +25,9 @@ bash .evolve/scripts/evolve.sh prepare
 - **"Prepared Day N session"**: continue with step 2.
 - **"already running"**: another cycle holds the lock. Stop and tell the user; do not retry in a loop.
 - **"a prepared session is still pending"**: an earlier in-session cycle was never finalized. Ask
-  the user whether to finish it (go to step 3) or abandon it (`rm -rf .evolve/run`, then prepare
-  again). If no one can answer, finish it.
+  the user whether to finish it or abandon it (`rm -rf .evolve/run`, then prepare again). If no one
+  can answer, finish it. To finish it, go to step 2: the prompt is still in `.evolve/run/PROMPT.md`;
+  check `git log` for what that session already committed and complete the rest before verifying.
 
 ## 2. Do the work
 

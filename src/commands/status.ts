@@ -87,7 +87,14 @@ export const statusCommand = new Command('status')
     } catch {
       // no ledger yet
     }
-    const pendingSession = fs.existsSync(evolveFile(path.join('run', 'session.env')));
+    // Same rule as the engine: a session older than PENDING_SESSION_MAX_MINUTES is abandoned.
+    const sessionFile = evolveFile(path.join('run', 'session.env'));
+    const maxPendingMinutes = Number(process.env.PENDING_SESSION_MAX_MINUTES ?? '240');
+    const sessionAgeMinutes = fs.existsSync(sessionFile)
+      ? (Date.now() - fs.statSync(sessionFile).mtimeMs) / 60000
+      : null;
+    const pendingSession = sessionAgeMinutes !== null && sessionAgeMinutes < maxPendingMinutes;
+    const abandonedSession = sessionAgeMinutes !== null && !pendingSession;
 
     const data = {
       day: dayCount,
@@ -97,6 +104,7 @@ export const statusCommand = new Command('status')
       schedule: schedule ? { every: `${schedule.every}h`, model: schedule.model } : null,
       requirements,
       pendingSession,
+      abandonedSession,
       lastEntry,
     };
 

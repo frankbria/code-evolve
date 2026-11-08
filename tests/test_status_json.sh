@@ -26,6 +26,8 @@ printf '\n## REQ-0001: a\n- **Status**: open\n\n## REQ-0002: b\n- **Status**: re
 mkdir -p .evolve/run && echo "DAY=0" > .evolve/run/session.env
 check "requirements are counted by status" "$(status_field 'v.requirements')" '{"open":1,"regressed":1,"satisfied":1,"waived":0}'
 check "a prepared session is reported as pending" "$(status_field 'v.pendingSession')" "true"
+check "an old prepared session is reported as abandoned, not pending" \
+    "$(PENDING_SESSION_MAX_MINUTES=0 status_field '[v.pendingSession, v.abandonedSession]')" "[false,true]"
 
 echo "---"
 echo "passed: $pass  failed: $fail"
