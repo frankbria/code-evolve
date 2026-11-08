@@ -42,7 +42,8 @@
     "test": "jest && npm run test:shell",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test:shell": "npm run build && bash tests/run_shell_tests.sh"
+    "test:shell": "npm run build && bash tests/run_shell_tests.sh",
+    "version": "node -e \"const fs=require('fs');const f='plugins/code-evolve/.claude-plugin/plugin.json';const m=JSON.parse(fs.readFileSync(f,'utf8'));m.version=require('./package.json').version;fs.writeFileSync(f,JSON.stringify(m,null,2)+'\\n')\" && git add plugins/code-evolve/.claude-plugin/plugin.json"
   },
   "dependencies": {
     "commander": "^11.0.0",

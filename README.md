@@ -33,6 +33,19 @@ Day 14 — Your project works. You barely touched a keyboard.
 
 **Quickest path:** run `npx code-evolve` with no subcommand. It finds Claude Code, Codex or OpenCode on your PATH (asking only if there are several), installs `.evolve/`, and opens that agent with the `evolve-setup` skill, which walks you through vision, spec and schedule in conversation. Without a terminal or an agent it prints the exact command for each agent instead.
 
+### From inside Claude Code (plugin)
+
+This repository is its own Claude Code marketplace. Install the plugin into your project, then run its setup skill:
+
+```bash
+claude plugin marketplace add frankbria/code-evolve
+claude plugin install code-evolve@code-evolve --scope project
+```
+
+(Inside a session, the same works as `/plugin marketplace add frankbria/code-evolve` and `/plugin install code-evolve@code-evolve`; Claude Code 2.1.275 or later also takes `/plugin install code-evolve --marketplace frankbria/code-evolve`.) Then run `/code-evolve:evolve-setup`.
+
+Setup installs the same skills into your project's `.claude/skills/`, so the plugin's copies (`/code-evolve:evolve-run`) and the project's (`/evolve-run`) both appear. **Use the project copies once setup has run:** they match the engine version installed in `.evolve/`, and they reach teammates and other agents without the plugin. Remove the plugin afterwards with `claude plugin uninstall code-evolve --scope project`.
+
 Prefer to do it step by step? Three steps:
 
 ### 1. Initialize

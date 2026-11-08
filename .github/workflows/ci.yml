@@ -34,3 +34,9 @@ jobs:
 
       - name: Verify CLI
         run: node dist/cli.js --version
+
+      - name: Validate Claude Code plugin and marketplace
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate .
+          claude plugin validate plugins/code-evolve
