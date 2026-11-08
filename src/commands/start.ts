@@ -192,6 +192,8 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode?: 
     .map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'`);
 
   fs.writeFileSync(envFile, lines.join('\n') + '\n', { mode: 0o600 });
+  // `mode` only applies when the file is created; a rewrite must not keep looser permissions.
+  fs.chmodSync(envFile, 0o600);
 }
 
 function ensureEnvGitignored(projectDir: string): void {

@@ -91,13 +91,23 @@ grep -q " run=first$" "$stub_dir/agent-calls" 2>/dev/null && ! grep -q " run=sec
     || bad "overlap: agent calls: $(cat "$stub_dir/agent-calls" 2>/dev/null)"
 [ ! -e "$(git rev-parse --git-dir)/code-evolve.lock" ] && ok "lock released after the cycle" || bad "lock left behind"
 
-# A stale lock (dead PID) must not block the next cycle.
-mkdir -p "$(git rev-parse --git-dir)/code-evolve.lock"
-echo 999999 > "$(git rev-parse --git-dir)/code-evolve.lock/pid"
-stale_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/stale.log" stale || stale_status=$?
-grep -q "Day .* complete" "$stub_dir/stale.log" \
-    && ok "stale lock from a dead process is reclaimed" \
-    || bad "stale lock blocked the cycle (exit $stale_status): $(tail -3 "$stub_dir/stale.log")"
+# Stale locks must not block the next cycle: a dead PID, and a live PID that belongs to
+# a different process than the one that took the lock (PID reuse: start time differs).
+lock_file="$(git rev-parse --absolute-git-dir)/code-evolve.lock"
+for stale_case in "dead-pid:999999 Thu Jan  1 00:00:00 1970" "reused-pid:$$ Thu Jan  1 00:00:00 1970"; do
+    echo "${stale_case#*:}" > "$lock_file"
+    stale_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/stale.log" stale || stale_status=$?
+    grep -q "Day .* complete" "$stub_dir/stale.log" \
+        && ok "stale lock (${stale_case%%:*}) is reclaimed" \
+        || bad "stale lock (${stale_case%%:*}) blocked the cycle (exit $stale_status): $(tail -3 "$stub_dir/stale.log")"
+done
+
+# Re-running start over a world-readable .env must leave it 0600 (it holds the API key).
+chmod 644 .evolve/.env
+env -i PATH="$base_path" HOME="$HOME" ANTHROPIC_API_KEY=k node "$CLI" start --every 4 >/dev/null 2>&1 \
+    || bad "second start failed"
+env_mode=$(stat -c '%a' .evolve/.env 2>/dev/null || stat -f '%Lp' .evolve/.env)
+[ "$env_mode" = "600" ] && ok ".env is 0600 after start rewrites it" || bad ".env mode after rewrite: $env_mode"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
