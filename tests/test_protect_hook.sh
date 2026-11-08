@@ -44,6 +44,12 @@ check "a redirect into a protected file is blocked" "$(hook_exit Bash "$(bash_co
 check "sed -i on a protected file is blocked" "$(hook_exit Bash "$(bash_command "sed -i 's/a/b/' .evolve/scripts/evolve.sh")")" "2"
 check "rm -rf of the engine directory is blocked" "$(hook_exit Bash "$(bash_command 'rm -rf .evolve/scripts')")" "2"
 check "git checkout -- of a protected file is blocked" "$(hook_exit Bash "$(bash_command 'git checkout -- .evolve/IDENTITY.md')")" "2"
+check "sed --in-place on a protected file is blocked" "$(hook_exit Bash "$(bash_command "sed --in-place 's/a/b/' .evolve/IDENTITY.md")")" "2"
+check "perl -pi on a protected file is blocked" "$(hook_exit Bash "$(bash_command "perl -pi -e 's/a/b/' .evolve/scripts/evolve.sh")")" "2"
+check "sed -ni on a protected file is blocked" "$(hook_exit Bash "$(bash_command "sed -ni '1p' .evolve/IDENTITY.md")")" "2"
+check "dd of= a protected file is blocked" "$(hook_exit Bash "$(bash_command 'dd if=/dev/zero of=.evolve/IDENTITY.md count=1')")" "2"
+check "cp --target-directory= a protected dir is blocked" "$(hook_exit Bash "$(bash_command 'cp --target-directory=.evolve/scripts evil.sh')")" "2"
+check "sed -e on project files is allowed" "$(hook_exit Bash "$(bash_command "sed -e 's/i/x/' .evolve/IDENTITY.md > out.txt")")" "0"
 check "reading a protected file is allowed" "$(hook_exit Bash "$(bash_command 'cat .evolve/IDENTITY.md 2>/dev/null | head')")" "0"
 check "the engine's own phases are allowed" "$(hook_exit Bash "$(bash_command 'bash .evolve/scripts/evolve.sh verify')")" "0"
 check "ordinary writes are allowed" "$(hook_exit Bash "$(bash_command 'echo x > notes.txt && rm -f build.log')")" "0"
@@ -60,6 +66,9 @@ check "a project without .evolve is never blocked" "$(hook_exit Edit "$(edit "$p
 rm -rf "$plain"
 status=0; printf 'not json' | python3 "$HOOK" 2>/dev/null || status=$?
 check "unreadable input is allowed" "$status" "0"
+status=0; printf '[1]' | python3 "$HOOK" 2>/dev/null || status=$?
+check "a payload that is not an object is allowed" "$status" "0"
+check "a tool_input that is not an object is allowed" "$(hook_exit Bash '"rm -rf .evolve"')" "0"
 
 # The plugin registers the hook for Claude Code (hooks/hooks.json) and Codex (plugin.json).
 check "hooks.json runs the guard on PreToolUse" \

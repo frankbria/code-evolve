@@ -29,7 +29,7 @@ REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 # protected file (`cp .evolve/IDENTITY.md /tmp`); parse each command's arguments if that bites.
 WRITE_COMMAND = re.compile(
     r"(^|[\s;&|(`])(rm|rmdir|unlink|mv|cp|install|ln|tee|truncate|touch|dd|chmod|chown)\s"
-    r"|\b(sed|perl)\s+(-\S*\s+)*-i"
+    r"|\b(sed|perl)\b[^;&|]*\s(-[A-Za-z]*i|--in-place)"
     r"|\bgit\s+(checkout|restore|rm|mv)\b"
 )
 PATCH_FILE_LINE = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$", re.MULTILINE)
@@ -88,7 +88,12 @@ def blocked_by_shell_command(command: str, cwd: str, root: str, patterns: list[s
     if not WRITE_COMMAND.search(command):
         return None
     for token in tokens:
-        if token.startswith("-") or token in REDIRECTS:
+        if token in REDIRECTS:
+            continue
+        # `dd of=FILE` and `--target-directory=DIR` name their path after the "=".
+        if "=" in token:
+            token = token.split("=", 1)[1]
+        elif token.startswith("-"):
             continue
         match = protected_match(token, cwd, root, patterns)
         if match:
@@ -99,7 +104,9 @@ def blocked_by_shell_command(command: str, cwd: str, root: str, patterns: list[s
 def blocked_path(payload: dict, root: str, patterns: list[str]) -> str | None:
     cwd = payload.get("cwd") or os.getcwd()
     tool = payload.get("tool_name", "")
-    tool_input = payload.get("tool_input") or {}
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
     if tool in FILE_TOOLS:
         path = tool_input.get("file_path") or tool_input.get("notebook_path")
         return protected_match(path, cwd, root, patterns) if path else None
@@ -119,6 +126,8 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except ValueError:
+        return 0
+    if not isinstance(payload, dict):
         return 0
     root = find_project_root(payload.get("cwd") or os.getcwd())
     if root is None:
