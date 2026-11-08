@@ -1,7 +1,6 @@
 ---
 name: research
-description: Search the web and read documentation when implementing unfamiliar things
-tools: [bash]
+description: Search the web and read documentation before implementing something unfamiliar, and record findings in .evolve/LEARNINGS.md. Use whenever you are unsure how a tool or API works.
 ---
 
 # Research

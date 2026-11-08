@@ -1,7 +1,6 @@
 ---
 name: evolve
-description: Build and improve the project from .evolve/vision.md and .evolve/spec.md, verify changes, manage evolution
-tools: [bash, read_file, write_file, edit_file, list_files, search]
+description: Build and improve the project from .evolve/vision.md and .evolve/spec.md, verify every change, and follow the safety rules. Use while implementing.
 ---
 
 # Self-Evolution

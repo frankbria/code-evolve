@@ -1,7 +1,6 @@
 ---
 name: self-assess
-description: Analyze the project against .evolve/vision.md and .evolve/spec.md to find gaps, bugs, and improvement opportunities
-tools: [bash, read_file, list_files, search]
+description: Compare the project against .evolve/vision.md and .evolve/spec.md to find gaps, bugs and improvement opportunities. Use at the start of every session.
 ---
 
 # Self-Assessment

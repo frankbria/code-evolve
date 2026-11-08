@@ -1,7 +1,6 @@
 ---
 name: plan
-description: Plan project structure and implementation strategy from .evolve/vision.md and .evolve/spec.md
-tools: [bash, read_file, write_file, list_files]
+description: Plan project structure and build order from .evolve/vision.md and .evolve/spec.md, respecting an existing repo's conventions. Use on Day 0 and before any large change.
 ---
 
 # Planning

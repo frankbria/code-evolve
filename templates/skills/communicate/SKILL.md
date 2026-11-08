@@ -1,7 +1,6 @@
 ---
 name: communicate
-description: Write journal entries and respond to GitHub issues
-tools: [write_file, read_file]
+description: Write the session's journal entry and responses to GitHub issues. Use at the end of every session (journal and issue-response phases).
 ---
 
 # Communication

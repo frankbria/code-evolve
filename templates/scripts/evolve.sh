@@ -113,6 +113,21 @@ next_req_number() {
     printf '%04d' $(( 10#${highest:-0} + 1 ))
 }
 
+# One line per runtime skill, "- <name>: <description>", from each SKILL.md's frontmatter.
+# The prompt lists these so any agent that can read files uses the skills.
+skill_index() {
+    local skill_file
+    for skill_file in "$EVOLVE_DIR"/skills/*/SKILL.md; do
+        [ -f "$skill_file" ] || continue
+        awk '
+            NR == 1 && $0 != "---" { exit }
+            NR > 1 && $0 == "---" { if (name != "") print "- " name ": " description; exit }
+            /^name:/ { sub(/^name: */, ""); name = $0 }
+            /^description:/ { sub(/^description: */, ""); description = $0 }
+        ' "$skill_file"
+    done
+}
+
 # ── Protected paths ──
 # protected_path_matches <path>: true if <path> matches a pattern in the session's protected
 # list. The list is the copy taken at session start, so editing it mid-session changes nothing.
@@ -592,13 +607,15 @@ $HELP_ISSUES
 }
 $VERIFY_INSTRUCTIONS
 
+=== SKILLS ===
+How-to for each phase lives in a skill at $EVOLVE_DIR/skills/<name>/SKILL.md. Before a phase, read the
+skill that covers it:
+$(skill_index)
+
 === PHASE 1: Assess Current State ===
 
-Read $EVOLVE_DIR/vision.md and $EVOLVE_DIR/spec.md completely. Then examine the current project state.
-Determine what exists vs what's specified. Identify the gap.
-
-If this is Day 0 (bootstrap): Plan the project structure and set up scaffolding.
-If project exists: Self-assess — what works, what's broken, what's missing.
+Follow the self-assess skill: compare the project with $EVOLVE_DIR/vision.md and $EVOLVE_DIR/spec.md
+and identify the gap. On Day 0 (no project yet), follow the plan skill and the evolve skill's bootstrap steps.
 
 === PHASE 2: Review Community Issues ===
 
@@ -621,53 +638,19 @@ Priority:
 
 === PHASE 4: Implement ===
 
-For each improvement:
-- Write tests alongside features
-- Make focused, small commits
-- Verify the build passes after each change
-- If any check fails, read the error and fix it (up to 3 tries)
-- If stuck after 3 tries, revert with: git checkout -- . (keeps previous commits)
-- Commit: git add -A && git commit -m "Day $DAY ($SESSION_TIME): <short description>"
+Follow the evolve skill (focused changes, tests with every feature, verify after each change, revert
+after 3 failed tries). Commit each change as:
+git add -A && git commit -m "Day $DAY ($SESSION_TIME): <short description>"
 
 === PHASE 4.5: Proof Obligations ===
 
-Read $EVOLVE_DIR/REQUIREMENTS.md. If the file doesn't exist or is empty, skip this phase.
-
-Compute scope intersection: which REQs touch files you changed this session?
-Use the Scope patterns in each REQ (globs like src/auth/*, route patterns like POST /auth/login).
-A REQ applies if any file you changed matches its scope.
-
-For each intersecting REQ:
-  - Skip if status is "waived" and waiver has not expired
-  - Run the obligation tests/checks for each assigned gate
-  - Capture the output (last 200 lines) and write to .evolve/evidence/REQ-XXXX/<day>-<commit>-<gate>.txt
-  - If obligations pass:
-      Update status to "satisfied"
-      Add "Satisfied by: Day $DAY, commit <short sha>"
-  - If obligations fail on a previously "satisfied" REQ:
-      Mark status "regressed"
-      Regressed REQs block the commit — fix them before proceeding to Phase 5
-
-For each new failure encountered this session that hasn't been captured yet:
-  - Create a new REQ entry at the bottom of $EVOLVE_DIR/REQUIREMENTS.md
-  - Assign gate obligations based on failure type (build error → [BUILD], test failure → [UNIT], API issue → [UNIT, CONTRACT])
-  - Set source to "Day $DAY agent self-assessment"
-  - Write test stubs if evidence tests don't exist yet
-
-When you addressed a GitHub issue this session (from ISSUES_TODAY.md):
-  - After implementing the fix, create a REQ with Source: "GitHub issue #N"
-  - Assign obligations based on the issue type
-  - Run the obligations and capture evidence
-
-Commit all changes to REQUIREMENTS.md and evidence files:
-git add $EVOLVE_DIR/REQUIREMENTS.md && git commit -m "Day $DAY ($SESSION_TIME): update proof obligations"
+If $EVOLVE_DIR/REQUIREMENTS.md has REQ entries, follow the prove skill: run the obligations of every REQ
+your changes touch, record evidence, and add REQs for new failures. A regressed REQ blocks the commit.
 
 === PHASE 5: Update Spec Progress ===
 
-After implementing features from $EVOLVE_DIR/spec.md, update the checkboxes:
-- [ ] → [x] for completed features
-- [ ] → [~] for partially completed features
-Commit: git add $EVOLVE_DIR/spec.md && git commit -m "Day $DAY ($SESSION_TIME): update spec progress"
+Tick the $EVOLVE_DIR/spec.md checkboxes as the evolve skill describes ([x] done, [~] partial), then:
+git add $EVOLVE_DIR/spec.md && git commit -m "Day $DAY ($SESSION_TIME): update spec progress"
 
 === PHASE 6: Journal (MANDATORY — DO NOT SKIP) ===
 
@@ -688,8 +671,7 @@ comment: [2-3 sentences]
 Separate multiple issues with "---".
 
 === REMINDER ===
-You have internet access via bash (curl). If implementing something unfamiliar,
-research it first. Check $EVOLVE_DIR/LEARNINGS.md before searching. Write new findings to $EVOLVE_DIR/LEARNINGS.md.
+Implementing something unfamiliar? Follow the research skill first.
 
 Read $EVOLVE_DIR/IDENTITY.md first. Now begin.
 PROMPT
