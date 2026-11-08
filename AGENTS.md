@@ -49,7 +49,7 @@ code-evolve/                  # npm package source
 │       └── __tests__/        # Jest unit tests
 ├── tests/                    # Shell tests (test_*.sh) driving the built CLI and engine scripts
 ├── templates/                # Files installed by `init` into a target project
-│   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, agents/ (per-backend adapters)
+│   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, hold_lock.py, agents/ (per-backend adapters)
 │   ├── skills/               # Agent behavior definitions (5 skill dirs, each a SKILL.md)
 │   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, REQUIREMENTS.md, DAY_COUNT, vision.md, spec.md
 │   └── workflows/            # GitHub Actions (evolve.yml, ci.yml)
@@ -113,5 +113,6 @@ These must not be modified by the evolution agent:
 - `.evolve/IDENTITY.md` — agent constitution
 - `.evolve/scripts/evolve.sh` — orchestrator
 - `.evolve/scripts/format_issues.py` — input sanitization
+- `.evolve/scripts/hold_lock.py` — single-run lock (keeps two cycles from editing the repo at once)
 - `.github/workflows/evolve.yml` — auto-evolution workflow
 - `.github/workflows/evolve-ci.yml` — CI/CD safety net (installed by `init --with-ci` from `templates/workflows/ci.yml`, renamed so it never clobbers the target repo's own `ci.yml`)

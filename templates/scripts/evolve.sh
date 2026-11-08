@@ -56,10 +56,10 @@ case "$LOCK_STATUS" in
         echo "Another evolution cycle is already running; skipping this run."
         exit 0 ;;
     *)
-        # shortcut: without python3 (or if the holder fails) cycles are not locked against
-        # overlap; python3 is already required for stack detection, so this is rare.
-        echo "Warning: could not take the run lock (python3 unavailable?); continuing unlocked."
-        [ -n "$LOCK_HOLDER_PID" ] && kill "$LOCK_HOLDER_PID" 2>/dev/null || true ;;
+        # Fail closed: two unlocked cycles could edit the same tree. The next tick retries.
+        [ -n "$LOCK_HOLDER_PID" ] && kill "$LOCK_HOLDER_PID" 2>/dev/null || true
+        echo "Error: could not take the run lock (is python3 installed?); skipping this run."
+        exit 1 ;;
 esac
 
 # ── Source agent adapter ──

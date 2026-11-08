@@ -115,6 +115,17 @@ grep -q "Day .* complete" "$stub_dir/after-crash.log" \
     && ok "a cycle killed with -9 leaves no stale lock" \
     || bad "lock outlived a crashed cycle (exit $after_crash_status): $(tail -3 "$stub_dir/after-crash.log")"
 
+# If the lock cannot be taken at all, the cycle must fail closed: no agent call.
+cp .evolve/scripts/hold_lock.py "$stub_dir/hold_lock.py.real"
+echo 'raise SystemExit(1)' > .evolve/scripts/hold_lock.py
+rm -f "$stub_dir/agent-calls"
+no_lock_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/no-lock.log" no-lock || no_lock_status=$?
+cp "$stub_dir/hold_lock.py.real" .evolve/scripts/hold_lock.py
+grep -q "could not take the run lock" "$stub_dir/no-lock.log" && [ "$no_lock_status" -ne 0 ] \
+    && ! grep -q " run=no-lock$" "$stub_dir/agent-calls" 2>/dev/null \
+    && ok "no lock means no cycle (fails closed, agent not called)" \
+    || bad "lock failure did not fail closed (exit $no_lock_status): $(tail -2 "$stub_dir/no-lock.log")"
+
 # Re-running start over a world-readable .env must leave it 0600 (it holds the API key).
 chmod 644 .evolve/.env
 env -i PATH="$base_path" HOME="$HOME" ANTHROPIC_API_KEY=k node "$CLI" start --every 4 >/dev/null 2>&1 \
