@@ -43,7 +43,7 @@
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test:shell": "npm run build && bash tests/run_shell_tests.sh",
-    "version": "node scripts/sync-plugin-version.js | xargs git add --"
+    "version": "node scripts/sync-plugin-version.js && git add -- plugins/code-evolve/plugin.json plugins/code-evolve/.claude-plugin/plugin.json"
   },
   "dependencies": {
     "commander": "^11.0.0",

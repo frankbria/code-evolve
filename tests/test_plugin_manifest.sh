@@ -30,6 +30,10 @@ check "the version script syncs the Claude manifest" "$(json "$work/$PLUGIN_MANI
 check "the version script syncs the Agent Plugins manifest" "$(json "$work/$AGENT_MANIFEST" .version)" '"9.9.9"'
 check "the version script stages both manifests for the version commit" \
     "$(git -C "$work" diff --cached --name-only | sort | tr '\n' ' ')" "$PLUGIN_MANIFEST $AGENT_MANIFEST "
+chmod a-w "$work/$AGENT_MANIFEST"
+status=0; (cd "$work" && npm run version --silent >/dev/null 2>&1) || status=$?
+chmod u+w "$work/$AGENT_MANIFEST"
+check "a manifest that cannot be written fails the version script (no stale release)" "$([ "$status" -ne 0 ] && echo failed || echo passed)" "failed"
 
 if command -v claude >/dev/null 2>&1; then
     status=0; claude plugin validate "$ROOT" >/dev/null 2>&1 || status=$?

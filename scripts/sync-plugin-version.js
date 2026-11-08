@@ -12,4 +12,3 @@ for (const manifest of manifests) {
   data.version = version;
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
-console.log(manifests.join(' '));

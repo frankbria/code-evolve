@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { evolveFile, getTemplatesDir, isInitialized } from '../utils/paths';
+import { currentDay, evolveFile, getTemplatesDir, isInitialized } from '../utils/paths';
 import { output } from '../utils/output';
 import { readConfig } from '../utils/config';
 import { parseRequirements, reinstateLapsedWaivers } from '../utils/proof';
@@ -93,7 +93,7 @@ export const statusCommand = new Command('status')
     try {
       // The template's format example lives in an HTML comment; it is not a REQ.
       const ledger = fs.readFileSync(evolveFile('REQUIREMENTS.md'), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
-      for (const req of reinstateLapsedWaivers(parseRequirements(ledger), dayCount)) requirements[req.status]++;
+      for (const req of reinstateLapsedWaivers(parseRequirements(ledger), currentDay())) requirements[req.status]++;
     } catch {
       // no ledger yet
     }
