@@ -27,6 +27,7 @@ code-evolve/                  # npm package source
 │   ├── cli.ts                # Entrypoint (commander)
 │   ├── commands/             # One file per subcommand (see Commands below)
 │   │   ├── init.ts           # code-evolve init (exports runInit)
+│   │   ├── bootstrap.ts      # bare `code-evolve`: init --yes, then open the agent on evolve-setup
 │   │   ├── setup.ts          # code-evolve setup (guided onboarding wizard)
 │   │   ├── start.ts          # code-evolve start (set up recurring cron)
 │   │   ├── stop.ts           # code-evolve stop (remove cron)
@@ -76,6 +77,9 @@ The CLI ships 11 subcommands (registered in `src/cli.ts`; also available as `ce`
 | `vision` | Guided interview to generate `.evolve/vision.md` |
 | `spec` | Guided interview to generate `.evolve/spec.md` |
 | `proof` | PROOF9 quality gates and requirements management |
+
+With no subcommand, `code-evolve` bootstraps: it picks the agent CLI on PATH, runs
+`init --yes --agent <it>`, then execs that agent with the `evolve-setup` skill as its first prompt.
 
 ## Development
 
