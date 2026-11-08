@@ -61,6 +61,14 @@ grep -qvE '^[A-Z_]+=' .evolve/run/session.env \
     && bad "session.env has a line that is not KEY=value" || ok "session.env holds only KEY=value lines"
 [ -z "$(git status --porcelain -- .evolve/run)" ] && ok ".evolve/run/ is ignored by git" || bad ".evolve/run shows in git status"
 
+# A read-only git directory (some agent sandboxes) fails fast with a clear message.
+rm -rf .evolve/run
+chmod a-w .git
+readonly_status=0; engine prepare > "$stub_dir/readonly.log" 2>&1 || readonly_status=$?
+chmod u+w .git
+[ "$readonly_status" -ne 0 ] && grep -q "is not writable, and a cycle must write there" "$stub_dir/readonly.log" \
+    && ok "a read-only .git is reported clearly instead of as a lock failure" || bad "read-only .git: exit $readonly_status: $(tail -2 "$stub_dir/readonly.log")"
+
 usage_status=0
 engine finalise > "$stub_dir/usage.log" 2>&1 || usage_status=$?
 [ "$usage_status" -eq 2 ] && grep -q "Usage" "$stub_dir/usage.log" \

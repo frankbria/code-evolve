@@ -63,6 +63,13 @@ RUN_DIR="$EVOLVE_DIR/run"
 # acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
 # the git dir so `git add -A` never commits it.
 LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
+# Every cycle commits, so it needs to write the git directory (some agent sandboxes make it read-only).
+if [ ! -w "$(dirname "$LOCK_FILE")" ]; then
+    echo "Error: $(dirname "$LOCK_FILE") is not writable, and a cycle must write there (the run lock and commits)." >&2
+    echo "In an agent sandbox, allow writes to the repository's .git directory only. For Codex:" >&2
+    echo "  codex -c 'sandbox_workspace_write.writable_roots=[\"$(dirname "$LOCK_FILE")\"]'" >&2
+    exit 1
+fi
 # Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in the shared temp dir.
 LOCK_STATUS_DIR=$(mktemp -d)
 LOCK_STATUS_FILE="$LOCK_STATUS_DIR/status"

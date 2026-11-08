@@ -16,6 +16,11 @@ tag and push. Run every command from the project root.
 
 `.evolve/` must exist. If it does not, use the `evolve-setup` skill instead.
 
+A cycle commits, so it needs write access to the repository's `.git` directory. Some sandboxes make
+`.git` read-only (Codex's `workspace-write` does). If prepare reports that the git directory is not
+writable, stop and tell the user to grant just that directory; for Codex, start the session with
+`-c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]'`. Do not ask for full sandbox access.
+
 ## 1. Prepare
 
 ```bash
