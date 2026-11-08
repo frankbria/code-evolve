@@ -9,7 +9,10 @@
 # - Language/framework agnostic
 #
 # Usage:
-#   ANTHROPIC_API_KEY=sk-... .evolve/scripts/evolve.sh
+#   ANTHROPIC_API_KEY=sk-... .evolve/scripts/evolve.sh [cycle|prepare]
+#     cycle    (default) one full evolution cycle: prepare, run the agent, verify, wrap up
+#     prepare  everything up to the agent call; writes .evolve/run/PROMPT.md and
+#              .evolve/run/session.env so an in-session agent can do the work itself
 #
 # Environment:
 #   ANTHROPIC_API_KEY  — required (used by claude CLI)
@@ -30,6 +33,18 @@ EVOLVE_DIR="${EVOLVE_DIR:-.evolve}"
 PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
+ENGINE_PHASE="${1:-cycle}"
+case "$ENGINE_PHASE" in
+    cycle|prepare) ;;
+    *) echo "Usage: evolve.sh [cycle|prepare]  (unknown phase: $ENGINE_PHASE)" >&2; exit 2 ;;
+esac
+# Session state shared between phases. Its own .gitignore keeps the wrap-up `git add -A`
+# from committing it, even in installs whose root .gitignore predates it.
+RUN_DIR="$EVOLVE_DIR/run"
+if [ "$ENGINE_PHASE" = "prepare" ]; then
+    mkdir -p "$RUN_DIR"
+    printf '*\n' > "$RUN_DIR/.gitignore"
+fi
 
 # ── Single-run lock ──
 # A slow cycle must not overlap the next cron tick. hold_lock.py takes a kernel flock
@@ -173,7 +188,13 @@ path_ancestors() {
 # session start. Installs from before protected-paths.txt existed use the built-in list.
 snapshot_protected_paths() {
     local protected_file
-    PROTECTED_SNAPSHOT="$RUN_TMP/protected"
+    # prepare must leave the snapshot for the later phases; a full cycle keeps it private.
+    if [ "$ENGINE_PHASE" = "prepare" ]; then
+        PROTECTED_SNAPSHOT="$PWD/$RUN_DIR/protected"
+        rm -rf "$PROTECTED_SNAPSHOT"
+    else
+        PROTECTED_SNAPSHOT="$RUN_TMP/protected"
+    fi
     mkdir -p "$PROTECTED_SNAPSHOT/files"
     if [ -f "$EVOLVE_DIR/scripts/protected-paths.txt" ]; then
         # The list is written for the default .evolve; follow an EVOLVE_DIR override.
@@ -677,6 +698,17 @@ Implementing something unfamiliar? Follow the research skill first.
 
 Read $EVOLVE_DIR/IDENTITY.md first. Now begin.
 PROMPT
+
+if [ "$ENGINE_PHASE" = "prepare" ]; then
+    mv "$PROMPT_FILE" "$RUN_DIR/PROMPT.md"
+    # printf %q quotes each value so the file is safe to source from bash.
+    for state_name in SESSION_START_SHA DAY DATE SESSION_TIME BOUNDARY_NONCE BOUNDARY_BEGIN BOUNDARY_END \
+        STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO; do
+        printf '%s=%q\n' "$state_name" "${!state_name:-}"
+    done > "$RUN_DIR/session.env"
+    echo "-> Prepared Day $DAY session: prompt at $RUN_DIR/PROMPT.md, state in $RUN_DIR/session.env"
+    exit 0
+fi
 
 AGENT_LOG=$(mktemp)
 # Run agent via adapter. Capture its real exit code — `tee` would otherwise mask it
