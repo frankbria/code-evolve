@@ -64,14 +64,15 @@ function operatorSkillNames(operatorSkillsDir: string): string[] {
 export const MANAGED_SKILL_MARKER = 'managed-by: code-evolve';
 
 function frontmatter(skillFile: string): string {
-  const match = fs.readFileSync(skillFile, 'utf8').match(/^---\n([\s\S]*?)\n---\n/);
+  // Accepts CRLF too: a checkout with core.autocrlf must not make our skills look user-owned.
+  const match = fs.readFileSync(skillFile, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
   return match ? match[1] : '';
 }
 
 /** Owned only if the marker is in the frontmatter (a user's skill could mention it in its body). */
 function isManagedSkill(skillPath: string): boolean {
   const skillFile = path.join(skillPath, 'SKILL.md');
-  return fs.existsSync(skillFile) && frontmatter(skillFile).split('\n').some((line) => line.trim() === MANAGED_SKILL_MARKER);
+  return fs.existsSync(skillFile) && frontmatter(skillFile).split(/\r?\n/).some((line) => line.trim() === MANAGED_SKILL_MARKER);
 }
 
 function isSymlink(target: string): boolean {

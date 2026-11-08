@@ -76,6 +76,7 @@ cli init --yes --agent claude || bad "fresh init failed"
 [ -f AGENTS.md ] && grep -q "code-evolve:begin" AGENTS.md && ok "init creates AGENTS.md with the section" || bad "no AGENTS.md"
 [ "$(cat CLAUDE.md)" = "$(printf '# Claude\n@AGENTS.md')" ] \
     && ok "a CLAUDE.md that imports AGENTS.md is not modified" || bad "CLAUDE.md changed: $(cat CLAUDE.md)"
+sed -i 's/$/\r/' .claude/skills/evolve-run/SKILL.md   # as checked out with core.autocrlf=true
 cli eject --yes || bad "fresh eject failed"
 [ ! -e AGENTS.md ] && [ ! -e .claude ] && [ ! -e .agents ] && [ ! -e .gitignore ] \
     && ok "eject removes the files and dirs init created" || bad "left behind: $(ls -A)"
