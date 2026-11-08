@@ -65,7 +65,8 @@ RUN_DIR="$EVOLVE_DIR/run"
 LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
 # Every cycle commits, so it needs to write the git directory (some agent sandboxes make it read-only).
 # A linked worktree commits into the shared (common) git dir, which also holds its own git dir.
-GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || dirname "$LOCK_FILE")"
+# cd+pwd, not --path-format=absolute: that needs git 2.31, and older git echoes it back as output.
+GIT_COMMON_DIR="$(cd "$(git rev-parse --git-common-dir 2>/dev/null || dirname "$LOCK_FILE")" && pwd)"
 for git_write_dir in "$(dirname "$LOCK_FILE")" "$GIT_COMMON_DIR"; do
     if [ ! -w "$git_write_dir" ]; then
         echo "Error: $git_write_dir is not writable, and a cycle must write there (the run lock and commits)." >&2

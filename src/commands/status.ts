@@ -1,10 +1,21 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { evolveFile, isInitialized } from '../utils/paths';
+import { evolveFile, getTemplatesDir, isInitialized } from '../utils/paths';
 import { output } from '../utils/output';
 import { readConfig } from '../utils/config';
 import { parseRequirements, reinstateLapsedWaivers } from '../utils/proof';
+
+/** Engine files (relative paths) that are missing or differ from the ones this CLI version ships. */
+function differingEngineFiles(shippedDir: string, installedDir: string): string[] {
+  return fs.readdirSync(shippedDir, { withFileTypes: true }).flatMap((entry) => {
+    const shipped = path.join(shippedDir, entry.name);
+    const installed = path.join(installedDir, entry.name);
+    if (entry.isDirectory()) return differingEngineFiles(shipped, installed).map((name) => path.join(entry.name, name));
+    const unchanged = fs.existsSync(installed) && fs.readFileSync(installed).equals(fs.readFileSync(shipped));
+    return unchanged ? [] : [entry.name];
+  });
+}
 
 export const statusCommand = new Command('status')
   .description('Show current evolution state')
@@ -95,6 +106,8 @@ export const statusCommand = new Command('status')
     const pendingSession = sessionModifiedMs !== undefined && (Date.now() - sessionModifiedMs) / 60000 < maxPendingMinutes;
     const abandonedSession = !pendingSession && fs.existsSync(runDir);
 
+    const engineDrift = differingEngineFiles(path.join(getTemplatesDir(), 'scripts'), evolveFile('scripts'));
+
     const data = {
       day: dayCount,
       started: birthDate,
@@ -104,6 +117,7 @@ export const statusCommand = new Command('status')
       requirements,
       pendingSession,
       abandonedSession,
+      engineDrift,
       lastEntry,
     };
 
@@ -125,6 +139,7 @@ export const statusCommand = new Command('status')
       `  Engine:   ${scheduleLine}`,
       `  REQs:     ${requirements.open} open, ${requirements.regressed} regressed, ${requirements.satisfied} satisfied`,
       pendingSession ? '  Session:  an in-session cycle is prepared but not finalized (.evolve/run/)' : '',
+      engineDrift.length ? `  Drift:    installed engine differs from this code-evolve (${engineDrift.join(', ')}); refresh with: code-evolve init --yes` : '',
       lastEntry ? `\n  Last entry:\n  ${lastEntry.split('\n').join('\n  ')}` : '',
     ]
       .filter(Boolean)

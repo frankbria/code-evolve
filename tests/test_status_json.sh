@@ -39,6 +39,13 @@ printf '\n## REQ-0004: d\n- **Status**: waived\n- **Waiver expires**: Day 0\n\n#
 echo 3 > .evolve/DAY_COUNT
 check "an expired waiver counts as open; a live one as waived" "$(status_field 'v.requirements')" '{"open":2,"regressed":1,"satisfied":1,"waived":1}'
 
+check "fresh install: engine matches this version" "$(status_field 'v.engineDrift')" "[]"
+echo "# stale" >> .evolve/scripts/agents/claude.sh
+rm .evolve/scripts/hold_lock.py
+check "edited or missing engine files are reported as drift" "$(status_field 'v.engineDrift')" '["agents/claude.sh","hold_lock.py"]'
+node "$CLI" init --yes --agent claude </dev/null >/dev/null 2>&1
+check "init --yes clears the drift" "$(status_field 'v.engineDrift')" "[]"
+
 echo "---"
 echo "passed: $pass  failed: $fail"
 [ "$fail" -eq 0 ]
