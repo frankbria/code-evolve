@@ -1,22 +1,79 @@
 ---
 name: evolve-setup
-description: Install code-evolve in the current project and get it ready to evolve the codebase on its own. Use when the user wants to set up, install or onboard code-evolve, or when .evolve/ is missing.
+description: Install code-evolve in the current project and onboard it so the codebase can evolve on its own. Drafts the vision and spec from the repo, asks at most five questions, and sets up how cycles run. Use when the user wants to set up, install or onboard code-evolve, or when .evolve/ is missing.
 metadata:
   managed-by: code-evolve
 ---
 
 # Set up code-evolve
 
-1. Confirm the project is a git repository. If it is not, offer to run `git init`.
-2. Install the engine (safe to re-run; it never prompts and keeps existing state):
+Goal: leave the project with code-evolve installed, a real `.evolve/vision.md` and `.evolve/spec.md`,
+and a way for cycles to run, while asking the user as little as possible. Do the work yourself and
+ask only about what the repository cannot tell you.
 
-   ```bash
-   npx -y code-evolve init --yes --agent <claude|codex|opencode>
-   ```
+## 1. Check the basics
 
-   Pass the agent you are.
-3. Help the user fill in `.evolve/vision.md` (what the project is for) and `.evolve/spec.md`
-   (features, stack, priorities). For an existing codebase, draft both from what is already there
-   and ask the user to confirm.
-4. Explain the ways to run cycles: headless now (`npx code-evolve run`), on a schedule
-   (`npx code-evolve start --every <hours>`), or inside this session with the `evolve-run` skill.
+- The project must be a git repository (`git rev-parse --git-dir`). If it is not, offer to run `git init`.
+- `npx` must work (`npx --version`). If it does not, tell the user code-evolve needs Node.js 18 or newer.
+- Know which agent you are: `claude`, `codex` or `opencode`. Use it for `--agent` below.
+
+## 2. Install the engine
+
+If `.evolve/` does not exist, run:
+
+```bash
+npx -y code-evolve@latest init --yes --agent <your agent>
+```
+
+`init --yes` never prompts and is safe to re-run: on an existing install it refreshes the engine
+and keeps the user's state and schedule. If `.evolve/` exists but `.evolve/config.json` names a
+different agent, run the same command so the install is set for you. If `npx` cannot reach npm
+(an offline sandbox), say so and continue with the existing install; do not edit `config.json` by hand.
+
+## 3. Draft the vision and spec
+
+Survey the repository first: README, docs, package manifests, source layout, tests, CI config,
+and open issues if `gh` is available.
+
+- **Existing codebase:** draft both files from what is already there. If the repo has a spec-like
+  document (PRD, design doc, roadmap), convert it with
+  `npx code-evolve migrate spec <file> --yes` (or `migrate vision <file> --yes`) and refine the result.
+- **Empty repository:** you need the user's idea. Ask what they want to build and for whom, then
+  draft from the answer.
+
+Write `.evolve/vision.md` (the why and the what: problem, users, what success looks like) and
+`.evolve/spec.md` (stack, architecture, testing, and a prioritized feature checklist using
+`- [ ]` items). Replace the placeholder `<!-- ... -->` comment in each file: the engine treats a
+file that still has it as blank. For an existing codebase, list only features that are not built
+yet, and describe the stack the repo already uses.
+
+## 4. Confirm with at most five questions
+
+Show a short summary of both drafts, then ask only what you could not infer, at most five
+questions, each with your recommended answer so the user can just accept. Good questions concern
+priorities, scope limits, or things that must never change. Apply the answers to the files.
+
+If no one can answer (a headless or scripted run), do not ask: use your recommended answers and
+list them in the final summary so the user can revise them later.
+
+## 5. Choose how cycles run
+
+Offer these options and set up the one the user picks (recommend the first for a laptop or
+dev box, the second for a team repository):
+
+- **Local schedule:** `npx code-evolve start --every <hours>` installs a cron job. It needs the
+  agent's API key in the environment; for a Claude subscription instead, install with
+  `npx code-evolve init --yes --agent claude --auth-mode oauth` and log in with `claude auth login`.
+- **GitHub Actions:** `npx code-evolve init --yes --mode ci --every <hours>` adds the workflows. The
+  repository needs the agent's API key as a secret; offer to run the `gh secret set` command that
+  init prints, and run it only with the user's explicit consent.
+- **Inside an agent session:** run the `evolve-run` skill whenever the user wants a cycle, or from
+  the agent's own scheduler if it has one.
+- **Manually:** `npx code-evolve run` runs one headless cycle.
+
+## 6. Finish
+
+Offer to run the first cycle now (the `evolve-run` skill, or `npx code-evolve run`). End with a
+summary: what was installed, the vision and spec in one line each, any answers you assumed, how
+cycles will run, and how to stop (`npx code-evolve stop`) or remove everything
+(`npx code-evolve eject --yes`).

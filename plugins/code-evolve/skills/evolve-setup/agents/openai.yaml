@@ -1,0 +1,6 @@
+interface:
+  display_name: "Set up code-evolve"
+  short_description: "Onboard self-evolving code"
+  default_prompt: "Set up code-evolve in this project."
+policy:
+  allow_implicit_invocation: true
