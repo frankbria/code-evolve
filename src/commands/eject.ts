@@ -6,10 +6,6 @@ import fs from 'fs';
 import readline from 'readline';
 import { getEvolveDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized } from '../utils/paths';
 
-// Stable marker embedded in the workflow templates so eject recognizes files it
-// installed regardless of which package version wrote them (kept in sync with
-// templates/workflows/*.yml). A user's own same-named workflow won't contain it.
-
 export const ejectCommand = new Command('eject')
   .description('Remove code-evolve framework, keep project files')
   .option('--yes', 'Skip confirmation prompt')
