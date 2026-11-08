@@ -1,0 +1,9 @@
+# Paths the evolution agent must never change, relative to the project root.
+# evolve.sh snapshots them at session start and, after every agent call, restores any that
+# were modified or deleted and removes any new file that matches. Patterns use bash `case`
+# glob rules, where * also matches "/".
+.evolve/IDENTITY.md
+.evolve/scripts/*
+.evolve/skills/*
+.github/workflows/evolve.yml
+.github/workflows/evolve-ci.yml

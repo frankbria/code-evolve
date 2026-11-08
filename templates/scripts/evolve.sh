@@ -113,6 +113,153 @@ next_req_number() {
     printf '%04d' $(( 10#${highest:-0} + 1 ))
 }
 
+# ── Protected paths ──
+# protected_path_matches <path>: true if <path> matches a pattern in the session's protected
+# list. The list is the copy taken at session start, so editing it mid-session changes nothing.
+protected_path_matches() {
+    local pattern
+    while IFS= read -r pattern; do
+        case "$pattern" in ''|'#'*) continue ;; esac
+        # shellcheck disable=SC2254
+        case "$1" in $pattern) return 0 ;; esac
+    done < "$PROTECTED_SNAPSHOT/patterns"
+    return 1
+}
+
+# Every file or symlink on disk that matches the protected list. Walks the filesystem rather
+# than asking git, so gitignored protected files (and planted files hidden by a new ignore
+# rule) are still covered. Only each pattern's first path segment is searched, so a pattern
+# must start with a literal directory or file name (not a glob). find -H follows a top-level
+# symlink (a user may symlink .evolve) but never symlinks inside it.
+list_protected_files() {
+    local pattern search_root candidate
+    while IFS= read -r pattern; do
+        case "$pattern" in ''|'#'*) continue ;; esac
+        search_root="${pattern%%/*}"
+        [ -e "$search_root" ] || [ -L "$search_root" ] || continue
+        find -H "$search_root" \( -type f -o -type l \) 2>/dev/null
+    done < "$PROTECTED_SNAPSHOT/patterns" | sort -u | while IFS= read -r candidate; do
+        if protected_path_matches "$candidate"; then printf '%s\n' "$candidate"; fi
+    done
+}
+
+# Directories between the project root and <path>, outermost first (".evolve", ".evolve/scripts").
+path_ancestors() {
+    local parent prefix="" part
+    parent=$(dirname "$1")
+    [ "$parent" = "." ] && return 0
+    while IFS= read -r part; do
+        prefix="${prefix:+$prefix/}$part"
+        printf '%s\n' "$prefix"
+    done < <(printf '%s\n' "$parent" | tr '/' '\n')
+}
+
+# Copies every protected file (and protected symlink, as a link) into the private run dir at
+# session start. Installs from before protected-paths.txt existed use the built-in list.
+snapshot_protected_paths() {
+    local protected_file
+    PROTECTED_SNAPSHOT="$RUN_TMP/protected"
+    mkdir -p "$PROTECTED_SNAPSHOT/files"
+    if [ -f "$EVOLVE_DIR/scripts/protected-paths.txt" ]; then
+        # The list is written for the default .evolve; follow an EVOLVE_DIR override.
+        awk -v dir="${EVOLVE_DIR%/}" '{ if (index($0, ".evolve/") == 1) $0 = dir substr($0, 8); print }' \
+            "$EVOLVE_DIR/scripts/protected-paths.txt" > "$PROTECTED_SNAPSHOT/patterns"
+    else
+        # Keep in sync with templates/scripts/protected-paths.txt.
+        printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
+            .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
+    fi
+    list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
+    : > "$PROTECTED_SNAPSHOT/ancestor_links"
+    while IFS= read -r protected_file; do
+        mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
+        cp -P -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
+        while IFS= read -r ancestor; do
+            [ -L "$ancestor" ] && printf '%s\t%s\n' "$ancestor" "$(readlink "$ancestor")"
+        done < <(path_ancestors "$protected_file") >> "$PROTECTED_SNAPSHOT/ancestor_links"
+    done < "$PROTECTED_SNAPSHOT/manifest"
+    sort -u -o "$PROTECTED_SNAPSHOT/ancestor_links" "$PROTECTED_SNAPSHOT/ancestor_links"
+    while IFS= read -r protected_file; do
+        if git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1; then
+            printf '%s\n' "$protected_file"
+        fi
+    done < "$PROTECTED_SNAPSHOT/manifest" > "$PROTECTED_SNAPSHOT/tracked"
+}
+
+# Makes every directory above <path> what it was at session start: a symlink the user had keeps
+# (or gets back) its original target; anything else that is not a real directory (a symlink
+# the agent made, or a regular file) is removed so mkdir can recreate the directory.
+repair_protected_ancestors() {
+    local ancestor original_target repaired=""
+    while IFS= read -r ancestor; do
+        original_target=$(awk -F '\t' -v path="$ancestor" '$1 == path { print $2; exit }' "$PROTECTED_SNAPSHOT/ancestor_links")
+        if [ -n "$original_target" ]; then
+            [ -L "$ancestor" ] && [ "$(readlink "$ancestor")" = "$original_target" ] && continue
+            rm -rf -- "$ancestor" 2>/dev/null || true
+            ln -s "$original_target" "$ancestor" 2>/dev/null || true
+            repaired="$repaired $ancestor (symlink target restored)"
+        elif [ -L "$ancestor" ] || { [ -e "$ancestor" ] && [ ! -d "$ancestor" ]; }; then
+            rm -f -- "$ancestor" 2>/dev/null || true
+            repaired="$repaired $ancestor (replaced a non-directory)"
+        fi
+    done < <(path_ancestors "$1")
+    printf '%s' "$repaired"
+}
+
+# True if <path> differs from its snapshot: content, symlink target, or the executable bit.
+protected_file_changed() {
+    local saved="$PROTECTED_SNAPSHOT/files/$1"
+    if [ -L "$saved" ]; then
+        [ ! -L "$1" ] || [ "$(readlink "$saved")" != "$(readlink "$1")" ]
+        return
+    fi
+    [ -L "$1" ] || [ ! -f "$1" ] || ! cmp -s "$saved" "$1" || { [ -x "$saved" ] && [ ! -x "$1" ]; } || { [ ! -x "$saved" ] && [ -x "$1" ]; }
+}
+
+# Undoes any agent change to a protected path since the snapshot: modified or deleted files
+# get their snapshot back, new matching files are removed, and a directory the agent turned
+# into a symlink is replaced by a real one first (writes would otherwise land wherever the link
+# points). Restores go through a temp file and mv, so a running evolve.sh keeps its old inode.
+restore_protected_paths() {
+    local protected_file restore_dir restored=""
+    [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
+    while IFS= read -r protected_file; do
+        restored="$restored$(repair_protected_ancestors "$protected_file")"
+        if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
+            protected_file_changed "$protected_file" || continue
+            if [ -L "$protected_file" ] || { [ -e "$protected_file" ] && [ ! -f "$protected_file" ]; }; then
+                rm -rf -- "$protected_file"
+            fi
+            # A random, freshly created dir beside the target: a predictable temp name could be
+            # pre-planted as a symlink that cp would write through.
+            if mkdir -p "$(dirname "$protected_file")" \
+                && restore_dir=$(mktemp -d "$(dirname "$protected_file")/.restore.XXXXXX") \
+                && cp -P -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$restore_dir/file" \
+                && mv -f -- "$restore_dir/file" "$protected_file"; then
+                restored="$restored $protected_file"
+            else
+                echo "  WARNING: could not restore protected file $protected_file"
+            fi
+            [ -n "${restore_dir:-}" ] && rm -rf -- "$restore_dir"
+            restore_dir=""
+        else
+            git rm -qf --cached --ignore-unmatch -- "$protected_file" >/dev/null 2>&1 || true
+            rm -f -- "$protected_file" 2>/dev/null || true
+            restored="$restored $protected_file (added)"
+        fi
+    done < <( { cat "$PROTECTED_SNAPSHOT/manifest"; list_protected_files; } | sort -u)
+    # Protected files tracked at session start stay tracked, even if the agent untracked them and
+    # added an ignore rule (the wrap-up `git add -A` would skip them and commit their deletion).
+    while IFS= read -r protected_file; do
+        git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1 && continue
+        [ -e "$protected_file" ] || [ -L "$protected_file" ] || continue
+        git add -f -- "$protected_file" 2>/dev/null && restored="$restored $protected_file (re-tracked)"
+    done < "$PROTECTED_SNAPSHOT/tracked"
+    if [ -n "$restored" ]; then
+        echo "  Restored protected paths changed by the agent:$restored"
+    fi
+}
+
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
     BIRTH_DATE=$(cat "$EVOLVE_DIR/.birth_date")
@@ -353,6 +500,7 @@ if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
     echo "  Seeded initial commit (greenfield repo)"
 fi
 SESSION_START_SHA=$(git rev-parse HEAD)
+snapshot_protected_paths
 echo "-> Starting evolution session..."
 echo ""
 
@@ -416,7 +564,9 @@ You are code-evolve, an autonomous project builder. Read these files in order:
 5. $EVOLVE_DIR/ISSUES_TODAY.md (community requests)
 
 The evolution framework lives in $EVOLVE_DIR/. Project source files are at the project root.
-Do NOT modify files inside $EVOLVE_DIR/ except JOURNAL.md, LEARNINGS.md, and ISSUE_RESPONSE.md.
+Inside $EVOLVE_DIR/ you may edit only: JOURNAL.md, LEARNINGS.md, ISSUE_RESPONSE.md,
+REQUIREMENTS.md and spec.md (checkboxes). Paths listed in $EVOLVE_DIR/scripts/protected-paths.txt
+(IDENTITY.md, scripts/, skills/, the evolve workflows) are restored automatically if you change them.
 
 ${PROJECT_TREE:+
 === CURRENT PROJECT STATE ===
@@ -549,6 +699,7 @@ AGENT_LOG=$(mktemp)
 # (pipefail makes PIPESTATUS[0] reachable, but `|| true` would reset it).
 AGENT_RC=0
 run_agent "$PROMPT_FILE" "$MODEL" "$TIMEOUT_CMD" "$TIMEOUT" 2>&1 | tee "$AGENT_LOG" || AGENT_RC=$?
+restore_protected_paths
 
 rm -f "$PROMPT_FILE"
 
@@ -657,6 +808,7 @@ Steps:
 4. Commit: git add -A && git commit -m "Day $DAY ($SESSION_TIME): fix build errors"
 FIXEOF
             run_agent "$FIX_PROMPT" "$MODEL" "$TIMEOUT_CMD" "300" || true
+            restore_protected_paths
             rm -f "$FIX_PROMPT"
         else
             echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
@@ -727,6 +879,7 @@ Be specific and honest. Then commit: git add $EVOLVE_DIR/JOURNAL.md && git commi
 JEOF
 
     run_agent "$JOURNAL_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || true
+    restore_protected_paths
     rm -f "$JOURNAL_PROMPT"
 
     # Bash fallback if agent still didn't write it
@@ -773,6 +926,7 @@ IEOF
 
     AGENT_EXIT=0
     run_agent "$ISSUE_PROMPT" "$MODEL" "$TIMEOUT_CMD" "120" || AGENT_EXIT=$?
+    restore_protected_paths
     rm -f "$ISSUE_PROMPT"
 
     if [ "$AGENT_EXIT" -ne 0 ]; then
@@ -889,6 +1043,8 @@ if [ -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then
 fi
 
 # ── Step 8: Final commit and tag ──
+# Build and test steps ran agent-authored code after the last restore; re-check before committing.
+restore_protected_paths
 git add -A
 if ! git diff --cached --quiet; then
     git commit -m "Day $DAY ($SESSION_TIME): session wrap-up"
