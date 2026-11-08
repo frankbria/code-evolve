@@ -5,7 +5,8 @@ description: Keep the PROOF9 requirements ledger (.evolve/REQUIREMENTS.md) hones
 
 # Proof Obligations
 
-Read `.evolve/REQUIREMENTS.md`. If it doesn't exist or has no `## REQ-` entries, skip this skill.
+Read `.evolve/REQUIREMENTS.md` (if it is missing, create it with a `# Requirements Ledger` heading). An empty ledger
+only means there are no existing REQs to check: still add REQs for new failures and fixed issues below.
 
 ## Which REQs apply
 

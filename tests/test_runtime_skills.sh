@@ -50,11 +50,23 @@ grep -q "=== SKILLS ===" "$stub_dir/prompt.txt" 2>/dev/null \
     && ok "prompt has a skills section" || bad "no skills section in the prompt"
 grep -qF ".evolve/skills/<name>/SKILL.md" "$stub_dir/prompt.txt" 2>/dev/null \
     && ok "prompt says where each skill file lives" || bad "prompt does not give the skill path"
+grep -qF "Before a phase, read the" "$stub_dir/prompt.txt" 2>/dev/null \
+    && ok "prompt tells the agent to read the skill before each phase" || bad "no read-the-skill instruction"
 for skill_file in "$ROOT"/templates/skills/*/SKILL.md; do
     skill_dir=$(basename "$(dirname "$skill_file")")
-    [ -f "$work_dir/.evolve/skills/$skill_dir/SKILL.md" ] && grep -qF -- "- $skill_dir: " "$stub_dir/prompt.txt" \
+    [ -f "$work_dir/.evolve/skills/$skill_dir/SKILL.md" ] && grep -qE -- "^- $skill_dir: .{20,}" "$stub_dir/prompt.txt" \
         && ok "prompt indexes $skill_dir (installed at .evolve/skills/$skill_dir/SKILL.md)" || bad "prompt does not index $skill_dir"
 done
+
+# The startup context the agent must read (static prompt + IDENTITY.md + skill index) stays
+# below its size before skills were wired in (#76): 5768 prompt + 3806 IDENTITY = 9574 chars.
+prompt_chars=$(awk '/cat > "\$PROMPT_FILE" <<PROMPT/ { inside = 1 } inside { count += length($0) + 1 } /^PROMPT$/ { if (inside) { print count; exit } }' "$ROOT/templates/scripts/evolve.sh")
+identity_chars=$(wc -c < "$ROOT/templates/state/IDENTITY.md" | tr -d ' ')
+index_chars=$(grep -E '^- [a-z-]+: ' "$stub_dir/prompt.txt" | wc -c | tr -d ' ')
+total_chars=$((prompt_chars + identity_chars + index_chars))
+[ "$total_chars" -lt 9574 ] \
+    && ok "startup context is smaller than before skills were wired in ($total_chars < 9574 chars)" \
+    || bad "startup context grew to $total_chars chars (baseline 9574)"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

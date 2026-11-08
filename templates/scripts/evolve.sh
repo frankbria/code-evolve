@@ -644,8 +644,9 @@ git add -A && git commit -m "Day $DAY ($SESSION_TIME): <short description>"
 
 === PHASE 4.5: Proof Obligations ===
 
-If $EVOLVE_DIR/REQUIREMENTS.md has REQ entries, follow the prove skill: run the obligations of every REQ
-your changes touch, record evidence, and add REQs for new failures. A regressed REQ blocks the commit.
+Follow the prove skill every session: run the obligations of existing REQs your changes touch, and add
+REQs for new failures and for GitHub issues you fixed (even if the ledger is empty). A regressed REQ blocks
+the commit.
 
 === PHASE 5: Update Spec Progress ===
 
@@ -654,7 +655,8 @@ git add $EVOLVE_DIR/spec.md && git commit -m "Day $DAY ($SESSION_TIME): update s
 
 === PHASE 6: Journal (MANDATORY — DO NOT SKIP) ===
 
-Write today's entry at the TOP of $EVOLVE_DIR/JOURNAL.md (above existing entries). Format:
+Following the communicate skill, write today's entry at the TOP of $EVOLVE_DIR/JOURNAL.md (above existing
+entries). The engine looks for this exact header:
 ## Day $DAY — $SESSION_TIME — [title]
 [2-4 sentences: what you tried, what worked, what didn't, what's next]
 
