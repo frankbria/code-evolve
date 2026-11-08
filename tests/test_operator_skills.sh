@@ -31,11 +31,22 @@ for skill_file in "$SKILLS"/*/SKILL.md; do
     if [ -f "$openai_yaml" ]; then
         python3 - "$openai_yaml" <<'PY' && ok "$skill_dir: agents/openai.yaml is valid Codex metadata" || bad "$skill_dir: bad agents/openai.yaml"
 import sys
-text = open(sys.argv[1]).read().splitlines()
-keys = {line.split(":")[0].strip() for line in text if ":" in line}
-required = {"interface", "display_name", "short_description", "default_prompt", "policy", "allow_implicit_invocation"}
-short = next((l.split(":", 1)[1].strip().strip('"') for l in text if l.strip().startswith("short_description:")), "")
-sys.exit(0 if required <= keys and len(short) <= 30 else 1)
+# Two-level YAML (no PyYAML dependency): top-level sections with indented "key: value" entries.
+sections, current = {}, None
+for line in open(sys.argv[1]).read().splitlines():
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+    if not line.startswith(" "):
+        current = line.rstrip(":").strip()
+        sections[current] = {}
+    elif current is not None and ":" in line:
+        key, value = line.split(":", 1)
+        sections[current][key.strip()] = value.strip().strip('"')
+interface, policy = sections.get("interface", {}), sections.get("policy", {})
+valid = (all(interface.get(key) for key in ("display_name", "short_description", "default_prompt"))
+         and len(interface["short_description"]) <= 30
+         and policy.get("allow_implicit_invocation") in ("true", "false"))
+sys.exit(0 if valid else 1)
 PY
     fi
 

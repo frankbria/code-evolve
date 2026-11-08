@@ -9,7 +9,8 @@ metadata:
 
 Goal: leave the project with code-evolve installed, a real `.evolve/vision.md` and `.evolve/spec.md`,
 and a way for cycles to run, while asking the user as little as possible. Do the work yourself and
-ask only about what the repository cannot tell you.
+ask only about what the repository cannot tell you: **at most five questions in the whole setup**,
+counting the interview for an empty repository, and not counting yes/no consent for actions.
 
 ## 1. Check the basics
 
@@ -28,18 +29,24 @@ npx -y code-evolve@latest init --yes --agent <your agent>
 `init --yes` never prompts and is safe to re-run: on an existing install it refreshes the engine
 and keeps the user's state and schedule. If `.evolve/` exists but `.evolve/config.json` names a
 different agent, run the same command so the install is set for you. If `npx` cannot reach npm
-(an offline sandbox), say so and continue with the existing install; do not edit `config.json` by hand.
+(an offline sandbox): with an existing `.evolve/`, say so and continue with it; without one, stop
+and tell the user setup needs network access to npm. Never edit `config.json` by hand.
 
 ## 3. Draft the vision and spec
 
 Survey the repository first: README, docs, package manifests, source layout, tests, CI config,
 and open issues if `gh` is available.
 
-- **Existing codebase:** draft both files from what is already there. If the repo has a spec-like
-  document (PRD, design doc, roadmap), convert it with
-  `npx code-evolve migrate spec <file> --yes` (or `migrate vision <file> --yes`) and refine the result.
-- **Empty repository:** you need the user's idea. Ask what they want to build and for whom, then
-  draft from the answer.
+- **Keep what the user wrote.** A `vision.md` or `spec.md` that no longer has its placeholder
+  `<!-- ... -->` comment is the user's: refine it (add what the repo shows is missing, tick
+  features that are done) but never discard its priorities, constraints or checkbox progress.
+  Draft from scratch only files that are missing or still have the placeholder.
+- **Existing codebase:** draft from what is already there. If the repo has a spec-like document
+  (PRD, design doc, roadmap) and `.evolve/spec.md` is still the placeholder, convert it with
+  `npx code-evolve migrate spec <file> --yes` (or `migrate vision <file> --yes`; both overwrite
+  their target) and refine the result.
+- **Empty repository:** you need the user's idea. Ask what they want to build and for whom (this
+  counts toward the five questions), then draft from the answer.
 
 Write `.evolve/vision.md` (the why and the what: problem, users, what success looks like) and
 `.evolve/spec.md` (stack, architecture, testing, and a prioritized feature checklist using
@@ -49,8 +56,8 @@ yet, and describe the stack the repo already uses.
 
 ## 4. Confirm with at most five questions
 
-Show a short summary of both drafts, then ask only what you could not infer, at most five
-questions, each with your recommended answer so the user can just accept. Good questions concern
+Show a short summary of both drafts, then ask only what you could not infer, within what is
+left of the five questions, each with your recommended answer so the user can just accept. Good questions concern
 priorities, scope limits, or things that must never change. Apply the answers to the files.
 
 If no one can answer (a headless or scripted run), do not ask: use your recommended answers and
@@ -75,5 +82,6 @@ dev box, the second for a team repository):
 
 Offer to run the first cycle now (the `evolve-run` skill, or `npx code-evolve run`). End with a
 summary: what was installed, the vision and spec in one line each, any answers you assumed, how
-cycles will run, and how to stop (`npx code-evolve stop`) or remove everything
-(`npx code-evolve eject --yes`).
+cycles will run, and how to stop them for the mode chosen: `npx code-evolve stop` removes a local
+schedule; GitHub Actions cycles stop with `gh workflow disable evolve.yml` (or by deleting the
+workflow). `npx code-evolve eject --yes` removes everything.
