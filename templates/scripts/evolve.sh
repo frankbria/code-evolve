@@ -37,7 +37,9 @@ BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 # acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
 # the git dir so `git add -A` never commits it.
 LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
-LOCK_STATUS_FILE=$(mktemp)
+# Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in shared /tmp.
+LOCK_STATUS_DIR=$(mktemp -d)
+LOCK_STATUS_FILE="$LOCK_STATUS_DIR/status"
 LOCK_HOLDER_PID=""
 if command -v python3 >/dev/null 2>&1; then
     python3 "$EVOLVE_DIR/scripts/hold_lock.py" "$LOCK_FILE" $$ "$LOCK_STATUS_FILE" </dev/null >/dev/null 2>&1 &
@@ -48,7 +50,7 @@ if command -v python3 >/dev/null 2>&1; then
     done
 fi
 LOCK_STATUS=$(cat "$LOCK_STATUS_FILE" 2>/dev/null || true)
-rm -f "$LOCK_STATUS_FILE"
+rm -rf "$LOCK_STATUS_DIR"
 case "$LOCK_STATUS" in
     locked)
         trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true' EXIT ;;
