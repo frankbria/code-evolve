@@ -45,11 +45,11 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   const logFile = path.join(evolveDir, 'evolve.log');
   const scriptPath = path.join(evolveDir, 'scripts', 'evolve.sh');
 
+  // Ignore .env (and its temporary rewrite file) before any key is written
+  ensureEnvGitignored(projectDir);
+
   // Write .env file for cron (cron doesn't inherit shell env)
   writeEnvFile(envFile, model, agent, authMode);
-
-  // Ensure .evolve/.env is gitignored
-  ensureEnvGitignored(projectDir);
 
   // Remove any existing code-evolve cron entry for this project
   removeExistingCron(projectDir);
@@ -170,33 +170,43 @@ export const startCommand = new Command('start')
   });
 
 function writeEnvFile(envFile: string, model: string, agent: string, authMode?: string): void {
-  const lines: string[] = [];
+  const entries: Array<[string, string | undefined]> = [];
 
   // Include the relevant API key (skip for OAuth mode)
   if (authMode !== 'oauth') {
-    if (process.env.ANTHROPIC_API_KEY) {
-      lines.push(`ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`);
-    }
-    if (process.env.OPENAI_API_KEY) {
-      lines.push(`OPENAI_API_KEY="${process.env.OPENAI_API_KEY}"`);
-    }
+    entries.push(['ANTHROPIC_API_KEY', process.env.ANTHROPIC_API_KEY]);
+    entries.push(['OPENAI_API_KEY', process.env.OPENAI_API_KEY]);
   }
 
-  lines.push(`MODEL="${model}"`);
-  lines.push(`AGENT="${agent}"`);
-  lines.push(`CLAUDE_AUTH_MODE="${authMode || 'api-key'}"`);
+  entries.push(['MODEL', model]);
+  entries.push(['AGENT', agent]);
+  entries.push(['CLAUDE_AUTH_MODE', authMode || 'api-key']);
 
   // Preserve PATH so cron can find claude, git, python3
-  if (process.env.PATH) {
-    lines.push(`PATH="${process.env.PATH}"`);
-  }
+  entries.push(['PATH', process.env.PATH]);
 
-  fs.writeFileSync(envFile, lines.join('\n') + '\n', { mode: 0o600 });
+  // Cron sources this file with `.`, so each value must be exported (or the engine's
+  // child bash never sees it) and single-quoted (so `$`, backticks and `"` stay literal).
+  const lines = entries
+    .filter((entry): entry is [string, string] => Boolean(entry[1]))
+    .map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'`);
+
+  // Write a fresh 0600 file and rename it over .env, so the key is never written into an
+  // existing file that has looser permissions (`mode` only applies when a file is created).
+  const temporaryFile = `${envFile}.${process.pid}.tmp`;
+  fs.rmSync(temporaryFile, { force: true });
+  try {
+    fs.writeFileSync(temporaryFile, lines.join('\n') + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporaryFile, envFile);
+  } finally {
+    fs.rmSync(temporaryFile, { force: true });
+  }
 }
 
 function ensureEnvGitignored(projectDir: string): void {
   const gitignorePath = path.join(projectDir, '.gitignore');
-  const entry = `${EVOLVE_DIR_NAME}/.env`;
+  // The wildcard also covers the temporary file writeEnvFile renames into place.
+  const entry = `${EVOLVE_DIR_NAME}/.env*`;
 
   let content = '';
   if (fs.existsSync(gitignorePath)) {

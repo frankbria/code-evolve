@@ -31,6 +31,39 @@ PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 
+# ── Single-run lock ──
+# A slow cycle must not overlap the next cron tick. hold_lock.py takes a kernel flock
+# (portable to Linux and macOS, unlike flock(1)) and holds it until this script exits, so
+# acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
+# the git dir so `git add -A` never commits it.
+LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
+# Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in shared /tmp.
+LOCK_STATUS_DIR=$(mktemp -d)
+LOCK_STATUS_FILE="$LOCK_STATUS_DIR/status"
+LOCK_HOLDER_PID=""
+if command -v python3 >/dev/null 2>&1; then
+    python3 "$EVOLVE_DIR/scripts/hold_lock.py" "$LOCK_FILE" $$ "$LOCK_STATUS_FILE" </dev/null >/dev/null 2>&1 &
+    LOCK_HOLDER_PID=$!
+    for _ in $(seq 1 50); do
+        [ -s "$LOCK_STATUS_FILE" ] && break
+        sleep 0.1
+    done
+fi
+LOCK_STATUS=$(cat "$LOCK_STATUS_FILE" 2>/dev/null || true)
+rm -rf "$LOCK_STATUS_DIR"
+case "$LOCK_STATUS" in
+    locked)
+        trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true' EXIT ;;
+    busy)
+        echo "Another evolution cycle is already running; skipping this run."
+        exit 0 ;;
+    *)
+        # Fail closed: two unlocked cycles could edit the same tree. The next tick retries.
+        [ -n "$LOCK_HOLDER_PID" ] && kill "$LOCK_HOLDER_PID" 2>/dev/null || true
+        echo "Error: could not take the run lock (is python3 installed?); skipping this run."
+        exit 1 ;;
+esac
+
 # ── Source agent adapter ──
 # Validate agent name (alphanumeric only — prevents path traversal)
 if ! echo "$AGENT" | grep -qE '^[a-z]+$'; then

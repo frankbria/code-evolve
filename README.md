@@ -330,6 +330,7 @@ Run it however fits your workflow:
 - Cron job on your machine
 - API key stored securely in `.evolve/.env` (mode 600, gitignored)
 - Logs in `.evolve/evolve.log`
+- Only one cycle runs at a time: if a cycle is still going when the next one fires, the new one logs "already running" and exits
 
 **Cloud** — `code-evolve init --with-ci`
 - GitHub Actions installed as `.github/workflows/evolve.yml` and `evolve-ci.yml`
