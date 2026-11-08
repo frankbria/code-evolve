@@ -132,6 +132,66 @@ grep -q "# tampered" outside/evolve.yml 2>/dev/null \
     && ok "a protected symlink deleted by the agent is restored as a symlink" || bad "linked-skill not restored"
 cd / && rm -rf "$third_dir"
 
+# Fourth project: the agent adds a legitimate-looking npm test script that tampers with
+# IDENTITY.md when the engine runs verification (after the agent-call restores), and replaces
+# the protected skills directory with a regular file.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e .evolve/.stub-ran ] && exit 0
+touch .evolve/.stub-ran
+printf '{"name":"demo","version":"1.0.0","scripts":{"build":"true","test":"echo tampered-by-test >> .evolve/IDENTITY.md"}}\n' > package.json
+git add package.json && git commit -qm "add tests"
+rm -rf .evolve/skills && echo "not a dir" > .evolve/skills
+# Write this session's journal entry so the engine skips its journal call (and the restore after it).
+printf '## Day 0 — %s — work\n\n' "$(date +%H:%M)" >> .evolve/JOURNAL.md
+STUB
+fourth_dir="$(mktemp -d)"
+cd "$fourth_dir"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "fourth init failed"
+printf '.evolve/.stub-ran\n' >> .gitignore
+git add -A && git commit -qm "baseline"
+identity_before=$(cat .evolve/IDENTITY.md)
+skill_before=$(cat .evolve/skills/plan/SKILL.md)
+ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine4.log" 2>&1 || true
+[ "$(git show HEAD:.evolve/IDENTITY.md)" = "$identity_before" ] \
+    && ok "tampering by a test script during verification never reaches the commit" \
+    || bad "committed IDENTITY.md was tampered: $(git show HEAD:.evolve/IDENTITY.md | tail -1)"
+[ -d .evolve/skills ] && [ "$(cat .evolve/skills/plan/SKILL.md 2>/dev/null)" = "$skill_before" ] \
+    && ok "a protected dir replaced by a regular file is rebuilt" || bad "skills dir not rebuilt: $(ls -la .evolve | grep skills)"
+cd / && rm -rf "$fourth_dir"
+
+# Fifth project: the user keeps .evolve as a symlink into a store; the agent repoints it.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+cp -r "$(readlink .evolve)" ../evil-store && echo "be evil" >> ../evil-store/IDENTITY.md
+rm .evolve && ln -s ../evil-store .evolve
+STUB
+fifth_root="$(mktemp -d)"
+mkdir -p "$fifth_root/project"
+cd "$fifth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "fifth init failed"
+mv .evolve ../store && ln -s ../store .evolve
+git add -A && git commit -qm "baseline, .evolve symlinked"
+STUB_MARKER="$fifth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine5.log" 2>&1 || true
+[ "$(readlink .evolve)" = "../store" ] && ! grep -q "be evil" .evolve/IDENTITY.md \
+    && ok "a user's .evolve symlink repointed by the agent gets its original target back" \
+    || bad ".evolve now points at '$(readlink .evolve)': $(tail -2 "$stub_dir/engine5.log")"
+cd / && rm -rf "$fifth_root"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

@@ -143,14 +143,15 @@ list_protected_files() {
     done
 }
 
-# Directories between the project root and <path> that are symlinks right now.
-symlinked_ancestors() {
-    local directory
-    directory=$(dirname "$1")
-    while [ "$directory" != "." ] && [ "$directory" != "/" ]; do
-        [ -L "$directory" ] && printf '%s\n' "$directory"
-        directory=$(dirname "$directory")
-    done
+# Directories between the project root and <path>, outermost first (".evolve", ".evolve/scripts").
+path_ancestors() {
+    local parent prefix="" part
+    parent=$(dirname "$1")
+    [ "$parent" = "." ] && return 0
+    while IFS= read -r part; do
+        prefix="${prefix:+$prefix/}$part"
+        printf '%s\n' "$prefix"
+    done < <(printf '%s\n' "$parent" | tr '/' '\n')
 }
 
 # Copies every protected file (and protected symlink, as a link) into the private run dir at
@@ -167,12 +168,35 @@ snapshot_protected_paths() {
             .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
     fi
     list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
-    : > "$PROTECTED_SNAPSHOT/symlinked_ancestors"
+    : > "$PROTECTED_SNAPSHOT/ancestor_links"
     while IFS= read -r protected_file; do
         mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
         cp -P -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
-        symlinked_ancestors "$protected_file" >> "$PROTECTED_SNAPSHOT/symlinked_ancestors"
+        while IFS= read -r ancestor; do
+            [ -L "$ancestor" ] && printf '%s\t%s\n' "$ancestor" "$(readlink "$ancestor")"
+        done < <(path_ancestors "$protected_file") >> "$PROTECTED_SNAPSHOT/ancestor_links"
     done < "$PROTECTED_SNAPSHOT/manifest"
+    sort -u -o "$PROTECTED_SNAPSHOT/ancestor_links" "$PROTECTED_SNAPSHOT/ancestor_links"
+}
+
+# Makes every directory above <path> what it was at session start: a symlink the user had keeps
+# (or gets back) its original target; anything else that is not a real directory (a symlink
+# the agent made, or a regular file) is removed so mkdir can recreate the directory.
+repair_protected_ancestors() {
+    local ancestor original_target repaired=""
+    while IFS= read -r ancestor; do
+        original_target=$(awk -F '\t' -v path="$ancestor" '$1 == path { print $2; exit }' "$PROTECTED_SNAPSHOT/ancestor_links")
+        if [ -n "$original_target" ]; then
+            [ -L "$ancestor" ] && [ "$(readlink "$ancestor")" = "$original_target" ] && continue
+            rm -rf -- "$ancestor" 2>/dev/null || true
+            ln -s "$original_target" "$ancestor" 2>/dev/null || true
+            repaired="$repaired $ancestor (symlink target restored)"
+        elif [ -L "$ancestor" ] || { [ -e "$ancestor" ] && [ ! -d "$ancestor" ]; }; then
+            rm -f -- "$ancestor" 2>/dev/null || true
+            repaired="$repaired $ancestor (replaced a non-directory)"
+        fi
+    done < <(path_ancestors "$1")
+    printf '%s' "$repaired"
 }
 
 # True if <path> differs from its snapshot: content, symlink target, or the executable bit.
@@ -190,36 +214,35 @@ protected_file_changed() {
 # into a symlink is replaced by a real one first (writes would otherwise land wherever the link
 # points). Restores go through a temp file and mv, so a running evolve.sh keeps its old inode.
 restore_protected_paths() {
-    local protected_file ancestor temporary_copy restored=()
+    local protected_file restore_dir restored=""
     [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
     while IFS= read -r protected_file; do
-        while IFS= read -r ancestor; do
-            grep -qxF -- "$ancestor" "$PROTECTED_SNAPSHOT/symlinked_ancestors" && continue
-            rm -f -- "$ancestor" 2>/dev/null || true
-            restored+=("$ancestor (directory symlink removed)")
-        done < <(symlinked_ancestors "$protected_file")
+        restored="$restored$(repair_protected_ancestors "$protected_file")"
         if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
             protected_file_changed "$protected_file" || continue
             if [ -L "$protected_file" ] || { [ -e "$protected_file" ] && [ ! -f "$protected_file" ]; }; then
                 rm -rf -- "$protected_file"
             fi
-            mkdir -p "$(dirname "$protected_file")"
-            temporary_copy="$(dirname "$protected_file")/.restore.$$.$(basename "$protected_file")"
-            if cp -P -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$temporary_copy" \
-                && mv -f -- "$temporary_copy" "$protected_file"; then
-                restored+=("$protected_file")
+            # A random, freshly created dir beside the target: a predictable temp name could be
+            # pre-planted as a symlink that cp would write through.
+            if mkdir -p "$(dirname "$protected_file")" \
+                && restore_dir=$(mktemp -d "$(dirname "$protected_file")/.restore.XXXXXX") \
+                && cp -P -p "$PROTECTED_SNAPSHOT/files/$protected_file" "$restore_dir/file" \
+                && mv -f -- "$restore_dir/file" "$protected_file"; then
+                restored="$restored $protected_file"
             else
-                rm -f -- "$temporary_copy" 2>/dev/null || true
                 echo "  WARNING: could not restore protected file $protected_file"
             fi
+            [ -n "${restore_dir:-}" ] && rm -rf -- "$restore_dir"
+            restore_dir=""
         else
             git rm -qf --cached --ignore-unmatch -- "$protected_file" >/dev/null 2>&1 || true
             rm -f -- "$protected_file" 2>/dev/null || true
-            restored+=("$protected_file (added)")
+            restored="$restored $protected_file (added)"
         fi
     done < <( { cat "$PROTECTED_SNAPSHOT/manifest"; list_protected_files; } | sort -u)
-    if [ "${#restored[@]}" -gt 0 ]; then
-        echo "  Restored protected paths changed by the agent: ${restored[*]}"
+    if [ -n "$restored" ]; then
+        echo "  Restored protected paths changed by the agent:$restored"
     fi
 }
 
@@ -1006,6 +1029,8 @@ if [ -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then
 fi
 
 # ── Step 8: Final commit and tag ──
+# Build and test steps ran agent-authored code after the last restore; re-check before committing.
+restore_protected_paths
 git add -A
 if ! git diff --cached --quiet; then
     git commit -m "Day $DAY ($SESSION_TIME): session wrap-up"
