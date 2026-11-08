@@ -5,6 +5,9 @@ import { EVOLVE_DIR_NAME } from './paths';
 /** Agent skill directories that operator skills are installed into, relative to the project. */
 export const AGENT_SKILL_DIRS = ['.claude/skills', '.agents/skills'];
 
+/** Marks the GitHub workflows code-evolve installed, so refresh and eject never touch a user's same-named file. */
+export const WORKFLOW_MARKER = 'code-evolve:managed';
+
 export const MANAGED_SECTION_BEGIN = '<!-- code-evolve:begin -->';
 export const MANAGED_SECTION_END = '<!-- code-evolve:end -->';
 

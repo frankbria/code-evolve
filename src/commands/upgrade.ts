@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { spawnSync } from 'child_process';
-import { isInitialized, packageVersion } from '../utils/paths';
+import { compareVersions, isInitialized, packageVersion } from '../utils/paths';
 import { readConfig } from '../utils/config';
 import { runInit } from './init';
 
@@ -28,6 +28,10 @@ export const upgradeCommand = new Command('upgrade')
     }
 
     const config = readConfig();
+    if (config.engineVersion && compareVersions(config.engineVersion, packageVersion()) > 0) {
+      console.error(`The installed engine (${config.engineVersion}) is newer than this code-evolve (${packageVersion()}); run: npx code-evolve@latest upgrade`);
+      process.exit(1);
+    }
     console.log(`Upgrading the engine from ${config.engineVersion ?? 'an unrecorded version'} to ${packageVersion()}...\n`);
     await runInit({ yes: true, agent: config.agent, authMode: config.authMode ?? 'api-key' });
   });

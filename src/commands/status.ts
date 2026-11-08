@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { currentDay, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
+import { compareVersions, currentDay, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
 import { output } from '../utils/output';
 import { readConfig } from '../utils/config';
 import { parseRequirements, reinstateLapsedWaivers } from '../utils/proof';
@@ -150,7 +150,12 @@ export const statusCommand = new Command('status')
       `  REQs:     ${requirements.open} open, ${requirements.regressed} regressed, ${requirements.satisfied} satisfied`,
       pendingSession ? '  Session:  an in-session cycle is prepared but not finalized (.evolve/run/)' : '',
       engineDrift === null ? '  Drift:    could not compare the installed engine with this code-evolve' : '',
-      engineVersion !== packageVersion() ? `  Version:  engine ${engineVersion ?? 'unrecorded'}, this code-evolve ${packageVersion()}; update with: code-evolve upgrade` : '',
+      engineVersion === null || compareVersions(engineVersion, packageVersion()) < 0
+        ? `  Version:  engine ${engineVersion ?? 'unrecorded'}, this code-evolve ${packageVersion()}; update with: code-evolve upgrade`
+        : '',
+      engineVersion !== null && compareVersions(engineVersion, packageVersion()) > 0
+        ? `  Version:  engine ${engineVersion} is newer than this code-evolve ${packageVersion()}; use: npx code-evolve@latest`
+        : '',
       engineDrift?.length ? `  Drift:    installed engine differs from this code-evolve (${engineDrift.join(', ')}); refresh with: code-evolve upgrade` : '',
       lastEntry ? `\n  Last entry:\n  ${lastEntry.split('\n').join('\n  ')}` : '',
     ]

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
+import { WORKFLOW_MARKER, AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -186,7 +186,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     const identityPath = path.join(evolveDir, 'IDENTITY.md');
     const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
     if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
-      console.log('  IDENTITY.md replaced with this version (your previous copy stays in git history)');
+      console.log('  IDENTITY.md replaced with this version (restore your own copy from git if you customised it)');
     }
     fs.writeFileSync(identityPath, shippedIdentity);
 
@@ -283,7 +283,9 @@ export async function runInit(options: InitOptions): Promise<void> {
         const srcPath = path.join(templatesDir, 'workflows', src);
         const destPath = path.join(workflowDir, destName);
         if (!fs.existsSync(srcPath)) continue;
-        if (fs.existsSync(destPath)) {
+        const installed = fs.existsSync(destPath) ? fs.readFileSync(destPath, 'utf8') : null;
+        const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
+        if (installed !== null && !ours) {
           // A same-named file already exists — leave it untouched, but make clear our
           // workflow was NOT installed so the user knows evolution/CI won't run from it.
           console.warn(
@@ -293,12 +295,15 @@ export async function runInit(options: InitOptions): Promise<void> {
           // Template the cadence + agent into the evolve workflow before writing, so
           // --every and the chosen backend reach CI. (evolve-ci.yml has nothing to template.)
           if (src === 'evolve.yml') {
-            const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, hours, ciProfile);
+            // A refresh keeps the cadence already in our workflow unless --every was passed.
+            const installedEvery = Number(installed?.match(/# every (\d+)/)?.[1]);
+            const workflowHours = !everyExplicit && ours && installedEvery > 0 ? installedEvery : hours;
+            const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, workflowHours, ciProfile);
             fs.writeFileSync(destPath, templated);
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
-          console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
+          console.log(`  ${ours ? 'Updated' : 'Created'} ${path.relative(process.cwd(), destPath)}`);
         }
       }
       console.log(`  CI secret: ${ciProfile.secretHint}`);

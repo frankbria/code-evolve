@@ -57,6 +57,32 @@ check "the agent choice is kept" "$(node -p "require('./.evolve/config.json').ag
 check "engineVersion is recorded" "$(node -p "require('./.evolve/config.json').engineVersion")" "$VERSION"
 check "status shows no drift afterwards" "$(node "$CLI" status </dev/null | node -p "JSON.stringify(JSON.parse(require('fs').readFileSync(0)).engineDrift)")" "[]"
 
+# A CI install: the workflow is managed and refreshed, and every config key survives the upgrade.
+ci_project="$(mktemp -d)"
+(
+    cd "$ci_project"
+    git init -q; git config user.email t@example.com; git config user.name t
+    node "$CLI" init --yes --agent claude --mode ci --every 6 </dev/null >/dev/null 2>&1
+    shipped_workflow="$(cat .github/workflows/evolve.yml)"
+    echo "# stale workflow" >> .github/workflows/evolve.yml
+    node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='0.0.1';c.model='custom-model';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+    git add -A && git commit -qm "ci install"
+    node -e "const c=require('./.evolve/config.json');delete c.engineVersion;console.log(JSON.stringify(c))" > "$stub_dir/config.before"
+    node "$CLI" upgrade </dev/null >/dev/null 2>&1
+    node -e "const c=require('./.evolve/config.json');delete c.engineVersion;console.log(JSON.stringify(c))" > "$stub_dir/config.after"
+    [ "$(cat .github/workflows/evolve.yml)" = "$shipped_workflow" ] && echo refreshed > "$stub_dir/workflow" || echo stale > "$stub_dir/workflow"
+)
+rm -rf "$ci_project"
+check "a CI install's evolve workflow is refreshed" "$(cat "$stub_dir/workflow")" "refreshed"
+check "every other config key survives the upgrade (mode, model, ...)" "$(cat "$stub_dir/config.after")" "$(cat "$stub_dir/config.before")"
+
+# A newer engine is never downgraded by an older CLI.
+node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+git add -A && git commit -qm "newer engine"
+status=0; node "$CLI" upgrade </dev/null > "$stub_dir/downgrade.log" 2>&1 || status=$?
+check "upgrade refuses to downgrade a newer engine" "$status" "1"
+check "the refusal points to the latest CLI" "$(grep -c 'code-evolve@latest' "$stub_dir/downgrade.log")" "1"
+
 plain="$(mktemp -d)"
 status=0; (cd "$plain" && node "$CLI" upgrade </dev/null >/dev/null 2>&1) || status=$?
 rm -rf "$plain"
