@@ -68,15 +68,16 @@ fi
 [ ! -e "$HOME/pwned" ] && ok "cron run: no command substitution from .env values" || bad "backticks in .env were executed"
 
 # Two overlapping cycles: exactly one reaches the agent, the other exits 0 with a log line.
+# Different TZ values must not make the live owner look like a different process.
 rm -f "$stub_dir/agent-calls"
-run_engine() { # <log-file> <run-id>
-    env -i PATH="$base_path" HOME="$HOME" ANTHROPIC_API_KEY=k SLEEP_SECONDS="${SLEEP_SECONDS:-6}" RUN_ID="$2" \
+run_engine() { # <log-file> <run-id>   (honors RUN_TZ)
+    env -i PATH="$base_path" HOME="$HOME" TZ="${RUN_TZ:-UTC}" ANTHROPIC_API_KEY=k SLEEP_SECONDS="${SLEEP_SECONDS:-6}" RUN_ID="$2" \
         GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com \
         GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com \
         EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
         bash .evolve/scripts/evolve.sh > "$1" 2>&1
 }
-run_engine "$stub_dir/first.log" first & first_pid=$!
+RUN_TZ=America/New_York run_engine "$stub_dir/first.log" first & first_pid=$!
 sleep 2
 second_status=0; run_engine "$stub_dir/second.log" second || second_status=$?
 wait "$first_pid" || true
@@ -89,18 +90,26 @@ grep -q "Day .* complete" "$stub_dir/first.log" \
 grep -q " run=first$" "$stub_dir/agent-calls" 2>/dev/null && ! grep -q " run=second$" "$stub_dir/agent-calls" \
     && ok "overlap: only the first cycle called the agent" \
     || bad "overlap: agent calls: $(cat "$stub_dir/agent-calls" 2>/dev/null)"
-[ ! -e "$(git rev-parse --git-dir)/code-evolve.lock" ] && ok "lock released after the cycle" || bad "lock left behind"
+lock_dir="$(git rev-parse --absolute-git-dir)/code-evolve.lock"
+[ ! -e "$lock_dir" ] && ok "lock released after the cycle" || bad "lock left behind"
 
-# Stale locks must not block the next cycle: a dead PID, and a live PID that belongs to
-# a different process than the one that took the lock (PID reuse: start time differs).
-lock_file="$(git rev-parse --absolute-git-dir)/code-evolve.lock"
-for stale_case in "dead-pid:999999 Thu Jan  1 00:00:00 1970" "reused-pid:$$ Thu Jan  1 00:00:00 1970"; do
-    echo "${stale_case#*:}" > "$lock_file"
+# Stale locks must not block the next cycle: a dead PID, a live PID that belongs to a
+# different process than the one that took the lock (PID reuse: start time differs), and
+# an owner-less lock left minutes ago. A fresh owner-less lock is a cycle mid-acquire.
+for stale_case in "dead-pid:999999 Thu Jan  1 00:00:00 1970" "reused-pid:$$ Thu Jan  1 00:00:00 1970" "old-no-owner:"; do
+    mkdir -p "$lock_dir"
+    if [ -n "${stale_case#*:}" ]; then echo "${stale_case#*:}" > "$lock_dir/owner"; else touch -d '5 minutes ago' "$lock_dir"; fi
     stale_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/stale.log" stale || stale_status=$?
     grep -q "Day .* complete" "$stub_dir/stale.log" \
         && ok "stale lock (${stale_case%%:*}) is reclaimed" \
         || bad "stale lock (${stale_case%%:*}) blocked the cycle (exit $stale_status): $(tail -3 "$stub_dir/stale.log")"
 done
+mkdir -p "$lock_dir"
+fresh_status=0; SLEEP_SECONDS=0 run_engine "$stub_dir/fresh.log" fresh || fresh_status=$?
+grep -q "already running" "$stub_dir/fresh.log" && [ "$fresh_status" -eq 0 ] \
+    && ok "fresh owner-less lock (cycle mid-acquire) is respected" \
+    || bad "fresh owner-less lock was not respected: $(tail -3 "$stub_dir/fresh.log")"
+rm -rf "$lock_dir"
 
 # Re-running start over a world-readable .env must leave it 0600 (it holds the API key).
 chmod 644 .evolve/.env

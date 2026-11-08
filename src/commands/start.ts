@@ -191,9 +191,12 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode?: 
     .filter((entry): entry is [string, string] => Boolean(entry[1]))
     .map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'`);
 
-  fs.writeFileSync(envFile, lines.join('\n') + '\n', { mode: 0o600 });
-  // `mode` only applies when the file is created; a rewrite must not keep looser permissions.
-  fs.chmodSync(envFile, 0o600);
+  // Write a fresh 0600 file and rename it over .env, so the key is never written into an
+  // existing file that has looser permissions (`mode` only applies when a file is created).
+  const temporaryFile = `${envFile}.${process.pid}.tmp`;
+  fs.rmSync(temporaryFile, { force: true });
+  fs.writeFileSync(temporaryFile, lines.join('\n') + '\n', { mode: 0o600, flag: 'wx' });
+  fs.renameSync(temporaryFile, envFile);
 }
 
 function ensureEnvGitignored(projectDir: string): void {
