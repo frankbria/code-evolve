@@ -1,8 +1,9 @@
 import { Command } from 'commander';
+import { MANAGED_GITIGNORE_LINES, removeAgentInstructions, removeOperatorSkills } from '../utils/projectIntegration';
 import { removeProjectCron } from '../utils/crontab';
 import fs from 'fs';
 import readline from 'readline';
-import { getEvolveDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized } from '../utils/paths';
 
 // Stable marker embedded in the workflow templates so eject recognizes files it
 // installed regardless of which package version wrote them (kept in sync with
@@ -85,23 +86,25 @@ export const ejectCommand = new Command('eject')
       console.log('  Note: a legacy .github/workflows/evolve/ directory exists (inert) — remove it manually if it was code-evolve\'s.');
     }
 
-    // Clean .gitignore entries
+    // Clean .gitignore entries (the same list init and start add)
     const gitignorePath = projectFile('.gitignore');
     if (fs.existsSync(gitignorePath)) {
-      let content = fs.readFileSync(gitignorePath, 'utf8');
-      const linesToRemove = [
-        `# code-evolve ephemeral files`,
-        `${EVOLVE_DIR_NAME}/ISSUES_TODAY.md`,
-        `${EVOLVE_DIR_NAME}/ISSUE_RESPONSE.md`,
-        `${EVOLVE_DIR_NAME}/.env`,
-        `${EVOLVE_DIR_NAME}/evolve.log`,
-        `${EVOLVE_DIR_NAME}/schedule.json`,
-      ];
-      for (const line of linesToRemove) {
-        content = content.replace(line + '\n', '');
+      const managed = new Set(MANAGED_GITIGNORE_LINES);
+      const kept = fs.readFileSync(gitignorePath, 'utf8').split('\n').filter((line) => !managed.has(line));
+      const cleaned = kept.join('\n').replace(/\n{3,}/g, '\n\n');
+      if (cleaned.trim() === '') {
+        fs.rmSync(gitignorePath);
+        console.log('Removed .gitignore (it only held code-evolve entries)');
+      } else {
+        fs.writeFileSync(gitignorePath, cleaned);
+        console.log('Cleaned .gitignore');
       }
-      fs.writeFileSync(gitignorePath, content);
     }
+
+    // Operator skills and the code-evolve section in AGENTS.md / CLAUDE.md
+    removeOperatorSkills(process.cwd(), getOperatorSkillsDir());
+    removeAgentInstructions(process.cwd());
+    console.log('Removed code-evolve skills and agent instructions');
 
     console.log('');
     console.log('Ejected. vision.md and spec.md have been copied to the project root.');

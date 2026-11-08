@@ -13,6 +13,11 @@ export function getTemplatesDir(): string {
   return path.join(__dirname, '..', '..', 'templates');
 }
 
+/** Operator skills (evolve-setup, evolve-run, ...), shared with the plugin manifests. */
+export function getOperatorSkillsDir(): string {
+  return path.join(__dirname, '..', '..', 'plugins', 'code-evolve', 'skills');
+}
+
 export function evolveFile(name: string): string {
   return path.join(getEvolveDir(), name);
 }

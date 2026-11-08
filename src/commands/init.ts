@@ -1,9 +1,10 @@
 import { Command } from 'commander';
+import { AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
 import {
   readConfig,
@@ -36,6 +37,7 @@ export interface InitOptions {
   authMode: string;
   mode?: string;
   every?: string;
+  yes?: boolean;
 }
 
 export const initCommand = new Command('init')
@@ -46,6 +48,7 @@ export const initCommand = new Command('init')
   .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
+  .option('--yes', 'Never prompt; refresh an existing install (managed files only, state kept)')
   .action(runInit);
 
 /**
@@ -64,7 +67,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     const authModeExplicit = flagPassed('--auth-mode');
     const modeExplicit = flagPassed('--mode');
     const everyExplicit = flagPassed('--every');
-    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !options.yes;
+    // --yes refreshes an existing install the way --force does, so an agent can re-run it safely.
+    if (options.yes) options.force = true;
 
     // Resolve the evolution cadence: explicit --every wins (validated); else default.
     let hours = DEFAULT_EVERY_HOURS;
@@ -316,6 +321,11 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Update .gitignore (appends only if marker not already present)
     updateGitignore();
 
+    // Operator skills where agents discover them, plus a short note for any agent working here.
+    const operatorSkills = installOperatorSkills(process.cwd(), getOperatorSkillsDir());
+    upsertAgentInstructions(process.cwd());
+    console.log(`  Installed skills (${operatorSkills.join(', ')}) into ${AGENT_SKILL_DIRS.join(' and ')}`);
+
     // Write agent config (persist execution mode when one was chosen)
     const currentConfig = readConfig();
     writeConfig({ ...currentConfig, agent, authMode, ...(mode ? { mode } : {}) });
@@ -527,27 +537,11 @@ async function promptForInterval(fallback: number): Promise<number> {
 
 function updateGitignore(): void {
   const gitignorePath = projectFile('.gitignore');
-  const linesToAdd = [
-    `# code-evolve ephemeral files`,
-    `${EVOLVE_DIR_NAME}/ISSUES_TODAY.md`,
-    `${EVOLVE_DIR_NAME}/ISSUE_RESPONSE.md`,
-    `${EVOLVE_DIR_NAME}/.env`,
-    `${EVOLVE_DIR_NAME}/evolve.log`,
-    `${EVOLVE_DIR_NAME}/schedule.json`,
-    `${EVOLVE_DIR_NAME}/evidence/`,
-  ];
-
-  let content = '';
-  if (fs.existsSync(gitignorePath)) {
-    content = fs.readFileSync(gitignorePath, 'utf8');
-  }
-
-  // Check if already added
-  if (content.includes(`${EVOLVE_DIR_NAME}/ISSUES_TODAY.md`)) {
-    return;
-  }
-
-  const addition = '\n' + linesToAdd.join('\n') + '\n';
-  fs.appendFileSync(gitignorePath, addition);
+  const content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+  const existing = new Set(content.split('\n'));
+  const missing = MANAGED_GITIGNORE_LINES.filter((line) => !existing.has(line));
+  if (missing.length === 0) return;
+  const separator = content === '' || content.endsWith('\n') ? '' : '\n';
+  fs.writeFileSync(gitignorePath, `${content}${separator}${missing.join('\n')}\n`);
   console.log('  Updated .gitignore');
 }
