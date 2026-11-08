@@ -1,9 +1,10 @@
 import { Command } from 'commander';
+import { AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getEvolveDir, getTemplatesDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
 import {
   readConfig,
@@ -36,6 +37,7 @@ export interface InitOptions {
   authMode: string;
   mode?: string;
   every?: string;
+  yes?: boolean;
 }
 
 export const initCommand = new Command('init')
@@ -46,6 +48,7 @@ export const initCommand = new Command('init')
   .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
+  .option('--yes', 'Never prompt; refresh an existing install (managed files only, state kept)')
   .action(runInit);
 
 /**
@@ -64,7 +67,11 @@ export async function runInit(options: InitOptions): Promise<void> {
     const authModeExplicit = flagPassed('--auth-mode');
     const modeExplicit = flagPassed('--mode');
     const everyExplicit = flagPassed('--every');
-    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !options.yes;
+    const wasInitialized = isInitialized();
+    const forceExplicit = Boolean(options.force);
+    // --yes refreshes an existing install the way --force does, so an agent can re-run it safely.
+    if (options.yes) options.force = true;
 
     // Resolve the evolution cadence: explicit --every wins (validated); else default.
     let hours = DEFAULT_EVERY_HOURS;
@@ -175,8 +182,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Copy skills (always overwrite — framework definitions)
     copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
 
-    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path)
-    if (options.force) {
+    // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Only on an explicit
+    // --force: under --yes those root files are the project's own documents.
+    if (forceExplicit) {
       for (const file of ['vision.md', 'spec.md']) {
         const rootPath = projectFile(file);
         const evolvePath = evolveFile(file);
@@ -288,13 +296,32 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.log(`  CI secret: ${ciProfile.secretHint}`);
     }
 
+    // Update .gitignore before scheduling (which also touches it), remembering exactly what was
+    // added so eject can remove only that
+    const currentConfig = readConfig();
+    const gitignoreChange = updateGitignore();
+    const gitignoreLinesAdded = [...(currentConfig.gitignoreLinesAdded ?? []), ...gitignoreChange.added];
+
     // Install the local cron schedule for local/both modes. Native Windows has
     // no cron, so skip with a pointer to CI. We only install when the agent's
     // API key is already in the environment (or none is needed); otherwise the
     // cron .env would be written without it — defer to `code-evolve start` once
     // the key is set, matching init's "set your key as a next step" model.
     let localScheduled = false;
-    if (wantLocal) {
+    // A refresh keeps the user's schedule (cadence, model) unless they asked to change it.
+    const previousConfig = readConfig();
+    const agentChanged = agent !== previousConfig.agent;
+    const authChanged = authMode !== (previousConfig.authMode ?? 'api-key');
+    const keepSchedule = wasInitialized && !interactive && !modeExplicit && !everyExplicit
+      && !agentChanged && !authChanged && fs.existsSync(evolveFile('schedule.json'));
+    // Reinstalling for a changed agent or auth keeps the cadence the user already chose.
+    if (wasInitialized && !everyExplicit && !interactive) {
+      const previousEvery = readScheduleEvery();
+      if (previousEvery !== null) hours = previousEvery;
+    }
+    if (keepSchedule && wantLocal) {
+      console.log('  Keeping the existing local schedule');
+    } else if (wantLocal) {
       if (process.platform === 'win32') {
         console.warn('  ⚠ Local scheduling is not supported on native Windows — use WSL or ci mode.');
       } else {
@@ -313,12 +340,28 @@ export async function runInit(options: InitOptions): Promise<void> {
       }
     }
 
-    // Update .gitignore (appends only if marker not already present)
-    updateGitignore();
+
+    // Operator skills where agents discover them, plus a short note for any agent working here.
+    const skills = installOperatorSkills(process.cwd(), getOperatorSkillsDir());
+    const createdInstructionFiles = upsertAgentInstructions(process.cwd());
+    const createdPaths = [...new Set([
+      ...(currentConfig.createdPaths ?? []),
+      ...(gitignoreChange.created ? ['.gitignore'] : []),
+      ...skills.createdDirs,
+      ...createdInstructionFiles,
+    ])];
+    console.log(`  Installed skills (${skills.installed.join(', ')}) into ${AGENT_SKILL_DIRS.join(' and ')}`);
+    for (const skipped of skills.skipped) console.warn(`  ⚠ Left alone: ${skipped}`);
 
     // Write agent config (persist execution mode when one was chosen)
-    const currentConfig = readConfig();
-    writeConfig({ ...currentConfig, agent, authMode, ...(mode ? { mode } : {}) });
+    writeConfig({
+      ...currentConfig,
+      agent,
+      authMode,
+      ...(mode ? { mode } : {}),
+      gitignoreLinesAdded,
+      createdPaths,
+    });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
     }
@@ -525,29 +568,28 @@ async function promptForInterval(fallback: number): Promise<number> {
   }
 }
 
-function updateGitignore(): void {
+/** The cadence of the installed local schedule, or null when there is none (or it is unreadable). */
+function readScheduleEvery(): number | null {
+  try {
+    const schedule: unknown = JSON.parse(fs.readFileSync(evolveFile('schedule.json'), 'utf8'));
+    if (typeof schedule === 'object' && schedule !== null && 'every' in schedule && typeof schedule.every === 'number') {
+      return schedule.every;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function updateGitignore(): { added: string[]; created: boolean } {
   const gitignorePath = projectFile('.gitignore');
-  const linesToAdd = [
-    `# code-evolve ephemeral files`,
-    `${EVOLVE_DIR_NAME}/ISSUES_TODAY.md`,
-    `${EVOLVE_DIR_NAME}/ISSUE_RESPONSE.md`,
-    `${EVOLVE_DIR_NAME}/.env`,
-    `${EVOLVE_DIR_NAME}/evolve.log`,
-    `${EVOLVE_DIR_NAME}/schedule.json`,
-    `${EVOLVE_DIR_NAME}/evidence/`,
-  ];
-
-  let content = '';
-  if (fs.existsSync(gitignorePath)) {
-    content = fs.readFileSync(gitignorePath, 'utf8');
-  }
-
-  // Check if already added
-  if (content.includes(`${EVOLVE_DIR_NAME}/ISSUES_TODAY.md`)) {
-    return;
-  }
-
-  const addition = '\n' + linesToAdd.join('\n') + '\n';
-  fs.appendFileSync(gitignorePath, addition);
+  const created = !fs.existsSync(gitignorePath);
+  const content = created ? '' : fs.readFileSync(gitignorePath, 'utf8');
+  const existing = new Set(content.split('\n'));
+  const added = MANAGED_GITIGNORE_LINES.filter((line) => !existing.has(line));
+  if (added.length === 0) return { added, created: false };
+  const separator = content === '' || content.endsWith('\n') ? '' : '\n';
+  fs.writeFileSync(gitignorePath, `${content}${separator}${added.join('\n')}\n`);
   console.log('  Updated .gitignore');
+  return { added, created };
 }
