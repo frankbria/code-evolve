@@ -46,6 +46,19 @@ claude plugin install code-evolve@code-evolve --scope project
 
 Setup installs the same skills into your project's `.claude/skills/`, so the plugin's copies (`/code-evolve:evolve-run`) and the project's (`/evolve-run`) both appear. **Use the project copies once setup has run:** they match the engine version installed in `.evolve/`, and they reach teammates and other agents without the plugin. Remove the plugin afterwards with `claude plugin uninstall code-evolve --scope project`.
 
+### From inside Codex and other Agent Plugins clients
+
+The plugin folder also carries an [Agent Plugins 1.0](https://agent-plugins.org) manifest, which Codex, Cursor, Copilot and VS Code read. In Codex:
+
+```bash
+codex plugin marketplace add frankbria/code-evolve
+codex plugin add code-evolve@code-evolve
+```
+
+Then start Codex in your project and run `$evolve-setup`. As with Claude Code, setup also installs the skills into `.agents/skills/`; once it has run, prefer those copies and remove the plugin with `codex plugin remove code-evolve@code-evolve`.
+
+Any other agent that reads `SKILL.md` files can take just the skills: `npx skills add frankbria/code-evolve`.
+
 Prefer to do it step by step? Three steps:
 
 ### 1. Initialize

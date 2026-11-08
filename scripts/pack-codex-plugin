@@ -1,0 +1,22 @@
+#!/bin/bash
+# Build the Agent Plugins ZIP (Codex and other clients) from exactly the committed plugins/code-evolve/.
+# Usage: scripts/pack-codex-plugin [output.zip]   default: dist/code-evolve-plugin-<version>.zip
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+PLUGIN_DIR="plugins/code-evolve"
+version="$(node -p "require('./$PLUGIN_DIR/plugin.json').version")"
+output="${1:-dist/code-evolve-plugin-$version.zip}"
+
+if git ls-files -s -- "$PLUGIN_DIR" | grep -q '^120000'; then
+    echo "Error: $PLUGIN_DIR contains a symlink; plugin archives must not." >&2
+    exit 1
+fi
+# Archiving the commit, not the working tree, keeps untracked files, dependency dirs and local secrets out.
+if [ -n "$(git status --porcelain -- "$PLUGIN_DIR")" ]; then
+    echo "Warning: $PLUGIN_DIR has uncommitted changes; the archive holds the committed version only." >&2
+fi
+
+mkdir -p "$(dirname "$output")"
+git archive --format=zip --prefix=code-evolve/ -o "$output" "HEAD:$PLUGIN_DIR"
+echo "$output"
