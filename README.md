@@ -31,7 +31,9 @@ Day 14 — Your project works. You barely touched a keyboard.
 
 > **Detailed install, agent setup, verification, and troubleshooting:** see [INSTALL.md](INSTALL.md).
 
-Starting from scratch? Three steps:
+**Quickest path:** run `npx code-evolve` with no subcommand. It finds Claude Code, Codex or OpenCode on your PATH (asking only if there are several), installs `.evolve/`, and opens that agent with the `evolve-setup` skill, which walks you through vision, spec and schedule in conversation. Without a terminal or an agent it prints the exact command for each agent instead.
+
+Prefer to do it step by step? Three steps:
 
 ### 1. Initialize
 

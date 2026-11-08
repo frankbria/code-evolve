@@ -13,6 +13,7 @@ import { migrateCommand } from './commands/migrate';
 import { visionCommand } from './commands/vision';
 import { specCommand } from './commands/spec';
 import { proofCommand } from './commands/proof';
+import { bootstrap } from './commands/bootstrap';
 
 const rawName = path.basename(process.argv[1]);
 const binName = rawName === 'ce' ? 'ce' : 'code-evolve';
@@ -28,7 +29,9 @@ const program = new Command();
 program
   .name(binName)
   .description('Self-evolving project builder powered by Claude Code')
-  .version(version);
+  .version(version)
+  // A typo'd subcommand must error, not fall through to the bootstrap.
+  .action(() => (program.args.length ? program.error(`error: unknown command '${program.args[0]}'`) : bootstrap(binName)));
 
 program.addCommand(initCommand);
 program.addCommand(setupCommand);
