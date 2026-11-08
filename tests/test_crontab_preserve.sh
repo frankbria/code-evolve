@@ -18,7 +18,11 @@ trap 'rm -rf "$stub_dir" "$work_dir"' EXIT
 cat > "$stub_dir/crontab" <<STUB
 #!/bin/bash
 table="$stub_dir/crontab.table"
-if [ "\${1:-}" = "-l" ]; then [ -f "\$table" ] && cat "\$table" && exit 0; exit 1; fi
+if [ "\${1:-}" = "-l" ]; then
+    [ -f "$stub_dir/list-fails" ] && { echo "crontab: permission denied" >&2; exit 1; }
+    [ -f "\$table" ] && cat "\$table" && exit 0
+    echo "no crontab for test" >&2; exit 1
+fi
 cat > "\$table"
 STUB
 printf '#!/bin/bash\necho "claude 0.0.0-stub"\n' > "$stub_dir/claude"
@@ -59,6 +63,16 @@ grep -q "code-evolve:$work_dir/app2\$" <<<"$table_after_stop" \
 diff <(cat "$stub_dir/crontab.table") <(printf '%s\n' "$user_lines") >/dev/null \
     && ok "after start, stop and eject the table equals the user's original lines" \
     || bad "final table differs: $(diff <(cat "$stub_dir/crontab.table") <(printf '%s\n' "$user_lines"))"
+
+# A transient `crontab -l` failure must not be mistaken for an empty table: start has to
+# fail and leave the existing schedule alone instead of overwriting it.
+printf '%s\n' "$user_lines" > "$stub_dir/crontab.table"
+touch "$stub_dir/list-fails"
+start_status=0; (cd app && node "$CLI" start --every 4 >/dev/null 2>&1) || start_status=$?
+rm -f "$stub_dir/list-fails"
+[ "$start_status" -ne 0 ] && diff <(cat "$stub_dir/crontab.table") <(printf '%s\n' "$user_lines") >/dev/null \
+    && ok "start fails without touching the table when crontab -l errors" \
+    || bad "start after a crontab -l error (exit $start_status) left: $(cat "$stub_dir/crontab.table")"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

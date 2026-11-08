@@ -1,4 +1,4 @@
-import { CRON_MARKER, cronEntryMarker, withoutProjectEntry } from '../crontab';
+import { CRON_MARKER, cronEntryMarker, tableFromListing, withoutProjectEntry } from '../crontab';
 
 // Only pure helpers are unit-tested here: jest gives each test file its own process.env, so a
 // stub `crontab` on a test-set PATH is NOT what child_process runs; that would hit the real
@@ -25,7 +25,36 @@ describe('withoutProjectEntry', () => {
     expect(result).toEqual({ table, removed: false });
   });
 
+  it('leaves runs of blank lines elsewhere in the table untouched', () => {
+    const table = ['0 1 * * * a', '', '', '', '0 2 * * * b', projectEntry('/p'), ''].join('\n');
+    expect(withoutProjectEntry(table, '/p').table).toBe(['0 1 * * * a', '', '', '', '0 2 * * * b', ''].join('\n'));
+  });
+
+  it('removes the entry of a project whose path ends in a space', () => {
+    const table = [projectEntry('/tmp/app '), '0 1 * * * keep', ''].join('\n');
+    expect(withoutProjectEntry(table, '/tmp/app ')).toEqual({ table: '0 1 * * * keep\n', removed: true });
+  });
+
   it('marks entries with the shared marker', () => {
     expect(cronEntryMarker('/x')).toBe(`# ${CRON_MARKER}:/x`);
+  });
+});
+
+describe('tableFromListing', () => {
+  it('returns the listing on success', () => {
+    expect(tableFromListing({ status: 0, stdout: '0 1 * * * a\n', stderr: '' })).toBe('0 1 * * * a\n');
+  });
+
+  it('treats "no crontab for <user>" as an empty table', () => {
+    expect(tableFromListing({ status: 1, stdout: '', stderr: 'no crontab for frank\n' })).toBe('');
+  });
+
+  it('throws on any other failure instead of reporting an empty table', () => {
+    expect(() => tableFromListing({ status: 1, stdout: '', stderr: 'crontab: permission denied\n' })).toThrow(
+      'crontab -l failed (exit 1): crontab: permission denied'
+    );
+    expect(() => tableFromListing({ status: null, stdout: '', stderr: '', error: new Error('spawn crontab ENOENT') })).toThrow(
+      'Could not run crontab: spawn crontab ENOENT'
+    );
   });
 });

@@ -3,7 +3,6 @@ import { removeProjectCron } from '../utils/crontab';
 import fs from 'fs';
 import { evolveFile, isInitialized } from '../utils/paths';
 
-
 export const stopCommand = new Command('stop')
   .description('Stop the evolution engine (removes the local cron job)')
   .action(async () => {
@@ -18,7 +17,13 @@ export const stopCommand = new Command('stop')
     }
 
     const projectDir = process.cwd();
-    const removed = removeProjectCron(projectDir);
+    let removed: boolean;
+    try {
+      removed = removeProjectCron(projectDir);
+    } catch (err) {
+      console.error(`Could not update the crontab, so it was left unchanged: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
 
     if (removed) {
       console.log('Evolution engine stopped. Cron job removed.');
