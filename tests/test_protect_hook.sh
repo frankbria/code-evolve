@@ -60,6 +60,14 @@ check "apply_patch updating a protected file is blocked" "$(hook_exit apply_patc
 check "apply_patch deleting an engine script is blocked" "$(hook_exit apply_patch "$(bash_command "$(patch_for Delete .evolve/scripts/hold_lock.py)")")" "2"
 check "apply_patch on project source is allowed" "$(hook_exit apply_patch "$(bash_command "$(patch_for Update src/app.ts)")")" "0"
 
+# A symlinked .evolve (supported by the engine) stays protected when reached through the project path.
+linked="$(mktemp -d)"; mkdir -p "$linked/store" "$linked/project"
+cp -R "$project/.evolve/." "$linked/store/"; ln -s ../store "$linked/project/.evolve"
+check "Edit through a symlinked .evolve is blocked" "$(hook_exit Edit "$(edit "$linked/project/.evolve/scripts/evolve.sh")" "$linked/project")" "2"
+check "Bash through a symlinked .evolve is blocked" "$(hook_exit Bash "$(bash_command 'rm .evolve/IDENTITY.md')" "$linked/project")" "2"
+check "a symlinked .evolve leaves project source editable" "$(hook_exit Edit "$(edit "$linked/project/src/app.ts")" "$linked/project")" "0"
+rm -rf "$linked"
+
 # Outside a code-evolve project, and on input it cannot read, the hook stays out of the way.
 plain="$(mktemp -d)"
 check "a project without .evolve is never blocked" "$(hook_exit Edit "$(edit "$plain/.evolve/IDENTITY.md")" "$plain")" "0"

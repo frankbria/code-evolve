@@ -36,7 +36,7 @@ PATCH_FILE_LINE = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move 
 
 
 def find_project_root(start: str) -> str | None:
-    directory = os.path.realpath(start)
+    directory = os.path.abspath(start)
     while True:
         if os.path.isdir(os.path.join(directory, ".evolve")):
             return directory
@@ -57,15 +57,22 @@ def read_patterns(root: str) -> list[str]:
 
 def protected_match(path: str, cwd: str, root: str, patterns: list[str]) -> str | None:
     """The project-relative form of `path` if it is protected, or a directory holding protected files."""
-    relative = os.path.relpath(os.path.realpath(os.path.join(cwd, path)), root)
-    if relative == "." or relative.startswith(".." + os.sep) or relative == "..":
-        return None
-    relative = relative.replace(os.sep, "/")
-    # fnmatch's * also matches "/", like the engine's bash `case` patterns.
-    if any(fnmatch.fnmatchcase(relative, pattern) for pattern in patterns):
-        return relative
-    if any(pattern.startswith(relative + "/") for pattern in patterns):
-        return relative
+    absolute = os.path.normpath(os.path.join(cwd, path))
+    # The path as written keeps a symlinked .evolve (supported by the engine) inside the project;
+    # the resolved path catches a protected file reached through some other symlink.
+    candidates = (
+        os.path.relpath(absolute, root),
+        os.path.relpath(os.path.realpath(absolute), os.path.realpath(root)),
+    )
+    for relative in candidates:
+        if relative in (".", "..") or relative.startswith(".." + os.sep):
+            continue
+        relative = relative.replace(os.sep, "/")
+        # fnmatch's * also matches "/", like the engine's bash `case` patterns.
+        if any(fnmatch.fnmatchcase(relative, pattern) for pattern in patterns):
+            return relative
+        if any(pattern.startswith(relative + "/") for pattern in patterns):
+            return relative
     return None
 
 
