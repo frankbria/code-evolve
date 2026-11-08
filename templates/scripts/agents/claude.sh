@@ -6,7 +6,7 @@ check_agent() {
 }
 
 agent_auth_check() {
-    if [ "$CLAUDE_AUTH_MODE" = "oauth" ]; then
+    if [ "${CLAUDE_AUTH_MODE:-api-key}" = "oauth" ]; then
         if ! claude auth status &>/dev/null; then
             echo "ERROR: Claude not authenticated. Run 'claude auth login' to authenticate." >&2
             return 1
@@ -35,7 +35,7 @@ agent_detect_error() {
 }
 
 agent_env_hint() {
-    if [ "$CLAUDE_AUTH_MODE" = "oauth" ]; then
+    if [ "${CLAUDE_AUTH_MODE:-api-key}" = "oauth" ]; then
         echo "Run 'claude login' to authenticate via OAuth"
     else
         echo "ANTHROPIC_API_KEY"
