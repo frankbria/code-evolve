@@ -49,7 +49,9 @@ code-evolve/                  # npm package source
 │       ├── proof.ts          # PROOF9 requirements management
 │       └── __tests__/        # Jest unit tests
 ├── tests/                    # Shell tests (test_*.sh) driving the built CLI and engine scripts
-├── plugins/code-evolve/skills/  # Operator skills (evolve-setup/-run/-status); init copies them into .claude/skills + .agents/skills
+├── .claude-plugin/marketplace.json  # The repo is its own Claude Code marketplace (serves plugins/code-evolve)
+├── plugins/code-evolve/      # Self-contained plugin: .claude-plugin/plugin.json (version synced by `npm version`)
+│   └── skills/               # Operator skills (evolve-setup/-run/-status); init copies them into .claude/skills + .agents/skills
 ├── templates/                # Files installed by `init` into a target project
 │   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, hold_lock.py, agents/ (per-backend adapters)
 │   ├── skills/               # Runtime skills (6 dirs, Agent Skills SKILL.md format; indexed into the cycle prompt)

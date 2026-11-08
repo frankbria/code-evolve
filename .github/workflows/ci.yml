@@ -34,3 +34,10 @@ jobs:
 
       - name: Verify CLI
         run: node dist/cli.js --version
+
+      - name: Validate Claude Code plugin and marketplace
+        run: |
+          # Pinned so new validator rules can't turn unrelated PRs red; bump on purpose.
+          npm install -g @anthropic-ai/claude-code@2.1.319
+          claude plugin validate .
+          claude plugin validate plugins/code-evolve

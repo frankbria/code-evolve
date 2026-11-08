@@ -1,0 +1,17 @@
+{
+  "name": "code-evolve",
+  "version": "0.2.0",
+  "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status.",
+  "author": {
+    "name": "Frank Bria"
+  },
+  "homepage": "https://github.com/frankbria/code-evolve",
+  "repository": "https://github.com/frankbria/code-evolve",
+  "license": "MIT",
+  "keywords": [
+    "autonomous",
+    "self-evolving",
+    "agent",
+    "skills"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "code-evolve",
+  "description": "code-evolve: turn any project into a self-evolving codebase.",
+  "owner": {
+    "name": "Frank Bria"
+  },
+  "plugins": [
+    {
+      "name": "code-evolve",
+      "source": "./plugins/code-evolve",
+      "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status."
+    }
+  ]
+}
