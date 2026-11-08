@@ -56,10 +56,6 @@ esac
 # Session state shared between phases. Its own .gitignore keeps the wrap-up `git add -A`
 # from committing it, even in installs whose root .gitignore predates it.
 RUN_DIR="$EVOLVE_DIR/run"
-if [ "$ENGINE_PHASE" = "prepare" ]; then
-    mkdir -p "$RUN_DIR"
-    printf '*\n' > "$RUN_DIR/.gitignore"
-fi
 
 # ── Single-run lock ──
 # A slow cycle must not overlap the next cron tick. hold_lock.py takes a kernel flock
@@ -99,6 +95,60 @@ esac
 RUN_TMP=""
 trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true; [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"' EXIT
 RUN_TMP=$(mktemp -d)
+
+# ── Session state (shared by prepare, verify and finalize) ──
+# session.env is plain KEY=value lines read by a whitelist parser, never sourced: in the
+# split flow the agent can write to it, and sourcing would run whatever it planted.
+SESSION_STATE_KEYS="SESSION_START_SHA DAY DATE SESSION_TIME BOUNDARY_NONCE BOUNDARY_BEGIN BOUNDARY_END STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO EVOLVE_DIR PROJECT_DIR"
+load_session_state() {
+    local line key value
+    while IFS= read -r line || [ -n "$line" ]; do
+        key=${line%%=*}
+        value=${line#*=}
+        case " $SESSION_STATE_KEYS " in *" $key "*) printf -v "$key" '%s' "$value" ;; esac
+    done < "$RUN_DIR/session.env"
+}
+write_session_state() {
+    local key value
+    for key in $SESSION_STATE_KEYS; do
+        value=${!key:-}
+        printf '%s=%s\n' "$key" "${value//$'\n'/ }"
+    done > "$RUN_DIR/session.env"
+}
+
+# verify and finalize continue a session that prepare started. A scheduled cycle leaves a
+# recently prepared session alone (an agent may still be working on it) and discards an
+# abandoned one; prepare refuses to replace a pending session and always starts clean.
+PENDING_SESSION_MAX_MINUTES="${PENDING_SESSION_MAX_MINUTES:-240}"
+session_is_pending() {
+    [ -f "$RUN_DIR/session.env" ] && [ -n "$(find "$RUN_DIR/session.env" -mmin "-$PENDING_SESSION_MAX_MINUTES" 2>/dev/null)" ]
+}
+case "$ENGINE_PHASE" in
+    verify|finalize)
+        if [ ! -f "$RUN_DIR/session.env" ]; then
+            echo "Error: no prepared session ($RUN_DIR/session.env missing). Run: evolve.sh prepare" >&2
+            exit 2
+        fi
+        load_session_state ;;
+    cycle|prepare)
+        if session_is_pending; then
+            if [ "$ENGINE_PHASE" = "cycle" ]; then
+                echo "An in-session cycle was prepared less than $PENDING_SESSION_MAX_MINUTES minutes ago and not finalized; skipping this run."
+                exit 0
+            fi
+            echo "Error: a prepared session is still pending. Finish it with 'evolve.sh finalize', or remove $RUN_DIR to abandon it." >&2
+            exit 1
+        fi
+        if [ -e "$RUN_DIR" ]; then
+            echo "Discarding an abandoned prepared session (older than $PENDING_SESSION_MAX_MINUTES minutes)."
+            rm -rf "$RUN_DIR"
+        fi
+        if [ "$ENGINE_PHASE" = "prepare" ]; then
+            mkdir -p "$RUN_DIR"
+            # Its own .gitignore keeps the wrap-up `git add -A` from committing session state.
+            printf '*\n' > "$RUN_DIR/.gitignore"
+        fi ;;
+esac
 
 # ── Source agent adapter ──
 # Validate agent name (alphanumeric only — prevents path traversal)
@@ -321,30 +371,6 @@ if ! command -v timeout &>/dev/null; then
         TIMEOUT_CMD=""
     fi
 fi
-
-# ── Phase dispatch ──
-# verify and finalize continue a session that prepare started, so they load its state.
-# A scheduled full cycle leaves a recently prepared session alone (an agent may still be
-# working on it in an interactive session) and discards one that was abandoned.
-PENDING_SESSION_MAX_MINUTES="${PENDING_SESSION_MAX_MINUTES:-240}"
-case "$ENGINE_PHASE" in
-    verify|finalize)
-        if [ ! -f "$RUN_DIR/session.env" ]; then
-            echo "Error: no prepared session ($RUN_DIR/session.env missing). Run: evolve.sh prepare" >&2
-            exit 2
-        fi
-        # shellcheck source=/dev/null
-        . "$RUN_DIR/session.env" ;;
-    cycle)
-        if [ -f "$RUN_DIR/session.env" ]; then
-            if [ -n "$(find "$RUN_DIR/session.env" -mmin "-$PENDING_SESSION_MAX_MINUTES" 2>/dev/null)" ]; then
-                echo "An in-session cycle was prepared less than $PENDING_SESSION_MAX_MINUTES minutes ago and not finalized; skipping this run."
-                exit 0
-            fi
-            echo "Discarding an abandoned prepared session (older than $PENDING_SESSION_MAX_MINUTES minutes)."
-            rm -rf "$RUN_DIR"
-        fi ;;
-esac
 
 if [ "$ENGINE_PHASE" = "cycle" ] || [ "$ENGINE_PHASE" = "prepare" ]; then
 # Read birth date from file if it exists, otherwise set it
@@ -588,6 +614,7 @@ if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
 fi
 SESSION_START_SHA=$(git rev-parse HEAD)
 snapshot_protected_paths
+git ls-files --others --exclude-standard | sort > "$PROTECTED_SNAPSHOT/untracked_at_start"
 echo "-> Starting evolution session..."
 echo ""
 
@@ -743,12 +770,7 @@ PROMPT
 
 if [ "$ENGINE_PHASE" = "prepare" ]; then
     mv "$PROMPT_FILE" "$RUN_DIR/PROMPT.md"
-    # printf %q quotes each value so the file is safe to source from bash.
-    for state_name in SESSION_START_SHA DAY DATE SESSION_TIME BOUNDARY_NONCE BOUNDARY_BEGIN BOUNDARY_END \
-        STACK BUILD_CMD TEST_CMD LINT_CMD FORMAT_CMD ISSUES_FILE PROTECTED_SNAPSHOT AGENT MODEL REPO \
-        EVOLVE_DIR PROJECT_DIR; do
-        printf '%s=%q\n' "$state_name" "${!state_name:-}"
-    done > "$RUN_DIR/session.env"
+    write_session_state
     echo "-> Prepared Day $DAY session: prompt at $RUN_DIR/PROMPT.md, state in $RUN_DIR/session.env"
     exit 0
 fi
@@ -778,6 +800,11 @@ echo "-> Session complete. Checking results..."
 fi  # end of the cycle/prepare region
 
 # ── Step 6: Verify build (if stack detected) ──
+# Commands detected when the session started win: re-detecting from the agent-edited tree
+# would let a session drop a failing check. Re-detection only fills ones that were empty
+# (a bootstrap session creates the project files).
+PREPARED_BUILD_CMD="${BUILD_CMD:-}"; PREPARED_TEST_CMD="${TEST_CMD:-}"
+PREPARED_LINT_CMD="${LINT_CMD:-}"; PREPARED_FORMAT_CMD="${FORMAT_CMD:-}"
 # Re-detect stack in case bootstrap session created project files
 STACK_JSON=$(bash "$EVOLVE_DIR/scripts/detect_stack.sh" "$PROJECT_DIR" 2>/dev/null || echo '{"stack":"unknown","build":"","test":"","lint":"","format":""}')
 STACK=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['stack'])" 2>/dev/null || echo "unknown")
@@ -785,6 +812,8 @@ BUILD_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sy
 TEST_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['test'])" 2>/dev/null || echo "")
 LINT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['lint'])" 2>/dev/null || echo "")
 FORMAT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['format'])" 2>/dev/null || echo "")
+BUILD_CMD="${PREPARED_BUILD_CMD:-$BUILD_CMD}"; TEST_CMD="${PREPARED_TEST_CMD:-$TEST_CMD}"
+LINT_CMD="${PREPARED_LINT_CMD:-$LINT_CMD}"; FORMAT_CMD="${PREPARED_FORMAT_CMD:-$FORMAT_CMD}"
 
 # Map a format *check* command to its in-place *fix* equivalent (stack-aware).
 # `gofmt -l` only lists, `dotnet --verify-no-changes` only checks — stripping
@@ -869,6 +898,12 @@ revert_session_and_capture_req() {
         git rm -rfq --ignore-unmatch -- "$PROJECT_DIR" >/dev/null 2>&1 || true
         git clean -fdq -- "$PROJECT_DIR" >/dev/null 2>&1 || true
     fi
+    # Untracked files the session created would otherwise be committed by `git add -A` below.
+    if [ -f "$PROTECTED_SNAPSHOT/untracked_at_start" ]; then
+        git ls-files --others --exclude-standard | sort \
+            | comm -13 "$PROTECTED_SNAPSHOT/untracked_at_start" - \
+            | while IFS= read -r session_file; do rm -f -- "$session_file"; done
+    fi
     git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
 
     # PROOF9: Auto-capture REQ from revert
@@ -895,7 +930,7 @@ revert_session_and_capture_req() {
 SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
 ERRORS=""
 HAS_VERIFICATION=false
-if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD" ]; then HAS_VERIFICATION=true; fi
+if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
 
 case "$ENGINE_PHASE" in
     cycle)

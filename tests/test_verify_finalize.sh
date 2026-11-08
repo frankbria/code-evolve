@@ -65,15 +65,78 @@ engine prepare > prepare.log 2>&1 || bad "prepare (fail case) failed"
 printf '{"name":"demo","scripts":{"build":"true","test":"echo broken-test >&2; exit 1"}}\n' > package.json
 echo "broken" > broken.txt
 git add -A && git commit -qm "Day 0: broken change"
+echo "generated" > generated.js
 verify_status=0; engine verify > verify.log 2>&1 || verify_status=$?
 [ "$verify_status" -ne 0 ] && grep -q "broken-test" .evolve/run/ERRORS.md 2>/dev/null \
     && ok "verify fails broken work and writes ERRORS.md" || bad "verify exited $verify_status, ERRORS.md: $(cat .evolve/run/ERRORS.md 2>/dev/null)"
 engine finalize --no-agent > finalize.log 2>&1 || bad "finalize (fail case) failed: $(tail -2 finalize.log)"
 [ ! -e broken.txt ] && grep -q '"test":"true"' package.json \
     && ok "finalize reverts the failed session to its starting point" || bad "revert did not happen: $(ls)"
+[ ! -e generated.js ] && ! git cat-file -e HEAD:generated.js 2>/dev/null \
+    && ok "the revert also removes untracked files the session created" || bad "generated.js survived the revert"
 grep -q "^## REQ-0001: Build failed after revert" .evolve/REQUIREMENTS.md \
     && ok "finalize captures REQ-0001 for the failure" || bad "no REQ captured"
 cd / && rm -rf "$fail_dir"
+
+# ── A project with tests but no build script is still verified (#108) ──
+new_project "echo only-tests-fail >&2; exit 1"
+printf '{"name":"demo","scripts":{"test":"echo only-tests-fail >&2; exit 1"}}\n' > package.json
+git commit -qam "no build script"
+engine prepare > prepare.log 2>&1 || bad "prepare (test-only) failed"
+verify_status=0; engine verify > verify.log 2>&1 || verify_status=$?
+[ "$verify_status" -ne 0 ] && grep -q "only-tests-fail" .evolve/run/ERRORS.md 2>/dev/null \
+    && ok "verify runs the tests of a project with no build command" || bad "test-only project verify exited $verify_status: $(tail -2 verify.log)"
+cd / && rm -rf "$OLDPWD"
+
+# ── Same in a headless cycle: the fix loop runs for a test-only project, then reverts (#108) ──
+new_project "echo only-tests-fail >&2; exit 1"
+cycle_dir="$PWD"
+printf '{"name":"demo","scripts":{"test":"echo only-tests-fail >&2; exit 1"}}\n' > package.json
+git commit -qam "no build script"
+printf '#!/bin/bash\n[ "${1:-}" = "--version" ] && exit 0\necho call >> "%s/fix-calls"\ncat >/dev/null\n' "$tools_dir" > "$tools_dir/claude"
+chmod +x "$tools_dir/claude"
+rm -f "$tools_dir/fix-calls"
+engine > cycle.log 2>&1 || true
+rm -f "$tools_dir/claude"
+grep -q "Build issues (attempt 1/3)" cycle.log && git log --format=%s | grep -q "revert session changes" \
+    && ok "a headless cycle fixes, then reverts, a test-only project whose tests fail" \
+    || bad "test-only cycle: $(grep -E 'Build|revert' cycle.log | head -3)"
+cd / && rm -rf "$cycle_dir"
+
+# ── A command planted in session.env is never executed ──
+new_project true
+planted_dir="$PWD"
+engine prepare > prepare.log 2>&1 || bad "prepare (planted) failed"
+printf 'MODEL=$(touch %s/pwned)\nEVIL_KEY=`touch %s/pwned2`\n' "$planted_dir" "$planted_dir" >> .evolve/run/session.env
+engine verify > verify.log 2>&1 || true
+engine finalize --no-agent > finalize.log 2>&1 || true
+[ ! -e pwned ] && [ ! -e pwned2 ] && ok "values planted in session.env are read as data, never run" || bad "a planted command ran"
+cd / && rm -rf "$planted_dir"
+
+# ── prepare refuses to replace a pending session; an abandoned one is discarded cleanly ──
+new_project true
+again_dir="$PWD"
+engine prepare > prepare.log 2>&1 || bad "first prepare failed"
+second_status=0; engine prepare > prepare2.log 2>&1 || second_status=$?
+[ "$second_status" -eq 1 ] && grep -q "still pending" prepare2.log \
+    && ok "a second prepare refuses to replace a pending session" || bad "second prepare exited $second_status"
+echo fail > .evolve/run/verify.status
+PENDING_SESSION_MAX_MINUTES=0 engine prepare > prepare3.log 2>&1 || bad "prepare over an abandoned session failed"
+[ ! -e .evolve/run/verify.status ] && ok "a fresh prepare drops the old session's verify result" || bad "stale verify.status kept"
+cd / && rm -rf "$again_dir"
+
+# ── finalize uses the agent the session was prepared with ──
+new_project true
+agent_dir="$PWD"
+printf '#!/bin/bash\n[ "${1:-}" = "--version" ] && exit 0\necho "codex $*" >> "%s/codex-calls"\ncat >/dev/null\n' "$tools_dir" > "$tools_dir/codex"
+chmod +x "$tools_dir/codex"
+env -i PATH="$agentless_path" HOME="$HOME" EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=codex bash .evolve/scripts/evolve.sh prepare > prepare.log 2>&1 \
+    || bad "codex prepare failed: $(tail -2 prepare.log)"
+finalize_status=0; engine finalize > finalize.log 2>&1 || finalize_status=$?
+[ "$finalize_status" -eq 0 ] && ! grep -q "Agent 'claude'" finalize.log \
+    && ok "finalize runs with the session's agent (codex), not the default" || bad "finalize exited $finalize_status: $(tail -2 finalize.log)"
+rm -f "$tools_dir/codex"
+cd / && rm -rf "$agent_dir"
 
 # ── Scheduling: pending vs abandoned prepared sessions, and phases without a session ──
 new_project true
