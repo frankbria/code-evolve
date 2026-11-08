@@ -29,8 +29,15 @@ check "a prepared session is reported as pending" "$(status_field 'v.pendingSess
 check "an old prepared session is reported as abandoned, not pending" \
     "$(PENDING_SESSION_MAX_MINUTES=0 status_field '[v.pendingSession, v.abandonedSession]')" "[false,true]"
 rm .evolve/run/session.env
-check "a session finalize already removed is neither pending nor abandoned" \
+check "a run dir left without session.env (a failed prepare) is abandoned" \
+    "$(status_field '[v.pendingSession, v.abandonedSession]')" "[false,true]"
+rm -rf .evolve/run
+check "no run dir: neither pending nor abandoned" \
     "$(status_field '[v.pendingSession, v.abandonedSession]')" "[false,false]"
+
+printf '\n## REQ-0004: d\n- **Status**: waived\n- **Waiver expires**: Day 0\n\n## REQ-0005: e\n- **Status**: waived\n- **Waiver expires**: Day 99\n' >> .evolve/REQUIREMENTS.md
+echo 3 > .evolve/DAY_COUNT
+check "an expired waiver counts as open; a live one as waived" "$(status_field 'v.requirements')" '{"open":2,"regressed":1,"satisfied":1,"waived":1}'
 
 echo "---"
 echo "passed: $pass  failed: $fail"

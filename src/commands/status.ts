@@ -4,6 +4,7 @@ import path from 'path';
 import { evolveFile, isInitialized } from '../utils/paths';
 import { output } from '../utils/output';
 import { readConfig } from '../utils/config';
+import { parseRequirements, reinstateLapsedWaivers } from '../utils/proof';
 
 export const statusCommand = new Command('status')
   .description('Show current evolution state')
@@ -75,26 +76,24 @@ export const statusCommand = new Command('status')
     // Read execution mode from config
     const mode = readConfig().mode ?? null;
 
-    // PROOF9 requirements by status, and whether an in-session cycle is prepared but unfinished
+    // PROOF9 requirements by status (an expired waiver counts as open again, as `proof` treats it),
+    // and whether an in-session cycle is prepared but unfinished
     const requirements = { open: 0, regressed: 0, satisfied: 0, waived: 0 };
     try {
       // The template's format example lives in an HTML comment; it is not a REQ.
       const ledger = fs.readFileSync(evolveFile('REQUIREMENTS.md'), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
-      for (const match of ledger.matchAll(/^- \*\*Status\*\*: (open|regressed|satisfied|waived)\b/gm)) {
-        const status = match[1];
-        if (status === 'open' || status === 'regressed' || status === 'satisfied' || status === 'waived') requirements[status]++;
-      }
+      for (const req of reinstateLapsedWaivers(parseRequirements(ledger), dayCount)) requirements[req.status]++;
     } catch {
       // no ledger yet
     }
-    // Same rule as the engine: a session older than PENDING_SESSION_MAX_MINUTES is abandoned.
-    const sessionFile = evolveFile(path.join('run', 'session.env'));
+    // Same rule as the engine: a session.env younger than PENDING_SESSION_MAX_MINUTES is pending,
+    // and anything else left in run/ (an old session, or a prepare that failed) is discarded next cycle.
+    const runDir = evolveFile('run');
     const maxPendingMinutes = Number(process.env.PENDING_SESSION_MAX_MINUTES ?? '240');
     // finalize may delete session.env between checks, so a missing file means no session.
-    const sessionModifiedMs = fs.statSync(sessionFile, { throwIfNoEntry: false })?.mtimeMs;
-    const sessionAgeMinutes = sessionModifiedMs === undefined ? null : (Date.now() - sessionModifiedMs) / 60000;
-    const pendingSession = sessionAgeMinutes !== null && sessionAgeMinutes < maxPendingMinutes;
-    const abandonedSession = sessionAgeMinutes !== null && !pendingSession;
+    const sessionModifiedMs = fs.statSync(path.join(runDir, 'session.env'), { throwIfNoEntry: false })?.mtimeMs;
+    const pendingSession = sessionModifiedMs !== undefined && (Date.now() - sessionModifiedMs) / 60000 < maxPendingMinutes;
+    const abandonedSession = !pendingSession && fs.existsSync(runDir);
 
     const data = {
       day: dayCount,

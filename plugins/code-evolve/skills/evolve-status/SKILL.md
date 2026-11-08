@@ -10,8 +10,9 @@ metadata:
 1. Run `npx code-evolve status`. When its output is not a terminal it prints JSON with `day`,
    `features` (total, done, partial, remaining), `mode`, `schedule`, `requirements` (open, regressed,
    satisfied, waived), `pendingSession`, `abandonedSession` and `lastEntry`.
-2. Summarize in a few sentences: the day count and spec progress, how cycles run (`mode` and
-   `schedule`; no schedule means cycles are run by hand or from an agent session), how many
+2. Summarize in a few sentences: the day count and spec progress, how cycles run (`schedule` is the
+   local cron; `mode` `ci` or `both` means GitHub Actions also runs them; with neither, cycles are
+   run by hand or from an agent session), how many
    requirements are open (work the agent owes), and what the last journal entry says.
 3. Call out anything that needs attention:
    - `requirements.regressed` above 0: something that used to work is broken, and the next cycle
