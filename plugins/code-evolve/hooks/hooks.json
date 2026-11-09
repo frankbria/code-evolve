@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_nudge.py\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
