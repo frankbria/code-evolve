@@ -26,6 +26,8 @@ export interface EvolveConfig {
   agentCommand?: string;
   /** agent "custom": an extended regex; a matching log line marks the session failed. */
   agentErrorPattern?: string;
+  /** agent "custom": environment variables its CLI needs (credentials); their values reach cron's .env. */
+  agentEnvVars?: string[];
 }
 
 const CONFIG_FILE = 'config.json';
@@ -137,12 +139,27 @@ export function customCommandBinary(agentCommand?: string): string {
   return agentCommand?.trim().split(/\s+/)[0] ?? '';
 }
 
-/** Engine variables for the custom adapter (agents/custom.sh); empty for the built-in agents. */
+/** A valid environment variable name (what --agent-env accepts). */
+export function isEnvVarName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+}
+
+/**
+ * Engine variables for the custom adapter (agents/custom.sh): the command, the error pattern, and the
+ * current values of the credentials it names (agentEnvVars), so scheduled cycles get them too.
+ * Empty for the built-in agents.
+ */
 export function customAgentEnv(agent: string, config: EvolveConfig): Record<string, string> {
   if (agent !== 'custom') return {};
+  const credentials = Object.fromEntries(
+    (config.agentEnvVars ?? [])
+      .filter((name) => isEnvVarName(name) && process.env[name] !== undefined)
+      .map((name) => [name, process.env[name] as string]),
+  );
   return {
     AGENT_COMMAND: config.agentCommand ?? '',
     ...(config.agentErrorPattern ? { AGENT_ERROR_PATTERN: config.agentErrorPattern } : {}),
+    ...credentials,
   };
 }
 

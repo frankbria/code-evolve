@@ -338,10 +338,11 @@ The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run
 **Custom agents.** For any other CLI with a headless mode (Gemini, GitHub Copilot, Cursor, Goose, …), give code-evolve the command to run instead of an adapter:
 
 - The prompt goes to the command's **stdin**, unless the command contains `{prompt_file}`, which is replaced with the path of a file holding the prompt.
-- `{model}` is replaced with the configured model (`start --model`/`run --model`); leave it out to use the CLI's own default.
+- `{model}` is replaced with the configured model (`start --model`/`run --model`); leave it out to use the CLI's own default. Placeholders are passed safely whether or not you quote them.
 - The command runs headless and unattended, so it must let the agent edit files and run commands without asking.
 - A non-zero exit fails the session. For a CLI that exits 0 on errors, add `--agent-error-pattern '<regex>'`: a log line matching it fails the session too.
-- Both values are saved in `.evolve/config.json` (`agentCommand`, `agentErrorPattern`). Custom agents run locally only (no GitHub Actions profile).
+- If the CLI reads a credential from the environment (say `GEMINI_API_KEY`), name it with `--agent-env GEMINI_API_KEY` (comma-separate several): scheduled cycles run from cron without your shell's environment, so its current value is saved into `.evolve/.env` (a 0600 file).
+- These values are saved in `.evolve/config.json` (`agentCommand`, `agentErrorPattern`, `agentEnvVars`). Custom agents run locally only (no GitHub Actions profile).
 
 ```bash
 # Gemini CLI: -p text is appended to the prompt on stdin; yolo approves edits and commands

@@ -46,6 +46,11 @@ for hostile in "x; touch $work/pwned" "&touch $work/pwned" "\$(touch $work/pwned
     check "and reaches the agent unchanged: $hostile" "$(sed -n 's/^via=stdin model=\(.*\) prompt=.*/\1/p' "$work/calls")" "$hostile"
 done
 rm -f "$work/pwned"
+for template in "fakeagent --model '{model}' --file '{prompt_file}'" 'fakeagent --model "{model}" --file "{prompt_file}"'; do
+    rm -f "$work/calls"
+    adapter "$template" 'quoted model' >/dev/null
+    check "a quoted placeholder still gets the real value: $template" "$(cat "$work/calls")" "via=file model=quoted model prompt=build the thing"
+done
 adapter 'fakeagent --file {prompt_file}' '' >/dev/null
 check "a non-zero exit is the adapter's exit" "$(FAKE_EXIT=7 adapter 'fakeagent' '')" "7"
 log="$work/log"; echo "Error: QUOTA EXCEEDED" > "$log"
@@ -94,6 +99,13 @@ fresh="$work/fresh"; mkdir -p "$fresh"; cd "$fresh"; git init -q
 printf '{"name":"demo","scripts":{"test":"true"}}\n' > package.json
 node "$CLI" init --yes --agent custom --agent-command 'fakeagent -p' --mode local --every 6 </dev/null > "$work/init-local.log" 2>&1
 check "init --mode local writes the custom command into the cron .env" "$(grep -c "AGENT_COMMAND='fakeagent -p'" .evolve/.env 2>/dev/null || echo 0)" "1"
+
+# Credentials a custom CLI needs reach the cron .env through --agent-env.
+CUSTOM_TOKEN='s3cret$value' node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'CUSTOM_TOKEN, ' </dev/null > "$work/init-env.log" 2>&1
+check "init saves the credential names" "$(node -p "JSON.stringify(require('./.evolve/config.json').agentEnvVars)")" '["CUSTOM_TOKEN"]'
+check "the credential's value reaches the cron .env, quoted" "$(grep -c "export CUSTOM_TOKEN='s3cret\$value'" .evolve/.env)" "1"
+status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'BAD-NAME' </dev/null > "$work/init-badenv.log" 2>&1 || status=$?
+check "an invalid variable name is rejected" "$status" "1"
 
 # Validation uses the same grep the adapter runs (GNU grep, ugrep, BSD grep differ), so an
 # unbalanced group, invalid in every grep -E, is the portable case to test.
