@@ -65,6 +65,11 @@ check "start in ChatGPT-login mode succeeds without needing a key" "$status" "0"
 check "the cron .env holds no API key in a login mode" "$(grep -c 'OPENAI_API_KEY' .evolve/.env || true)" "0"
 check "the cron .env carries the configured model" "$(grep -c "MODEL='my-codex-model'" .evolve/.env)" "1"
 
+# Switching agents with start drops a model that was saved for the previous agent.
+node -e "const f='.evolve/config.json';const c=require('./'+f);c.agent='claude';c.authMode='api-key';c.model='claude-opus-custom';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+OPENAI_API_KEY=sk-test node "$CLI" start --agent codex --every 6 </dev/null > "$work/switch.log" 2>&1 || true
+check "start with a new agent does not carry the old agent's model" "$(node -p "require('./.evolve/config.json').model ?? 'none'")" "none"
+
 # init falls back to api-key when a login mode does not belong to the agent.
 other="$work/other"; mkdir -p "$other"; cd "$other"; git init -q
 node "$CLI" init --yes --agent codex --auth-mode oauth </dev/null > "$work/fallback.log" 2>&1

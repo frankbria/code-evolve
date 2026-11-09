@@ -132,7 +132,9 @@ export const startCommand = new Command('start')
 
     // Persist agent choice + mode. `start` always sets up a local schedule, so
     // the mode is at least 'local' (keep 'both' if CI was also chosen).
-    writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', ...(options.model ? { model } : {}) });
+    // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
+    const savedModel = options.model ? model : config.agent === agent ? config.model : undefined;
+    writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', model: savedModel });
 
     // Install cron entry + write .env + schedule.json
     try {
