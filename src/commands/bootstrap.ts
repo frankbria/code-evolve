@@ -1,7 +1,6 @@
-import fs from 'fs';
-import path from 'path';
 import readline from 'readline/promises';
 import { spawnSync } from 'child_process';
+import { isOnPath } from '../utils/checks';
 
 /** How each interactive agent CLI is started with the evolve-setup skill as its first prompt. */
 export const SETUP_LAUNCH_ARGS: Record<string, string[]> = {
@@ -10,17 +9,6 @@ export const SETUP_LAUNCH_ARGS: Record<string, string[]> = {
   // OpenCode has no skill slash-command; its model loads skills by name on request.
   opencode: ['--prompt', 'Use the evolve-setup skill to set up code-evolve in this project.'],
 };
-
-function isOnPath(binary: string): boolean {
-  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => {
-    try {
-      fs.accessSync(path.join(dir, binary), fs.constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-}
 
 function shellQuote(arg: string): string {
   return /^[\w./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;

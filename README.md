@@ -59,7 +59,13 @@ codex plugin marketplace add frankbria/code-evolve
 codex plugin add code-evolve@code-evolve
 ```
 
-Then start Codex in your project and run `$evolve-setup`. As with Claude Code, setup also installs the skills into `.agents/skills/`; once it has run, prefer those copies; removing the plugin (`codex plugin remove code-evolve@code-evolve`) also removes the protected-files hook.
+Then start Codex in your project and run `$code-evolve:evolve-setup` (Codex names plugin skills `$plugin:skill`; `evolve-run` is explicit-only, so invoke it as `$code-evolve:evolve-run`). Codex's default sandbox has no network and blocks some of what setup and cycles need; see the notes below. As with Claude Code, setup also installs the skills into `.agents/skills/`; once it has run, prefer those copies; removing the plugin (`codex plugin remove code-evolve@code-evolve`) also removes the protected-files hook.
+
+**Codex sandbox notes.** Under `codex exec -s workspace-write` (and the default interactive sandbox):
+- Setup needs network once for `npx`: start Codex with `-c sandbox_workspace_write.network_access=true`, or run `npx code-evolve init --yes --agent codex` in a terminal first.
+- `.agents/` is read-only, so init reports the project skill copies there as left alone; the plugin's skills still work.
+- A cycle commits and tags, so grant write access to the repository's git directory only: `-c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]'` (the engine prints the exact line if it is missing).
+- The sandbox blocks synchronous child processes (`spawnSync`/`execSync` fail with `EPERM`); project tests that use them fail verification there.
 
 Codex runs a plugin's hooks only after you trust them: open `/hooks` in Codex and approve the code-evolve hook (approve it again after each plugin update, since trust is tied to the hook's contents). Until then Codex warns at startup and skips it.
 

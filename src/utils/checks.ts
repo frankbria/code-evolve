@@ -1,5 +1,10 @@
-import { execSync, spawnSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
 import type { AuthMode } from './config';
+
+// Only async child processes here: Codex's sandbox refuses spawnSync/execSync (EPERM) but allows
+// spawn, and agents run these commands from inside it (#125).
 
 interface DependencyCheck {
   name: string;
@@ -7,14 +12,38 @@ interface DependencyCheck {
   version?: string;
 }
 
-function checkCommand(name: string, versionFlag = '--version'): DependencyCheck {
-  try {
-    const output = execSync(`${name} ${versionFlag} 2>&1`, { encoding: 'utf8', timeout: 5000 });
-    const version = output.trim().split('\n')[0];
-    return { name, found: true, version };
-  } catch {
-    return { name, found: false };
-  }
+/** True when `binary` is an executable file on PATH; spawns nothing. */
+export function isOnPath(binary: string): boolean {
+  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => {
+    try {
+      fs.accessSync(path.join(dir, binary), fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Run a command without a shell; resolves with its exit status (null if it could not start or timed out)
+ * and stdout. `timeoutMs` 0 means no limit (for git on a large repository).
+ */
+export function runProcess(command: string, args: string[], timeoutMs = 10000): Promise<{ status: number | null; stdout: string }> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], timeout: timeoutMs });
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.on('error', () => resolve({ status: null, stdout }));
+    child.on('close', (status) => resolve({ status, stdout }));
+  });
+}
+
+async function checkCommand(name: string): Promise<DependencyCheck> {
+  if (!isOnPath(name)) return { name, found: false };
+  // The version is only shown to the user; a binary on PATH that cannot report one still counts.
+  const { status, stdout } = await runProcess(name, ['--version'], 5000);
+  const version = status === 0 ? stdout.trim().split('\n')[0] : undefined;
+  return version ? { name, found: true, version } : { name, found: true };
 }
 
 const AGENT_BINARIES: Record<string, string> = {
@@ -24,25 +53,19 @@ const AGENT_BINARIES: Record<string, string> = {
   ollama: 'ollama',
 };
 
-export function checkDependencies(agent = 'claude'): { ok: boolean; results: DependencyCheck[] } {
+export async function checkDependencies(agent = 'claude'): Promise<{ ok: boolean; results: DependencyCheck[] }> {
   const agentBinary = AGENT_BINARIES[agent];
   if (!agentBinary) {
     return { ok: false, results: [{ name: agent, found: false }] };
   }
-  const results = [
-    checkCommand('python3'),
-    checkCommand('git'),
-    checkCommand(agentBinary),
-  ];
-
-  const ok = results.every((r) => r.found);
-  return { ok, results };
+  const results = await Promise.all([checkCommand('python3'), checkCommand('git'), checkCommand(agentBinary)]);
+  return { ok: results.every((r) => r.found), results };
 }
 
 export function formatDependencyResults(results: DependencyCheck[]): string {
   return results
     .map((r) => {
-      const status = r.found ? '\u2713' : '\u2717';
+      const status = r.found ? '✓' : '✗';
       const version = r.version ? ` (${r.version})` : '';
       return `  ${status} ${r.name}${version}`;
     })
@@ -50,7 +73,7 @@ export function formatDependencyResults(results: DependencyCheck[]): string {
 }
 
 /** In Codex's ChatGPT-login mode, true when `codex login status` reports no usable login. */
-export function codexLoginMissing(agent: string, authMode?: AuthMode): boolean {
+export async function codexLoginMissing(agent: string, authMode?: AuthMode): Promise<boolean> {
   if (agent !== 'codex' || authMode !== 'chatgpt') return false;
-  return spawnSync('codex', ['login', 'status'], { stdio: 'ignore', timeout: 10000 }).status !== 0;
+  return (await runProcess('codex', ['login', 'status'])).status !== 0;
 }

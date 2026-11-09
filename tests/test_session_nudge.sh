@@ -30,7 +30,7 @@ out="$(run_hook "$project")"
 contains "a repository without .evolve is told to run setup" "$out" "/code-evolve:evolve-setup"
 check "the nudge is one line" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" "1"
 check "it exits 0" "$(cat "$work/status")" "0"
-contains "Codex is told its own skill syntax" "$(run_hook "$project" PLUGIN_ROOT=/plugin)" "\$evolve-setup"
+contains "Codex is told its own skill syntax" "$(run_hook "$project" PLUGIN_ROOT=/plugin)" "\$code-evolve:evolve-setup"
 contains "a session started in a subdirectory still finds the repository" "$(run_hook "$project/src")" "evolve-setup"
 
 set_engine "$project" "$PLUGIN_VERSION"
