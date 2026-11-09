@@ -13,6 +13,24 @@ export function getTemplatesDir(): string {
   return path.join(__dirname, '..', '..', 'templates');
 }
 
+/** This package's version, the one an install records as its engine version. */
+export function packageVersion(): string {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')).version;
+}
+
+/** -1, 0 or 1 as semver `a` is older than, equal to or newer than `b` (numeric parts only). */
+export function compareVersions(a: string, b: string): number {
+  const parts = (version: string) => {
+    const pieces = version.split(/[.+-]/);
+    return [0, 1, 2].map((index) => Number(pieces[index]) || 0);
+  };
+  const [left, right] = [parts(a), parts(b)];
+  for (let index = 0; index < 3; index++) {
+    if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
+  }
+  return 0;
+}
+
 /** Operator skills (evolve-setup, evolve-run, ...), shared with the plugin manifests. */
 export function getOperatorSkillsDir(): string {
   return path.join(__dirname, '..', '..', 'plugins', 'code-evolve', 'skills');

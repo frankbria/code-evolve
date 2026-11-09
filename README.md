@@ -200,6 +200,7 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 | `code-evolve stop` | Pause evolution |
 | `code-evolve run` | Run one cycle manually |
 | `code-evolve status` | Check progress — day count, features done, schedule |
+| `code-evolve upgrade` | Update the installed engine to this version, keeping your files |
 | `code-evolve eject` | Remove the framework, keep everything the agent built |
 | `code-evolve proof` | PROOF9 quality gates and requirements management ([docs](docs/PROOF9.md)) |
 
@@ -410,11 +411,12 @@ The evolution engine is a powerful accelerator, not a replacement for engineerin
 ## Upgrading
 
 ```bash
-npm update -g code-evolve
-code-evolve init --force     # updates engine, preserves your evolution history
-# or: ce init --force
-# Note: --force migrates root-level vision.md/spec.md into .evolve/ automatically
+npx code-evolve@latest upgrade
 ```
+
+`upgrade` replaces the **managed** files with the new version's: the engine (`.evolve/scripts/`), the runtime skills (`.evolve/skills/`), `.evolve/IDENTITY.md`, the operator skills in `.claude/skills/` and `.agents/skills/`, and the evolve workflows. It keeps every **user-owned** file byte for byte: `vision.md`, `spec.md`, `JOURNAL.md`, `LEARNINGS.md`, `REQUIREMENTS.md`, the day counters and `config.json`. It refuses to run until your git tree is clean, so the upgrade is one reviewable diff. The installed version is recorded as `engineVersion` in `.evolve/config.json`, and `code-evolve status` reports when the engine is out of date.
+
+Upgrading from 0.1.x, where `vision.md` and `spec.md` lived in the project root? Run `code-evolve init --force` once; it moves them into `.evolve/`.
 
 ## Ejecting
 

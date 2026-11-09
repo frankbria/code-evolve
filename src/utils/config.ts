@@ -13,6 +13,8 @@ export interface EvolveConfig {
   gitignoreLinesAdded?: string[];
   /** Files and directories init created outside .evolve/; eject deletes only these (when empty). */
   createdPaths?: string[];
+  /** The code-evolve version whose engine files are installed in .evolve/. */
+  engineVersion?: string;
 }
 
 const CONFIG_FILE = 'config.json';

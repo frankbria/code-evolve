@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { currentDay, evolveFile, getTemplatesDir, isInitialized } from '../utils/paths';
+import { compareVersions, currentDay, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
 import { output } from '../utils/output';
 import { readConfig } from '../utils/config';
 import { parseRequirements, reinstateLapsedWaivers } from '../utils/proof';
@@ -85,7 +85,10 @@ export const statusCommand = new Command('status')
     }
 
     // Read execution mode from config
-    const mode = readConfig().mode ?? null;
+    const config = readConfig();
+    const mode = config.mode ?? null;
+    // null for installs from before engine versions were recorded.
+    const engineVersion = config.engineVersion ?? null;
 
     // PROOF9 requirements by status (an expired waiver counts as open again, as `proof` treats it),
     // and whether an in-session cycle is prepared but unfinished
@@ -123,6 +126,7 @@ export const statusCommand = new Command('status')
       requirements,
       pendingSession,
       abandonedSession,
+      engineVersion,
       engineDrift,
       lastEntry,
     };
@@ -146,7 +150,13 @@ export const statusCommand = new Command('status')
       `  REQs:     ${requirements.open} open, ${requirements.regressed} regressed, ${requirements.satisfied} satisfied`,
       pendingSession ? '  Session:  an in-session cycle is prepared but not finalized (.evolve/run/)' : '',
       engineDrift === null ? '  Drift:    could not compare the installed engine with this code-evolve' : '',
-      engineDrift?.length ? `  Drift:    installed engine differs from this code-evolve (${engineDrift.join(', ')}); refresh with: code-evolve init --yes` : '',
+      engineVersion === null || compareVersions(engineVersion, packageVersion()) < 0
+        ? `  Version:  engine ${engineVersion ?? 'unrecorded'}, this code-evolve ${packageVersion()}; update with: code-evolve upgrade`
+        : '',
+      engineVersion !== null && compareVersions(engineVersion, packageVersion()) > 0
+        ? `  Version:  engine ${engineVersion} is newer than this code-evolve ${packageVersion()}; use: npx code-evolve@latest`
+        : '',
+      engineDrift?.length ? `  Drift:    installed engine differs from this code-evolve (${engineDrift.join(', ')}); refresh with: code-evolve upgrade` : '',
       lastEntry ? `\n  Last entry:\n  ${lastEntry.split('\n').join('\n  ')}` : '',
     ]
       .filter(Boolean)

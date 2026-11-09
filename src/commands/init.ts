@@ -1,10 +1,10 @@
 import { Command } from 'commander';
-import { AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
+import { WORKFLOW_MARKER, AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, packageVersion, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults } from '../utils/checks';
 import {
   readConfig,
@@ -177,10 +177,22 @@ export async function runInit(options: InitOptions): Promise<void> {
     fs.mkdirSync(path.join(evolveDir, 'evidence'), { recursive: true });
 
     // Copy scripts (always overwrite — these are framework code, not user data)
-    copyDir(path.join(templatesDir, 'scripts'), path.join(evolveDir, 'scripts'));
+    copyDir(path.join(templatesDir, 'scripts'), path.join(evolveDir, 'scripts'), evolveDir);
 
     // Copy skills (always overwrite — framework definitions)
-    copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
+    copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'), evolveDir);
+
+    // The agent's constitution is framework code too (protected from the agent), so it is refreshed.
+    const identityPath = path.join(evolveDir, 'IDENTITY.md');
+    const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
+    if (!writesInside(identityPath, evolveDir)) {
+      console.warn('  ⚠ IDENTITY.md is a symlink (a shared constitution?); left alone, so it is not updated');
+    } else {
+      if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
+        console.log('  IDENTITY.md replaced with this version (restore your own copy from git if you customised it)');
+      }
+      fs.writeFileSync(identityPath, shippedIdentity);
+    }
 
     // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Only on an explicit
     // --force: under --yes those root files are the project's own documents.
@@ -198,7 +210,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
 
     // Copy state files (skip if they already exist — these contain evolution history)
-    const allStateFiles = ['IDENTITY.md', 'REQUIREMENTS.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
+    const allStateFiles = ['REQUIREMENTS.md', 'vision.md', 'spec.md', ...PRESERVE_STATE_FILES];
     for (const file of allStateFiles) {
       const src = path.join(templatesDir, 'state', file);
       const dest = path.join(evolveDir, file);
@@ -253,7 +265,13 @@ export async function runInit(options: InitOptions): Promise<void> {
     // The evolve workflow is templated for the configured agent (CLI install, secret,
     // AGENT/MODEL). Ollama has no CI profile — it needs local model compute — so its
     // install is skipped rather than scheduling a workflow that times out every cycle.
-    const ciProfile = wantCi ? getAgentCiProfile(agent) : null;
+    // Our workflows stay managed after a switch to local mode (`start` leaves them in place), so a
+    // refresh updates any that exist even when it would not install them.
+    const ourWorkflowsInstalled = ['evolve.yml', 'evolve-ci.yml'].some((name) => {
+      const file = projectFile(path.join('.github', 'workflows', name));
+      return fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(WORKFLOW_MARKER);
+    });
+    const ciProfile = wantCi || ourWorkflowsInstalled ? getAgentCiProfile(agent) : null;
     if (wantCi && !ciProfile) {
       console.warn(
         `  ⚠ Skipping GitHub Actions install: "${agent}" runs models locally and isn't supported on hosted CI runners. Use local execution (code-evolve start) for "${agent}".`
@@ -263,8 +281,8 @@ export async function runInit(options: InitOptions): Promise<void> {
       if (mode === 'ci' || mode === 'both') {
         mode = 'local';
       }
-    } else if (wantCi && ciProfile) {
-      console.log('Installing GitHub Actions workflows...');
+    } else if (ciProfile) {
+      console.log(wantCi ? 'Installing GitHub Actions workflows...' : 'Refreshing installed GitHub Actions workflows...');
       const workflowDir = projectFile('.github/workflows');
       fs.mkdirSync(workflowDir, { recursive: true });
       const workflowMap: Record<string, string> = {
@@ -275,7 +293,14 @@ export async function runInit(options: InitOptions): Promise<void> {
         const srcPath = path.join(templatesDir, 'workflows', src);
         const destPath = path.join(workflowDir, destName);
         if (!fs.existsSync(srcPath)) continue;
-        if (fs.existsSync(destPath)) {
+        const installed = fs.existsSync(destPath) ? fs.readFileSync(destPath, 'utf8') : null;
+        const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
+        if (installed === null && !wantCi) continue;
+        if (!writesInside(destPath, process.cwd())) {
+          console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink or under one leading outside the project; left alone, so it is not updated`);
+          continue;
+        }
+        if (installed !== null && !ours) {
           // A same-named file already exists — leave it untouched, but make clear our
           // workflow was NOT installed so the user knows evolution/CI won't run from it.
           console.warn(
@@ -285,12 +310,16 @@ export async function runInit(options: InitOptions): Promise<void> {
           // Template the cadence + agent into the evolve workflow before writing, so
           // --every and the chosen backend reach CI. (evolve-ci.yml has nothing to template.)
           if (src === 'evolve.yml') {
-            const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, hours, ciProfile);
+            // A non-interactive refresh keeps the cadence already in our workflow; --every or an
+            // interval chosen at the prompt replaces it (the same rule as the local schedule).
+            const installedEvery = Number(installed?.match(/# every (\d+)/)?.[1]);
+            const workflowHours = !everyExplicit && !interactive && ours && installedEvery > 0 ? installedEvery : hours;
+            const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, workflowHours, ciProfile);
             fs.writeFileSync(destPath, templated);
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
-          console.log(`  Created ${path.relative(process.cwd(), destPath)}`);
+          console.log(`  ${ours ? 'Updated' : 'Created'} ${path.relative(process.cwd(), destPath)}`);
         }
       }
       console.log(`  CI secret: ${ciProfile.secretHint}`);
@@ -319,8 +348,14 @@ export async function runInit(options: InitOptions): Promise<void> {
       const previousEvery = readScheduleEvery();
       if (previousEvery !== null) hours = previousEvery;
     }
+    // `stop` removes schedule.json but keeps the mode, so a plain refresh of a stopped engine
+    // (no --mode/--every, not interactive) must not quietly start unattended cycles again.
+    const engineStopped = wasInitialized && !interactive && !modeExplicit && !everyExplicit
+      && !fs.existsSync(evolveFile('schedule.json'));
     if (keepSchedule && wantLocal) {
       console.log('  Keeping the existing local schedule');
+    } else if (wantLocal && engineStopped) {
+      console.log('  Local schedule is stopped; leaving it stopped (resume with: code-evolve start)');
     } else if (wantLocal) {
       if (process.platform === 'win32') {
         console.warn('  ⚠ Local scheduling is not supported on native Windows — use WSL or ci mode.');
@@ -361,6 +396,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       ...(mode ? { mode } : {}),
       gitignoreLinesAdded,
       createdPaths,
+      engineVersion: packageVersion(),
     });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
@@ -474,14 +510,17 @@ function templateEvolveWorkflow(
 }
 
 /** Copy directory recursively, overwriting all files (for framework code). */
-function copyDir(src: string, dest: string): void {
+/** Copy `src` into `dest`, never writing through a symlink that leads outside `root`. */
+function copyDir(src: string, dest: string, root: string): void {
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+      copyDir(srcPath, destPath, root);
+    } else if (!writesInside(destPath, root)) {
+      console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink or under one leading outside ${path.relative(process.cwd(), root) || 'the project'}; left alone, so it is not updated`);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -569,6 +608,21 @@ async function promptForInterval(fallback: number): Promise<number> {
 }
 
 /** The cadence of the installed local schedule, or null when there is none (or it is unreadable). */
+/**
+ * False when `file` is a symlink, or a symlinked directory below `root` would land the write outside
+ * where `root` really lives: git could neither show nor restore what the refresh overwrote there.
+ * `root` itself may be a symlink (a symlinked .evolve, which the engine supports).
+ */
+function writesInside(file: string, root: string): boolean {
+  // A symlinked managed file is left alone even inside the project: it may point at a user-owned file.
+  if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
+  let existing = file;
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+  const target = fs.realpathSync(existing);
+  const realRoot = fs.realpathSync(root);
+  return target === realRoot || target.startsWith(realRoot + path.sep);
+}
+
 function readScheduleEvery(): number | null {
   try {
     const schedule: unknown = JSON.parse(fs.readFileSync(evolveFile('schedule.json'), 'utf8'));

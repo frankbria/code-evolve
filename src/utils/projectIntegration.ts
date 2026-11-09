@@ -5,6 +5,12 @@ import { EVOLVE_DIR_NAME } from './paths';
 /** Agent skill directories that operator skills are installed into, relative to the project. */
 export const AGENT_SKILL_DIRS = ['.claude/skills', '.agents/skills'];
 
+/**
+ * Embedded in templates/workflows/*.yml (keep in sync) so refresh and eject recognize the workflows
+ * code-evolve installed, whichever version wrote them, and never touch a user's same-named file.
+ */
+export const WORKFLOW_MARKER = 'code-evolve:managed';
+
 export const MANAGED_SECTION_BEGIN = '<!-- code-evolve:begin -->';
 export const MANAGED_SECTION_END = '<!-- code-evolve:end -->';
 

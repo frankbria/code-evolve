@@ -37,7 +37,8 @@ code-evolve/                  # npm package source
 │   │   ├── migrate.ts        # code-evolve migrate
 │   │   ├── vision.ts         # code-evolve vision (guided interview)
 │   │   ├── spec.ts           # code-evolve spec (guided interview)
-│   │   └── proof.ts          # code-evolve proof (PROOF9 quality gates)
+│   │   ├── proof.ts          # code-evolve proof (PROOF9 quality gates)
+│   │   └── upgrade.ts        # code-evolve upgrade (managed engine files only)
 │   └── utils/
 │       ├── paths.ts          # Path resolution
 │       ├── checks.ts         # Dependency checking
@@ -67,7 +68,7 @@ code-evolve/                  # npm package source
 
 ## Commands
 
-The CLI ships 11 subcommands (registered in `src/cli.ts`; also available as `ce`):
+The CLI ships 12 subcommands (registered in `src/cli.ts`; also available as `ce`):
 
 | Command | Purpose |
 |---------|---------|
@@ -82,6 +83,7 @@ The CLI ships 11 subcommands (registered in `src/cli.ts`; also available as `ce`
 | `vision` | Guided interview to generate `.evolve/vision.md` |
 | `spec` | Guided interview to generate `.evolve/spec.md` |
 | `proof` | PROOF9 quality gates and requirements management |
+| `upgrade` | Replace the managed engine files with this version's; user-owned files are kept (needs a clean git tree) |
 
 With no subcommand, `code-evolve` bootstraps: it picks the agent CLI on PATH, runs
 `init --yes --agent <it>`, then execs that agent with the `evolve-setup` skill as its first prompt.
