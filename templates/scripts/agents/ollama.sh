@@ -19,7 +19,3 @@ run_agent() {
     ${timeout_cmd:+$timeout_cmd "$timeout"} ollama run "$model" \
         < "$prompt_file" 2>&1
 }
-
-agent_env_hint() {
-    echo "(none — Ollama runs locally. Ensure 'ollama serve' is running)"
-}

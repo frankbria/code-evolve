@@ -18,7 +18,3 @@ run_agent() {
     ${timeout_cmd:+$timeout_cmd "$timeout"} opencode run --model "$model" \
         < "$prompt_file" 2>&1
 }
-
-agent_env_hint() {
-    echo "OPENAI_API_KEY or ANTHROPIC_API_KEY (depends on configured provider)"
-}
