@@ -307,9 +307,10 @@ export async function runInit(options: InitOptions): Promise<void> {
           // Template the cadence + agent into the evolve workflow before writing, so
           // --every and the chosen backend reach CI. (evolve-ci.yml has nothing to template.)
           if (src === 'evolve.yml') {
-            // A refresh keeps the cadence already in our workflow unless --every was passed.
+            // A non-interactive refresh keeps the cadence already in our workflow; --every or an
+            // interval chosen at the prompt replaces it (the same rule as the local schedule).
             const installedEvery = Number(installed?.match(/# every (\d+)/)?.[1]);
-            const workflowHours = !everyExplicit && ours && installedEvery > 0 ? installedEvery : hours;
+            const workflowHours = !everyExplicit && !interactive && ours && installedEvery > 0 ? installedEvery : hours;
             const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, workflowHours, ciProfile);
             fs.writeFileSync(destPath, templated);
           } else {
