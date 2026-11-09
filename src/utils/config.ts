@@ -22,10 +22,16 @@ export interface EvolveConfig {
   createdPaths?: string[];
   /** The code-evolve version whose engine files are installed in .evolve/. */
   engineVersion?: string;
+  /** agent "custom": the headless command; the prompt goes to stdin, or replaces {prompt_file}. {model} is the model. */
+  agentCommand?: string;
+  /** agent "custom": an extended regex; a matching log line marks the session failed. */
+  agentErrorPattern?: string;
 }
 
 const CONFIG_FILE = 'config.json';
-const SUPPORTED_AGENTS = ['claude', 'codex', 'opencode', 'ollama'];
+const SUPPORTED_AGENTS = ['claude', 'codex', 'opencode', 'ollama', 'custom'];
+// The interactive picker offers the built-in backends; a custom agent needs --agent-command.
+const PICKABLE_AGENTS = SUPPORTED_AGENTS.filter((agent) => agent !== 'custom');
 const EXECUTION_MODES: ExecutionMode[] = ['local', 'ci', 'both'];
 
 export function getConfigPath(): string {
@@ -80,6 +86,10 @@ export function getSupportedAgents(): string[] {
   return [...SUPPORTED_AGENTS];
 }
 
+export function getPickableAgents(): string[] {
+  return [...PICKABLE_AGENTS];
+}
+
 /**
  * Resolve an interactive agent picker answer to an agent name.
  * Accepts a 1-based list index ("2") or an agent name ("codex").
@@ -89,8 +99,8 @@ export function resolveAgentSelection(raw: string, defaultAgent: string): string
   const trimmed = raw.trim();
   if (!trimmed) return defaultAgent;
   const n = Number(trimmed);
-  if (Number.isInteger(n) && n >= 1 && n <= SUPPORTED_AGENTS.length) return SUPPORTED_AGENTS[n - 1];
-  if (SUPPORTED_AGENTS.includes(trimmed)) return trimmed;
+  if (Number.isInteger(n) && n >= 1 && n <= PICKABLE_AGENTS.length) return PICKABLE_AGENTS[n - 1];
+  if (PICKABLE_AGENTS.includes(trimmed)) return trimmed;
   return defaultAgent;
 }
 
@@ -99,6 +109,7 @@ const AGENT_ENV_KEYS: Record<string, string> = {
   codex: 'OPENAI_API_KEY',
   opencode: '',
   ollama: '',
+  custom: '',
 };
 
 export function getAgentEnvKey(agent: string, authMode?: AuthMode): string {
@@ -113,10 +124,26 @@ const AGENT_DEFAULT_MODELS: Record<string, string> = {
   // a bare model name won't resolve.
   opencode: 'anthropic/claude-sonnet-4-6',
   ollama: 'llama3',
+  // A custom command picks its own model unless it uses {model} and a model is configured.
+  custom: '',
 };
 
 export function getDefaultModel(agent: string): string {
-  return AGENT_DEFAULT_MODELS[agent] || 'claude-sonnet-4-6';
+  return agent in AGENT_DEFAULT_MODELS ? AGENT_DEFAULT_MODELS[agent] : 'claude-sonnet-4-6';
+}
+
+/** The binary a custom agent command runs (its first word), or '' when no command is set. */
+export function customCommandBinary(agentCommand?: string): string {
+  return agentCommand?.trim().split(/\s+/)[0] ?? '';
+}
+
+/** Engine variables for the custom adapter (agents/custom.sh); empty for the built-in agents. */
+export function customAgentEnv(agent: string, config: EvolveConfig): Record<string, string> {
+  if (agent !== 'custom') return {};
+  return {
+    AGENT_COMMAND: config.agentCommand ?? '',
+    ...(config.agentErrorPattern ? { AGENT_ERROR_PATTERN: config.agentErrorPattern } : {}),
+  };
 }
 
 /** The saved model, when it was chosen for `agent`; a model belongs to the agent it was set for. */
@@ -206,6 +233,8 @@ export function getAgentEnvHint(agent: string, authMode?: AuthMode): string {
       return 'Set your provider API key (OPENAI_API_KEY or ANTHROPIC_API_KEY)';
     case 'ollama':
       return 'Ensure `ollama serve` is running';
+    case 'custom':
+      return 'Set whatever your custom command needs (agentCommand in .evolve/config.json)';
     default:
       return 'Set the appropriate API key for your agent';
   }

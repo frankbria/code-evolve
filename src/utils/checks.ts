@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { customCommandBinary } from './config';
 import type { AuthMode } from './config';
 
 // Only async child processes here: Codex's sandbox refuses spawnSync/execSync (EPERM) but allows
@@ -12,16 +13,20 @@ interface DependencyCheck {
   version?: string;
 }
 
-/** True when `binary` is an executable file on PATH; spawns nothing. */
+function isExecutableFile(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** True when `binary` is an executable file on PATH (or, when it holds a "/", at that path); spawns nothing. */
 export function isOnPath(binary: string): boolean {
-  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => {
-    try {
-      fs.accessSync(path.join(dir, binary), fs.constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  if (!binary) return false;
+  if (binary.includes('/')) return isExecutableFile(binary);
+  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => isExecutableFile(path.join(dir, binary)));
 }
 
 /**
@@ -53,8 +58,9 @@ const AGENT_BINARIES: Record<string, string> = {
   ollama: 'ollama',
 };
 
-export async function checkDependencies(agent = 'claude'): Promise<{ ok: boolean; results: DependencyCheck[] }> {
-  const agentBinary = AGENT_BINARIES[agent];
+/** For agent "custom", `agentCommand` names the binary to check (its first word). */
+export async function checkDependencies(agent = 'claude', agentCommand?: string): Promise<{ ok: boolean; results: DependencyCheck[] }> {
+  const agentBinary = agent === 'custom' ? customCommandBinary(agentCommand) : AGENT_BINARIES[agent];
   if (!agentBinary) {
     return { ok: false, results: [{ name: agent, found: false }] };
   }
