@@ -46,6 +46,8 @@ claude plugin install code-evolve@code-evolve --scope project
 
 Setup installs the same skills into your project's `.claude/skills/`, so the plugin's copies (`/code-evolve:evolve-run`) and the project's (`/evolve-run`) both appear. **Use the project copies once setup has run:** they match the engine version installed in `.evolve/`, and they reach teammates and other agents without the plugin. You can remove the plugin afterwards with `claude plugin uninstall code-evolve --scope project`, but keep it if you want its protected-files hook.
 
+**Session-start nudge.** When a new session starts in a git repository, the plugin says one line if code-evolve needs attention: the repository isn't set up yet (run `/code-evolve:evolve-setup`), or its installed engine is older or newer than the plugin (run `npx code-evolve@latest upgrade`, or update the plugin). Otherwise it stays silent.
+
 **Protected-files hook.** The plugin adds a `PreToolUse` hook that stops the agent from editing code-evolve's protected files (`.evolve/IDENTITY.md`, the engine in `.evolve/scripts/` and `.evolve/skills/`, and the evolve workflows; the list is `.evolve/scripts/protected-paths.txt`) and tells it why. It catches file edits and obvious shell writes (`>`, `sed -i`, `rm`, `git checkout --`, …), not every possible command. The engine still restores those files after every agent call, so this is a time-saver, not the enforcement; `claude --bare` skips plugin hooks entirely.
 
 ### From inside Codex and other Agent Plugins clients
