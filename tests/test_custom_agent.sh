@@ -39,8 +39,14 @@ rm -f "$work/calls"
 adapter 'fakeagent --file {prompt_file}' '' >/dev/null
 check "{prompt_file} delivers the prompt as a file" "$(cat "$work/calls")" "via=file model= prompt=build the thing"
 rm -f "$work/calls"
-adapter 'fakeagent --model {model}' "x; touch $work/pwned" >/dev/null
-check "a hostile model value cannot inject a command" "$([ -e "$work/pwned" ] && echo injected || echo safe)" "safe"
+for hostile in "x; touch $work/pwned" "&touch $work/pwned" "\$(touch $work/pwned)" "\`touch $work/pwned\`" "a\\&b; touch $work/pwned"; do
+    rm -f "$work/pwned" "$work/calls"
+    adapter 'fakeagent --model {model}' "$hostile" >/dev/null
+    check "a hostile model value cannot inject a command: $hostile" "$([ -e "$work/pwned" ] && echo injected || echo safe)" "safe"
+    check "and reaches the agent unchanged: $hostile" "$(sed -n 's/^via=stdin model=\(.*\) prompt=.*/\1/p' "$work/calls")" "$hostile"
+done
+rm -f "$work/pwned"
+adapter 'fakeagent --file {prompt_file}' '' >/dev/null
 check "a non-zero exit is the adapter's exit" "$(FAKE_EXIT=7 adapter 'fakeagent' '')" "7"
 log="$work/log"; echo "Error: QUOTA EXCEEDED" > "$log"
 check "the error pattern flags a matching log" "$( (AGENT_ERROR_PATTERN='QUOTA (EXCEEDED|LIMIT)'; source "$ADAPTER"; agent_detect_error "$log") && echo flagged || echo clean)" "flagged"
@@ -70,6 +76,22 @@ check "a matching error line fails the cycle even though the CLI exits 0" "$(gre
 status=0; node "$CLI" start --every 6 </dev/null > "$work/start.log" 2>&1 || status=$?
 check "start schedules a custom agent" "$status" "0"
 check "the cron .env carries the command" "$(grep -c "AGENT_COMMAND='fakeagent --model {model}'" .evolve/.env)" "1"
+
+rm -f "$work/calls"
+node "$CLI" start --every 6 --run-now </dev/null > "$work/runnow.log" 2>&1 || true
+check "start --run-now runs the custom agent" "$([ -s "$work/calls" ] && echo called || echo "not called")" "called"
+
+# A fresh `init --mode local` schedules with this run's command (the config is written after scheduling).
+fresh="$work/fresh"; mkdir -p "$fresh"; cd "$fresh"; git init -q
+printf '{"name":"demo","scripts":{"test":"true"}}\n' > package.json
+node "$CLI" init --yes --agent custom --agent-command 'fakeagent -p' --mode local --every 6 </dev/null > "$work/init-local.log" 2>&1
+check "init --mode local writes the custom command into the cron .env" "$(grep -c "AGENT_COMMAND='fakeagent -p'" .evolve/.env 2>/dev/null || echo 0)" "1"
+
+# Validation uses the same grep the adapter runs (GNU grep, ugrep, BSD grep differ), so an
+# unbalanced group, invalid in every grep -E, is the portable case to test.
+status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-error-pattern 'quota(' </dev/null > "$work/init-regex.log" 2>&1 || status=$?
+check "a pattern this system's grep -E rejects is rejected at init" "$status" "1"
+check "and the message names grep -E" "$(grep -c 'not a valid grep -E pattern' "$work/init-regex.log")" "1"
 
 echo "---"
 echo "passed: $pass  failed: $fail"

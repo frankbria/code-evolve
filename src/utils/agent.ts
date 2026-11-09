@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { getEvolveDir } from './paths';
-import { readConfig, getAgentEnvKey, getDefaultModel, isValidAgent } from './config';
+import { readConfig, getAgentEnvKey, getDefaultModel, isValidAgent, customAgentEnv } from './config';
 
 /**
  * Draft a document by routing `prompt` through the configured agent adapter
@@ -59,6 +59,7 @@ export function draftWithAgent(prompt: string): string | null {
         killSignal: 'SIGTERM',
         env: {
           ...process.env,
+          ...customAgentEnv(agent, config),
           ...(config.authMode === 'oauth' ? { CLAUDE_AUTH_MODE: 'oauth' } : {}),
         },
       },

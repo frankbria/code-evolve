@@ -4,8 +4,9 @@
 #                        or replaces `{prompt_file}` (a path) when the template contains it.
 #   AGENT_ERROR_PATTERN  optional extended regex; a matching log line marks the session failed,
 #                        for CLIs that exit 0 on errors.
-# The template is the user's own config, run as one shell command; the values substituted into it
-# (model, prompt path) are shell-quoted, so they can never add commands of their own.
+# The template is the user's own config, run as one shell command. The placeholders become fixed
+# references to environment variables, so the model and prompt path never enter the command text
+# and cannot add commands of their own, whatever characters they hold.
 
 check_agent() {
     [ -n "${AGENT_COMMAND:-}" ] && command -v "${AGENT_COMMAND%% *}" &>/dev/null
@@ -23,12 +24,15 @@ run_agent() {
         return 1
     fi
 
-    command="${command//\{model\}/$(printf '%q' "$model")}"
+    local model_reference='"$CODE_EVOLVE_MODEL"' prompt_file_reference='"$CODE_EVOLVE_PROMPT_FILE"'
+    command="${command//\{model\}/$model_reference}"
     if [[ "$command" == *"{prompt_file}"* ]]; then
-        command="${command//\{prompt_file\}/$(printf '%q' "$prompt_file")}"
-        ${timeout_cmd:+$timeout_cmd "$timeout"} bash -c "$command" </dev/null 2>&1
+        command="${command//\{prompt_file\}/$prompt_file_reference}"
+        CODE_EVOLVE_MODEL="$model" CODE_EVOLVE_PROMPT_FILE="$prompt_file" \
+            ${timeout_cmd:+$timeout_cmd "$timeout"} bash -c "$command" </dev/null 2>&1
     else
-        ${timeout_cmd:+$timeout_cmd "$timeout"} bash -c "$command" < "$prompt_file" 2>&1
+        CODE_EVOLVE_MODEL="$model" CODE_EVOLVE_PROMPT_FILE="$prompt_file" \
+            ${timeout_cmd:+$timeout_cmd "$timeout"} bash -c "$command" < "$prompt_file" 2>&1
     fi
 }
 

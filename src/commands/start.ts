@@ -27,6 +27,8 @@ export interface ScheduleOptions {
   model: string;
   hours: number;
   projectDir: string;
+  /** Engine variables for a custom agent (AGENT_COMMAND, AGENT_ERROR_PATTERN); see customAgentEnv. */
+  agentEnv?: Record<string, string>;
 }
 
 /**
@@ -49,7 +51,7 @@ export function installLocalSchedule(opts: ScheduleOptions): void {
   ensureEnvGitignored(projectDir);
 
   // Write .env file for cron (cron doesn't inherit shell env)
-  writeEnvFile(envFile, model, agent, authMode);
+  writeEnvFile(envFile, model, agent, authMode, opts.agentEnv ?? {});
 
 
   // Build cron expression
@@ -144,7 +146,7 @@ export const startCommand = new Command('start')
 
     // Install cron entry + write .env + schedule.json
     try {
-      installLocalSchedule({ agent, authMode, model, hours, projectDir });
+      installLocalSchedule({ agent, authMode, model, hours, projectDir, agentEnv: customAgentEnv(agent, config) });
     } catch (err) {
       console.error('Failed to install cron job:', err);
       process.exit(1);
@@ -168,6 +170,7 @@ export const startCommand = new Command('start')
           PROJECT_DIR: '.',
           MODEL: model,
           AGENT: agent,
+          ...customAgentEnv(agent, config),
           ...(authMode === 'oauth' ? { CLAUDE_AUTH_MODE: 'oauth' } : {}),
         },
       });
@@ -181,7 +184,7 @@ export const startCommand = new Command('start')
     }
   });
 
-function writeEnvFile(envFile: string, model: string, agent: string, authMode?: AuthMode): void {
+function writeEnvFile(envFile: string, model: string, agent: string, authMode: AuthMode | undefined, agentEnv: Record<string, string>): void {
   const entries: Array<[string, string | undefined]> = [];
 
   // Include the relevant API key, except in a login mode (Claude oauth, Codex chatgpt), where the CLI's login is used
@@ -192,7 +195,7 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode?: 
 
   entries.push(['MODEL', model]);
   entries.push(['AGENT', agent]);
-  for (const [name, value] of Object.entries(customAgentEnv(agent, readConfig()))) entries.push([name, value]);
+  for (const [name, value] of Object.entries(agentEnv)) entries.push([name, value]);
   entries.push(['CLAUDE_AUTH_MODE', authMode || 'api-key']);
 
   // Preserve PATH so cron can find claude, git, python3

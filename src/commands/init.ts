@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, packageVersion, EVOLVE_DIR_NAME } from '../utils/paths';
-import { checkDependencies, formatDependencyResults } from '../utils/checks';
+import { checkDependencies, formatDependencyResults, runProcess } from '../utils/checks';
 import {
   readConfig,
   writeConfig,
@@ -17,6 +17,7 @@ import {
   isLoginAuth,
   resolveModel,
   savedModelFor,
+  customAgentEnv,
   getSupportedAgents,
   getPickableAgents,
   resolveAgentSelection,
@@ -171,13 +172,11 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.error('--agent custom needs --agent-command "<your CLI> -p ..." (the prompt goes to stdin, or replaces {prompt_file}).');
       process.exit(1);
     }
-    if (agentErrorPattern !== undefined) {
-      try {
-        new RegExp(agentErrorPattern);
-      } catch {
-        console.error(`--agent-error-pattern is not a valid regular expression: ${agentErrorPattern}`);
-        process.exit(1);
-      }
+    // Validate with grep -E itself (exit 2: bad pattern): the adapter matches with it, and JavaScript
+    // accepts patterns (lookaheads) that grep -E rejects.
+    if (agentErrorPattern !== undefined && (await runProcess('grep', ['-E', '--', agentErrorPattern])).status === 2) {
+      console.error(`--agent-error-pattern is not a valid grep -E pattern: ${agentErrorPattern}`);
+      process.exit(1);
     }
     const { ok, results } = await checkDependencies(agent, agentCommand);
     console.log(formatDependencyResults(results));
@@ -383,7 +382,11 @@ export async function runInit(options: InitOptions): Promise<void> {
         const envKey = getAgentEnvKey(agent, authMode);
         if (!envKey || process.env[envKey]) {
           try {
-            installLocalSchedule({ agent, authMode, model: resolveModel(agent, undefined, previousConfig), hours, projectDir: process.cwd() });
+            installLocalSchedule({
+              agent, authMode, model: resolveModel(agent, undefined, previousConfig), hours, projectDir: process.cwd(),
+              // The config is written after scheduling, so pass this run's custom command directly.
+              agentEnv: customAgentEnv(agent, { agent, agentCommand, agentErrorPattern }),
+            });
             console.log(`Local schedule installed: every ${hours}h (.evolve/evolve.log)`);
             localScheduled = true;
           } catch (err) {
