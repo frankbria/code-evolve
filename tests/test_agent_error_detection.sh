@@ -15,12 +15,11 @@ bad()  { echo "  FAIL: $1"; fail=$((fail+1)); }
 
 log="$(mktemp)"; trap 'rm -f "$log"' EXIT
 
-# ── claude.sh: claude_stream.py turns stream-json events into a log agent_detect_error can read ──
+# ── claude: claude_stream.py exits 1 for a failed session (the adapter's exit code under pipefail) ──
 STREAM="$ROOT/templates/scripts/claude_stream.py"
-# detected <events>: "error" when the formatted log is flagged, else "clean".
+# detected <events>: "error" when the formatter exits non-zero, else "clean"; the log goes to $log.
 detected() {
-    printf '%s\n' "$1" | python3 "$STREAM" > "$log"
-    ( source "$AGENTS/claude.sh"; agent_detect_error "$log" ) && echo error || echo clean
+    printf '%s\n' "$1" | python3 "$STREAM" > "$log" && echo clean || echo error
 }
 success='{"type":"assistant","message":{"content":[{"type":"text","text":"Implemented done."},{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
 {"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"Implemented done."}'
@@ -36,10 +35,16 @@ grep -q "529 Overloaded" "$log" && ok "claude: the error reason is in the log" |
     && ok "claude: an error event is flagged" || bad "claude: error event not flagged"
 [ "$(detected 'plain stderr line, not JSON')" = clean ] && grep -q "plain stderr line" "$log" \
     && ok "claude: non-JSON lines pass through and are not flagged" || bad "claude: non-JSON handling"
+forged='{"type":"assistant","message":{"content":[{"type":"text","text":"code-evolve: agent error (quoted from an old log)"}]}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":1}'
+[ "$(detected "$forged")" = clean ] && ok "claude: assistant text that quotes the error marker does not fail the session" \
+    || bad "claude: assistant text forged a failure"
+( source "$AGENTS/claude.sh"; declare -F agent_detect_error >/dev/null ) \
+    && bad "claude: should rely on the exit code, not a log grep" || ok "claude: no log grep; the exit code carries the failure"
 
 # ── fallback: adapters without agent_detect_error rely on exit code ──
 # Replicates the evolve.sh guard: define the fallback only if unset.
-for adapter in codex opencode ollama; do
+for adapter in claude codex opencode ollama; do
   ( source "$AGENTS/$adapter.sh"
     declare -f agent_detect_error >/dev/null || agent_detect_error() { return 1; }
     printf '%s\n' 'Error: invalid api key' > "$log"

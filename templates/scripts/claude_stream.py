@@ -3,8 +3,9 @@
 
 Reads the event stream on stdin and prints the assistant's text and one line per tool call.
 A failed session (an error event, or a result whose `is_error` is set or whose subtype is not
-"success") also prints a line starting with ERROR_MARKER, which agents/claude.sh's
-agent_detect_error looks for. Lines that are not JSON (stderr, warnings) pass through unchanged.
+"success") prints an ERROR_MARKER line for the reader and makes this script exit 1. Under
+evolve.sh's pipefail that exit code is the adapter's, so the failure signal is the exit status,
+which nothing the model writes can forge. Lines that are not JSON (stderr) pass through unchanged.
 """
 from __future__ import annotations  # `dict | None` hints on Python < 3.10
 
@@ -20,6 +21,12 @@ def summarize_tool(block: dict) -> str:
     return f"-> {block.get('name', 'tool')} {str(detail).splitlines()[0][:120] if detail else ''}".rstrip()
 
 
+def is_failure(event: dict) -> bool:
+    if event.get("type") == "error":
+        return True
+    return event.get("type") == "result" and (bool(event.get("is_error")) or event.get("subtype") != "success")
+
+
 def describe(event: dict) -> list[str]:
     kind = event.get("type")
     if kind == "assistant":
@@ -32,7 +39,7 @@ def describe(event: dict) -> list[str]:
         return lines
     if kind == "result":
         subtype = event.get("subtype", "unknown")
-        if event.get("is_error") or subtype != "success":
+        if is_failure(event):
             reason = event.get("result") or event.get("api_error_status") or subtype
             return [f"{ERROR_MARKER} ({subtype}): {str(reason).strip()[:500]}"]
         return [f"Session finished ({event.get('num_turns', '?')} turns)."]
@@ -44,6 +51,7 @@ def describe(event: dict) -> list[str]:
 
 
 def main() -> int:
+    failed = False
     for raw_line in sys.stdin:
         line = raw_line.rstrip("\n")
         try:
@@ -54,9 +62,10 @@ def main() -> int:
         if not isinstance(event, dict):
             print(line, flush=True)
             continue
+        failed = failed or is_failure(event)
         for output in describe(event):
             print(output, flush=True)
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
