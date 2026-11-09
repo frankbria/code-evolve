@@ -3,7 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel, AuthMode } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isLoginAuth, isValidAgent, resolveModel, savedModelFor, AuthMode } from '../utils/config';
+import { codexLoginMissing } from '../utils/checks';
 
 
 /** Build the "every N hours" cron expression (top of the hour). */
@@ -117,8 +118,13 @@ export const startCommand = new Command('start')
       console.error(getAgentEnvHint(agent, authMode));
       process.exit(3);
     }
+    if (codexLoginMissing(agent, authMode)) {
+      console.error('Codex is not logged in.');
+      console.error(getAgentEnvHint(agent, authMode));
+      process.exit(3);
+    }
 
-    const model = options.model || getDefaultModel(agent);
+    const model = resolveModel(agent, options.model, config);
 
     const projectDir = process.cwd();
     const evolveDir = getEvolveDir();
@@ -126,7 +132,9 @@ export const startCommand = new Command('start')
 
     // Persist agent choice + mode. `start` always sets up a local schedule, so
     // the mode is at least 'local' (keep 'both' if CI was also chosen).
-    writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local' });
+    // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
+    const savedModel = options.model ? model : savedModelFor(config, agent);
+    writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', model: savedModel });
 
     // Install cron entry + write .env + schedule.json
     try {
@@ -167,11 +175,11 @@ export const startCommand = new Command('start')
     }
   });
 
-function writeEnvFile(envFile: string, model: string, agent: string, authMode?: string): void {
+function writeEnvFile(envFile: string, model: string, agent: string, authMode?: AuthMode): void {
   const entries: Array<[string, string | undefined]> = [];
 
-  // Include the relevant API key (skip for OAuth mode)
-  if (authMode !== 'oauth') {
+  // Include the relevant API key, except in a login mode (Claude oauth, Codex chatgpt), where the CLI's login is used
+  if (!isLoginAuth(agent, authMode)) {
     entries.push(['ANTHROPIC_API_KEY', process.env.ANTHROPIC_API_KEY]);
     entries.push(['OPENAI_API_KEY', process.env.OPENAI_API_KEY]);
   }

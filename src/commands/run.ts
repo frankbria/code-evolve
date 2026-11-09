@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import { spawn } from 'child_process';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
-import { readConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, getDefaultModel } from '../utils/config';
+import { readConfig, getAgentEnvKey, getAgentEnvHint, isValidAgent, resolveModel } from '../utils/config';
+import { codexLoginMissing } from '../utils/checks';
 
 export const runCommand = new Command('run')
   .description('Run one evolution cycle')
@@ -24,12 +25,17 @@ export const runCommand = new Command('run')
       process.exit(1);
     }
 
-    const model = options.model || getDefaultModel(agent);
+    const model = resolveModel(agent, options.model, config);
     const authMode = config.authMode;
     const envKey = getAgentEnvKey(agent, authMode);
 
     if (envKey && !process.env[envKey]) {
       console.error(`${envKey} is not set.`);
+      console.error(getAgentEnvHint(agent, authMode));
+      process.exit(3);
+    }
+    if (codexLoginMissing(agent, authMode)) {
+      console.error('Codex is not logged in.');
       console.error(getAgentEnvHint(agent, authMode));
       process.exit(3);
     }

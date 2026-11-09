@@ -323,15 +323,19 @@ code-evolve init --agent codex             # initialize with Codex
 code-evolve run --agent ollama             # one-off run with Ollama
 code-evolve start --agent opencode         # schedule with OpenCode
 code-evolve init --auth-mode oauth         # Claude subscription (no API key required)
+code-evolve init --agent codex --auth-mode chatgpt   # Codex with a ChatGPT login (no API key required)
 ```
 
 The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run` and `start` commands read from config automatically. You can override with `--agent` on any command.
 
-**Claude auth modes:**
-- `api-key` (default) — set `ANTHROPIC_API_KEY` in your environment
-- `oauth` — run `claude login` once; no API key needed (requires a Claude subscription)
+**Auth modes:**
+- `api-key` (default) — set the agent's key in your environment (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex)
+- `oauth` (Claude) — run `claude login` once; no API key needed (requires a Claude subscription)
+- `chatgpt` (Codex) — run `codex login` once; no API key needed. `run` and `start` check `codex login status` first, and the cron `.env` stores no key.
 
-The default model adapts to your agent (e.g., `llama3` for Ollama, `o4-mini` for Codex). Override with `--model`.
+CI always uses `api-key` mode, whatever you choose locally.
+
+The default model adapts to your agent (e.g., `llama3` for Ollama, `o4-mini` for Codex). Override it per run with `--model`; `start --model` also saves it to `.evolve/config.json` as `model`, which later `run` and `start` calls use for that agent.
 
 ## Stack Detection
 
@@ -370,7 +374,7 @@ Run it however fits your workflow:
 **Cloud** — `code-evolve init --with-ci`
 - GitHub Actions installed as `.github/workflows/evolve.yml` and `evolve-ci.yml`
 - Runs every 4 hours with 3-attempt retry logic
-- The workflow is templated for your `--agent`: it installs the matching CLI, sets `AGENT`/`MODEL`, and wires the right secret. `init` prints the exact `gh secret set …` command for your backend (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex, the provider key for opencode). OAuth is local-only, so CI always uses `api-key` mode regardless of your local `--auth-mode`.
+- The workflow is templated for your `--agent`: it installs the matching CLI, sets `AGENT`/`MODEL`, and wires the right secret. `init` prints the exact `gh secret set …` command for your backend (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex, the provider key for opencode). Login modes (`oauth`, `chatgpt`) are local-only, so CI always uses `api-key` mode regardless of your local `--auth-mode`.
 - `ollama` runs models locally and isn't supported on hosted CI runners, so `--with-ci` is skipped for it — use **Local** execution.
 
 Both run the same engine. Mix and match.

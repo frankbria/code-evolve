@@ -14,6 +14,8 @@ import {
   getAgentCiProfile,
   readConfig,
   writeConfig,
+  isLoginAuth,
+  resolveModel,
 } from '../config';
 
 describe('agent validation', () => {
@@ -149,5 +151,35 @@ describe('readConfig / writeConfig round-trip', () => {
     // An object without a string `agent` is rejected too.
     fs.writeFileSync(path.join(tmp, '.evolve', 'config.json'), JSON.stringify({ mode: 'ci' }));
     expect(readConfig()).toEqual({ agent: 'claude' });
+  });
+});
+
+describe('subscription-login auth per agent', () => {
+  it('maps each login mode to its own agent only', () => {
+    expect(isLoginAuth('claude', 'oauth')).toBe(true);
+    expect(isLoginAuth('codex', 'chatgpt')).toBe(true);
+    expect(isLoginAuth('codex', 'oauth')).toBe(false);
+    expect(isLoginAuth('claude', 'chatgpt')).toBe(false);
+    expect(isLoginAuth('codex', 'api-key')).toBe(false);
+    expect(isLoginAuth('codex', undefined)).toBe(false);
+  });
+
+  it('needs no API key in a login mode, and says how to log in', () => {
+    expect(getAgentEnvKey('codex', 'chatgpt')).toBe('');
+    expect(getAgentEnvKey('codex', 'api-key')).toBe('OPENAI_API_KEY');
+    expect(getAgentEnvKey('codex', 'oauth')).toBe('OPENAI_API_KEY');
+    expect(getAgentEnvHint('codex', 'chatgpt')).toContain('codex login');
+  });
+});
+
+describe('resolveModel', () => {
+  it('prefers --model, then the configured model, then the agent default', () => {
+    expect(resolveModel('codex', 'gpt-x', { agent: 'codex', model: 'configured' })).toBe('gpt-x');
+    expect(resolveModel('codex', undefined, { agent: 'codex', model: 'configured' })).toBe('configured');
+    expect(resolveModel('codex', undefined, { agent: 'codex' })).toBe(getDefaultModel('codex'));
+  });
+
+  it('ignores a configured model that was set for a different agent', () => {
+    expect(resolveModel('codex', undefined, { agent: 'claude', model: 'claude-opus' })).toBe(getDefaultModel('codex'));
   });
 });
