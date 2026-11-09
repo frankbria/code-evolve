@@ -50,8 +50,10 @@ contains "an engine newer than the plugin is told to update the plugin" "$(run_h
 plain="$work/not-a-repo"; mkdir -p "$plain"
 check "outside a git repository it is silent" "$(run_hook "$plain")" ""
 
+rm "$project/.evolve/config.json"
+contains "an install without config.json (older than version tracking) is told to upgrade" "$(run_hook "$project")" "upgrade"
 printf 'not json' > "$project/.evolve/config.json"
-check "an unreadable config is silent" "$(run_hook "$project")" ""
+check "a corrupt config is silent" "$(run_hook "$project")" ""
 status=0; out="$(printf 'not json' | python3 "$HOOK" 2>/dev/null)" || status=$?
 check "unreadable input is silent and exits 0" "$status:$out" "0:"
 

@@ -42,6 +42,8 @@ def nudge(cwd: str, plugin_version: str, setup_skill: str) -> str | None:
     try:
         with open(os.path.join(evolve_dir, "config.json"), encoding="utf-8") as config_file:
             engine_version = json.load(config_file).get("engineVersion")
+    except FileNotFoundError:  # installs older than config.json predate version tracking too
+        engine_version = None
     except (OSError, ValueError, AttributeError):
         return None
     if not isinstance(engine_version, str):
