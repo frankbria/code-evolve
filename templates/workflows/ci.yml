@@ -43,7 +43,6 @@ jobs:
           echo "Detected stacks: $STACKS"
           case " $STACKS " in *" rust "*) echo "needs_rust=true" >> "$GITHUB_OUTPUT";; esac
           case " $STACKS " in *" go "*) echo "needs_go=true" >> "$GITHUB_OUTPUT";; esac
-          # ponytail: java/kotlin not yet emitted by detect_stack.sh (see #28); inert until then.
           case " $STACKS " in *" java "*|*" kotlin "*) echo "needs_java=true" >> "$GITHUB_OUTPUT";; esac
 
       - name: Setup Rust

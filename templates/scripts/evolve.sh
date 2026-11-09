@@ -525,6 +525,12 @@ elif [ -n "$BUILD_CMD" ] && [ "$STACK" != "unknown" ]; then
 fi
 
 # ── Step 2: Check previous CI status ──
+# The previous session's own verification, recorded by the engine at its end. It reaches the next
+# session even where CI cannot: pushes made with GitHub Actions' GITHUB_TOKEN start no other workflow.
+LAST_VERIFY_MSG=""
+if [ -f "$EVOLVE_DIR/LAST_VERIFY.md" ]; then
+    LAST_VERIFY_MSG=$(head -c 4000 "$EVOLVE_DIR/LAST_VERIFY.md")
+fi
 CI_STATUS_MSG=""
 if command -v gh &>/dev/null; then
     echo "-> Checking previous CI run..."
@@ -698,6 +704,10 @@ ${PROJECT_TREE:+
 === CURRENT PROJECT STATE ===
 Files in $PROJECT_DIR (${TREE_SUMMARY:-}):
 $PROJECT_TREE
+}
+${LAST_VERIFY_MSG:+
+=== PREVIOUS SESSION VERIFICATION ===
+$LAST_VERIFY_MSG
 }
 ${CI_STATUS_MSG:+
 === CI STATUS ===
@@ -996,6 +1006,7 @@ case "$ENGINE_PHASE" in
             for FIX_ROUND in $(seq 1 $FIX_ATTEMPTS); do
                 if run_verification_round; then
                     echo "  Build: PASS"
+                    SESSION_VERIFY=passed
                     break
                 fi
                 if [ "$FIX_ROUND" -lt "$FIX_ATTEMPTS" ]; then
@@ -1017,6 +1028,7 @@ FIXEOF
                     rm -f "$FIX_PROMPT"
                 else
                     echo "  Build: FAIL after $FIX_ATTEMPTS fix attempts — reverting to pre-session state"
+                    SESSION_VERIFY=failed
                     revert_session_and_capture_req
                 fi
             done
@@ -1049,9 +1061,21 @@ FIXEOF
         if [ "$VERIFY_RESULT" = "fail" ]; then
             [ -n "$ERRORS" ] || ERRORS=$(cat "$RUN_DIR/ERRORS.md" 2>/dev/null || true)
             echo "  Verification failed — reverting to pre-session state"
+            SESSION_VERIFY=failed
             revert_session_and_capture_req
+        elif [ "$VERIFY_RESULT" = "pass" ]; then
+            SESSION_VERIFY=passed
         fi ;;
 esac
+
+# Record this session's verification for the next one (Step 2 reads it); the wrap-up commit carries it.
+{
+    echo "Day $DAY ($SESSION_TIME): verification ${SESSION_VERIFY:-not run (no build, test or lint commands)}."
+    if [ "${SESSION_VERIFY:-}" = failed ]; then
+        echo "The session's changes were reverted and recorded as a requirement. Last errors:"
+        printf '%s\n' "$ERRORS" | tail -n 30
+    fi
+} > "$EVOLVE_DIR/LAST_VERIFY.md"
 
 # ── Step 6b: Ensure journal was written ──
 if ! grep -q "## Day $DAY.*$SESSION_TIME" "$EVOLVE_DIR/JOURNAL.md" 2>/dev/null; then

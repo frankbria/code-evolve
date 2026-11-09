@@ -402,6 +402,7 @@ Run it however fits your workflow:
 **Cloud** — `code-evolve init --with-ci`
 - GitHub Actions installed as `.github/workflows/evolve.yml` and `evolve-ci.yml`
 - Runs every 4 hours with 3-attempt retry logic
+- Each cycle records its own build/test result in `.evolve/LAST_VERIFY.md`, committed with the session, and the next session starts by reading it. This matters in Actions: pushes made with the workflow's `GITHUB_TOKEN` don't start other workflows, so `evolve-ci.yml` never runs on the agent's own commits. The engine also checks `evolve-ci.yml`'s last run (the workflow has `actions: read`), which covers CI runs on your own pushes.
 - The workflow is templated for your `--agent`: it installs the matching CLI, sets `AGENT`/`MODEL`, and wires the right secret. `init` prints the exact `gh secret set …` command for your backend (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex, the provider key for opencode). Login modes (`oauth`, `chatgpt`) are local-only, so CI always uses `api-key` mode regardless of your local `--auth-mode`.
 - `ollama` runs models locally and isn't supported on hosted CI runners, so `--with-ci` is skipped for it — use **Local** execution.
 
