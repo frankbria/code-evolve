@@ -163,12 +163,35 @@ node "$CLI" upgrade </dev/null >/dev/null 2>&1
 check "an IDENTITY.md symlinked to a user file inside the project leaves that file alone" "$(same .evolve/vision.md "$saved/vision.md")" "same"
 git add -A && git commit -qm "after inside-symlink upgrade" >/dev/null || true
 
+# Engine scripts follow the same rule: a symlinked script (shared outside the repo) is not written through.
+shared_script="$stub_dir/shared-detect.sh"; printf '# shared detect_stack\n' > "$shared_script"
+rm .evolve/scripts/detect_stack.sh && ln -s "$shared_script" .evolve/scripts/detect_stack.sh
+git add -A && git commit -qm "shared script" >/dev/null
+node "$CLI" upgrade </dev/null >/dev/null 2>&1
+check "a symlinked engine script's target is not overwritten" "$(cat "$shared_script")" "# shared detect_stack"
+git add -A && git commit -qm "after shared script upgrade" >/dev/null || true
+
 # A newer engine is never downgraded by an older CLI.
 node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
 git add -A && git commit -qm "newer engine"
 status=0; node "$CLI" upgrade </dev/null > "$stub_dir/downgrade.log" 2>&1 || status=$?
 check "upgrade refuses to downgrade a newer engine" "$status" "1"
 check "the refusal points to the latest CLI" "$(grep -c 'code-evolve@latest' "$stub_dir/downgrade.log")" "1"
+
+# A symlinked .evolve (supported by the engine) is still upgraded: the store it points at is the engine.
+linked="$(mktemp -d)"
+(
+    cd "$linked"
+    git init -q; git config user.email t@example.com; git config user.name t
+    node "$CLI" init --yes --agent claude </dev/null >/dev/null 2>&1
+    mv .evolve ../"$(basename "$linked")-store" && ln -s ../"$(basename "$linked")-store" .evolve
+    echo "# old engine" >> .evolve/scripts/evolve.sh
+    git add -A && git commit -qm "symlinked .evolve" >/dev/null
+    node "$CLI" upgrade </dev/null >/dev/null 2>&1
+    cmp -s .evolve/scripts/evolve.sh "$ROOT/templates/scripts/evolve.sh" && echo upgraded > "$stub_dir/linked-evolve" || echo skipped > "$stub_dir/linked-evolve"
+)
+rm -rf "$linked" "$linked-store"
+check "a symlinked .evolve is still upgraded" "$(cat "$stub_dir/linked-evolve")" "upgraded"
 
 plain="$(mktemp -d)"
 status=0; (cd "$plain" && node "$CLI" upgrade </dev/null >/dev/null 2>&1) || status=$?

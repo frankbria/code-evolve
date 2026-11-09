@@ -177,15 +177,15 @@ export async function runInit(options: InitOptions): Promise<void> {
     fs.mkdirSync(path.join(evolveDir, 'evidence'), { recursive: true });
 
     // Copy scripts (always overwrite — these are framework code, not user data)
-    copyDir(path.join(templatesDir, 'scripts'), path.join(evolveDir, 'scripts'));
+    copyDir(path.join(templatesDir, 'scripts'), path.join(evolveDir, 'scripts'), evolveDir);
 
     // Copy skills (always overwrite — framework definitions)
-    copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'));
+    copyDir(path.join(templatesDir, 'skills'), path.join(evolveDir, 'skills'), evolveDir);
 
     // The agent's constitution is framework code too (protected from the agent), so it is refreshed.
     const identityPath = path.join(evolveDir, 'IDENTITY.md');
     const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
-    if (!writesInsideProject(identityPath)) {
+    if (!writesInside(identityPath, evolveDir)) {
       console.warn('  ⚠ IDENTITY.md is a symlink (a shared constitution?); left alone, so it is not updated');
     } else {
       if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
@@ -296,7 +296,7 @@ export async function runInit(options: InitOptions): Promise<void> {
         const installed = fs.existsSync(destPath) ? fs.readFileSync(destPath, 'utf8') : null;
         const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
         if (installed === null && !wantCi) continue;
-        if (!writesInsideProject(destPath)) {
+        if (!writesInside(destPath, process.cwd())) {
           console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink or under one leading outside the project; left alone, so it is not updated`);
           continue;
         }
@@ -510,14 +510,17 @@ function templateEvolveWorkflow(
 }
 
 /** Copy directory recursively, overwriting all files (for framework code). */
-function copyDir(src: string, dest: string): void {
+/** Copy `src` into `dest`, never writing through a symlink that leads outside `root`. */
+function copyDir(src: string, dest: string, root: string): void {
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+      copyDir(srcPath, destPath, root);
+    } else if (!writesInside(destPath, root)) {
+      console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink or under one leading outside ${path.relative(process.cwd(), root) || 'the project'}; left alone, so it is not updated`);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -606,17 +609,18 @@ async function promptForInterval(fallback: number): Promise<number> {
 
 /** The cadence of the installed local schedule, or null when there is none (or it is unreadable). */
 /**
- * False when `file` is a symlink, or a symlinked parent directory would land the write outside the
- * project, where git could neither show nor restore what the refresh overwrote.
+ * False when `file` is a symlink, or a symlinked directory below `root` would land the write outside
+ * where `root` really lives: git could neither show nor restore what the refresh overwrote there.
+ * `root` itself may be a symlink (a symlinked .evolve, which the engine supports).
  */
-function writesInsideProject(file: string): boolean {
+function writesInside(file: string, root: string): boolean {
   // A symlinked managed file is left alone even inside the project: it may point at a user-owned file.
   if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
   let existing = file;
   while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
   const target = fs.realpathSync(existing);
-  const projectRoot = fs.realpathSync(process.cwd());
-  return target === projectRoot || target.startsWith(projectRoot + path.sep);
+  const realRoot = fs.realpathSync(root);
+  return target === realRoot || target.startsWith(realRoot + path.sep);
 }
 
 function readScheduleEvery(): number | null {
