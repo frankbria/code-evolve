@@ -42,6 +42,7 @@ case "$AGENT" in
     codex)    DEFAULT_MODEL="o4-mini" ;;
     opencode) DEFAULT_MODEL="anthropic/claude-sonnet-4-6" ;;
     ollama)   DEFAULT_MODEL="llama3" ;;
+    custom)   DEFAULT_MODEL="" ;;  # a custom command picks its own model unless {model} is set
     *)        DEFAULT_MODEL="claude-sonnet-4-6" ;;
 esac
 MODEL="${MODEL:-$DEFAULT_MODEL}"
@@ -179,7 +180,7 @@ fi
 AGENT_ADAPTER="$EVOLVE_DIR/scripts/agents/${AGENT}.sh"
 if [ ! -f "$AGENT_ADAPTER" ]; then
     echo "Error: Unknown agent '$AGENT'. No adapter found at $AGENT_ADAPTER"
-    echo "Supported agents: claude, codex, opencode, ollama"
+    echo "Supported agents: claude, codex, opencode, ollama, custom"
     exit 1
 fi
 # shellcheck source=/dev/null

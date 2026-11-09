@@ -323,6 +323,7 @@ code-evolve works with multiple AI coding agents:
 | Codex CLI | `codex` | `--agent codex` |
 | OpenCode | `opencode` | `--agent opencode` |
 | Ollama | `ollama` | `--agent ollama` |
+| Any other headless CLI | yours | `--agent custom --agent-command "..."` |
 
 ```bash
 code-evolve init --agent codex             # initialize with Codex
@@ -333,6 +334,26 @@ code-evolve init --agent codex --auth-mode chatgpt   # Codex with a ChatGPT logi
 ```
 
 The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run` and `start` commands read from config automatically. You can override with `--agent` on any command.
+
+**Custom agents.** For any other CLI with a headless mode (Gemini, GitHub Copilot, Cursor, Goose, …), give code-evolve the command to run instead of an adapter:
+
+- The prompt goes to the command's **stdin**, unless the command contains `{prompt_file}`, which is replaced with the path of a file holding the prompt.
+- `{model}` is replaced with the configured model (`start --model`/`run --model`); leave it out to use the CLI's own default.
+- The command runs headless and unattended, so it must let the agent edit files and run commands without asking.
+- A non-zero exit fails the session. For a CLI that exits 0 on errors, add `--agent-error-pattern '<regex>'`: a log line matching it fails the session too.
+- Both values are saved in `.evolve/config.json` (`agentCommand`, `agentErrorPattern`). Custom agents run locally only (no GitHub Actions profile).
+
+```bash
+# Gemini CLI: -p text is appended to the prompt on stdin; yolo approves edits and commands
+code-evolve init --agent custom --agent-command 'gemini -p "" --approval-mode yolo'
+
+# GitHub Copilot CLI: takes the prompt as an argument, so read it from {prompt_file}
+code-evolve init --agent custom \
+  --agent-command 'copilot -p "$(cat {prompt_file})" --allow-all-tools' \
+  --agent-error-pattern '^Error:'
+```
+
+These flags were taken from each CLI's own `--help`; check yours, since headless flags change between versions.
 
 **Auth modes:**
 - `api-key` (default) — set the agent's key in your environment (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex)

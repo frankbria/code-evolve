@@ -29,7 +29,7 @@ export PATH="$stub_dir:$PATH"
 unset OPENAI_API_KEY ANTHROPIC_API_KEY
 
 # The engine's default model per agent matches the CLI's (src/utils/config.ts).
-for agent in claude codex opencode ollama; do
+for agent in claude codex opencode ollama custom; do
     branch="$agent"; [ "$agent" = claude ] && branch='\*'  # claude is the engine's fallback branch
     engine_default="$(grep -E "^ *$branch\) +DEFAULT_MODEL=" "$ROOT/templates/scripts/evolve.sh" | sed -E 's/.*DEFAULT_MODEL="([^"]*)".*/\1/' || true)"
     check "engine default model for $agent matches the CLI" "$engine_default" "$(node -p "require('$ROOT/dist/utils/config').getDefaultModel('$agent')")"

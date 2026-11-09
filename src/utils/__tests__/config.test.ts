@@ -16,6 +16,8 @@ import {
   writeConfig,
   isLoginAuth,
   resolveModel,
+  customAgentEnv,
+  customCommandBinary,
 } from '../config';
 
 describe('agent validation', () => {
@@ -181,5 +183,30 @@ describe('resolveModel', () => {
 
   it('ignores a configured model that was set for a different agent', () => {
     expect(resolveModel('codex', undefined, { agent: 'claude', model: 'claude-opus' })).toBe(getDefaultModel('codex'));
+  });
+});
+
+describe('custom agent', () => {
+  it('is supported but not offered by the interactive picker', () => {
+    expect(isValidAgent('custom')).toBe(true);
+    expect(resolveAgentSelection('5', 'claude')).toBe('claude');
+    expect(resolveAgentSelection('custom', 'claude')).toBe('claude');
+  });
+
+  it('has no default model or API key of its own', () => {
+    expect(getDefaultModel('custom')).toBe('');
+    expect(getAgentEnvKey('custom')).toBe('');
+  });
+
+  it('takes its binary from the first word of the command', () => {
+    expect(customCommandBinary('  copilot -p --model {model} ')).toBe('copilot');
+    expect(customCommandBinary(undefined)).toBe('');
+  });
+
+  it('passes the command and error pattern to the engine only for the custom agent', () => {
+    const config = { agent: 'custom', agentCommand: 'goose run -i {prompt_file}', agentErrorPattern: 'quota' };
+    expect(customAgentEnv('custom', config)).toEqual({ AGENT_COMMAND: 'goose run -i {prompt_file}', AGENT_ERROR_PATTERN: 'quota' });
+    expect(customAgentEnv('custom', { agent: 'custom', agentCommand: 'x' })).toEqual({ AGENT_COMMAND: 'x' });
+    expect(customAgentEnv('claude', config)).toEqual({});
   });
 });

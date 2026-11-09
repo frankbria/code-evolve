@@ -18,6 +18,7 @@ import {
   resolveModel,
   savedModelFor,
   getSupportedAgents,
+  getPickableAgents,
   resolveAgentSelection,
   resolveModeSelection,
   isValidMode,
@@ -41,13 +42,17 @@ export interface InitOptions {
   mode?: string;
   every?: string;
   yes?: boolean;
+  agentCommand?: string;
+  agentErrorPattern?: string;
 }
 
 export const initCommand = new Command('init')
   .description('Initialize .evolve/ in the current project')
   .option('--with-ci', 'Install GitHub Actions workflows')
   .option('--force', 'Overwrite existing .evolve/ directory')
-  .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
+  .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama, custom)', 'claude')
+  .option('--agent-command <command>', 'For --agent custom: the headless command (prompt on stdin, or {prompt_file}; {model})')
+  .option('--agent-error-pattern <regex>', 'For --agent custom: a log line matching this regex fails the session')
   .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
@@ -159,7 +164,22 @@ export async function runInit(options: InitOptions): Promise<void> {
 
     // Check dependencies
     console.log('Checking dependencies...');
-    const { ok, results } = await checkDependencies(agent);
+    // A custom agent is a command template; keep the saved one unless a new one is passed.
+    const agentCommand = agent === 'custom' ? options.agentCommand ?? readConfig().agentCommand : undefined;
+    const agentErrorPattern = agent === 'custom' ? options.agentErrorPattern ?? readConfig().agentErrorPattern : undefined;
+    if (agent === 'custom' && !agentCommand?.trim()) {
+      console.error('--agent custom needs --agent-command "<your CLI> -p ..." (the prompt goes to stdin, or replaces {prompt_file}).');
+      process.exit(1);
+    }
+    if (agentErrorPattern !== undefined) {
+      try {
+        new RegExp(agentErrorPattern);
+      } catch {
+        console.error(`--agent-error-pattern is not a valid regular expression: ${agentErrorPattern}`);
+        process.exit(1);
+      }
+    }
+    const { ok, results } = await checkDependencies(agent, agentCommand);
     console.log(formatDependencyResults(results));
 
     if (!ok) {
@@ -399,6 +419,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       gitignoreLinesAdded,
       createdPaths,
       engineVersion: packageVersion(),
+      ...(agent === 'custom' ? { agentCommand, agentErrorPattern } : {}),
       // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
       model: savedModelFor(currentConfig, agent),
     });
@@ -545,7 +566,7 @@ async function promptForAgentAndAuth(
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
   try {
-    const agents = getSupportedAgents();
+    const agents = getPickableAgents();
     console.log('Which agent backend should drive evolution?');
     agents.forEach((a, i) => console.log(`  ${i + 1}. ${a}${a === defaultAgent ? ' (default)' : ''}`));
     const defaultIdx = Math.max(agents.indexOf(defaultAgent), 0) + 1;

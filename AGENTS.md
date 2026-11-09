@@ -14,7 +14,7 @@ An npm CLI package (`code-evolve`) that turns any project into a self-evolving
 codebase. Users run `npx code-evolve init` in their project, fill in
 `.evolve/vision.md` and `.evolve/spec.md`, and the framework autonomously builds
 and improves the project session after session using an AI coding agent
-(Claude Code by default; Codex, OpenCode, and Ollama are also supported).
+(Claude Code by default; Codex, OpenCode, Ollama, and any headless CLI through a custom command template are also supported).
 
 ## Repository Structure
 

@@ -3,8 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isLoginAuth, isValidAgent, resolveModel, savedModelFor, AuthMode } from '../utils/config';
-import { codexLoginMissing } from '../utils/checks';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, AuthMode } from '../utils/config';
+import { codexLoginMissing, isOnPath } from '../utils/checks';
 
 
 /** Build the "every N hours" cron expression (top of the hour). */
@@ -106,7 +106,7 @@ export const startCommand = new Command('start')
     const agent = options.agent || config.agent || 'claude';
 
     if (!isValidAgent(agent)) {
-      console.error(`Unknown agent "${agent}". Supported: claude, codex, opencode, ollama`);
+      console.error(`Unknown agent "${agent}". Supported: ${getSupportedAgents().join(', ')}`);
       process.exit(1);
     }
 
@@ -116,6 +116,12 @@ export const startCommand = new Command('start')
     if (envKey && !process.env[envKey]) {
       console.error(`${envKey} is not set in your environment.`);
       console.error(getAgentEnvHint(agent, authMode));
+      process.exit(3);
+    }
+    if (agent === 'custom' && !isOnPath(customCommandBinary(config.agentCommand))) {
+      console.error(config.agentCommand
+        ? `The custom agent command's binary (${customCommandBinary(config.agentCommand)}) is not on PATH.`
+        : 'AGENT=custom needs agentCommand in .evolve/config.json (code-evolve init --agent custom --agent-command "...").');
       process.exit(3);
     }
     if (await codexLoginMissing(agent, authMode)) {
@@ -186,6 +192,7 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode?: 
 
   entries.push(['MODEL', model]);
   entries.push(['AGENT', agent]);
+  for (const [name, value] of Object.entries(customAgentEnv(agent, readConfig()))) entries.push([name, value]);
   entries.push(['CLAUDE_AUTH_MODE', authMode || 'api-key']);
 
   // Preserve PATH so cron can find claude, git, python3

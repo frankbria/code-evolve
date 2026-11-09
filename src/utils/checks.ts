@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { customCommandBinary } from './config';
 import type { AuthMode } from './config';
 
 // Only async child processes here: Codex's sandbox refuses spawnSync/execSync (EPERM) but allows
@@ -53,8 +54,9 @@ const AGENT_BINARIES: Record<string, string> = {
   ollama: 'ollama',
 };
 
-export async function checkDependencies(agent = 'claude'): Promise<{ ok: boolean; results: DependencyCheck[] }> {
-  const agentBinary = AGENT_BINARIES[agent];
+/** For agent "custom", `agentCommand` names the binary to check (its first word). */
+export async function checkDependencies(agent = 'claude', agentCommand?: string): Promise<{ ok: boolean; results: DependencyCheck[] }> {
+  const agentBinary = agent === 'custom' ? customCommandBinary(agentCommand) : AGENT_BINARIES[agent];
   if (!agentBinary) {
     return { ok: false, results: [{ name: agent, found: false }] };
   }
