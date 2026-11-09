@@ -87,12 +87,19 @@ ci_project="$(mktemp -d)"
     git add -A && git commit -qm "shared workflow" >/dev/null
     node "$CLI" upgrade </dev/null >/dev/null 2>&1
     tail -1 "$shared_workflow" > "$stub_dir/shared-workflow.tail"
+    # Same for a symlinked parent directory: .github/workflows itself points outside the repo.
+    shared_dir="$stub_dir/shared-workflows"; rm .github/workflows/evolve.yml; mv .github/workflows "$shared_dir"
+    cp "$shared_workflow" "$shared_dir/evolve.yml"; ln -s "$shared_dir" .github/workflows
+    git add -A && git commit -qm "shared workflows dir" >/dev/null
+    node "$CLI" upgrade </dev/null >/dev/null 2>&1
+    tail -1 "$shared_dir/evolve.yml" > "$stub_dir/shared-dir.tail"
 )
 rm -rf "$ci_project"
 check "a CI install's evolve workflow is refreshed" "$(cat "$stub_dir/workflow")" "refreshed"
 check "workflows installed earlier are refreshed after a switch to local mode" "$(cat "$stub_dir/workflow.local")" "refreshed"
 check "local mode creates no workflow that was never installed" "$(cat "$stub_dir/ci-workflow.local")" "absent"
 check "a symlinked workflow's target is not overwritten" "$(cat "$stub_dir/shared-workflow.tail")" "# shared copy"
+check "a workflow under a symlinked .github/workflows is not overwritten" "$(cat "$stub_dir/shared-dir.tail")" "# shared copy"
 check "every other config key survives the upgrade (mode, model, ...)" "$(cat "$stub_dir/config.after")" "$(cat "$stub_dir/config.before")"
 
 # An unfinished cycle would restore the old engine from its snapshot, so upgrade waits for it.
@@ -148,7 +155,7 @@ git add -A && git commit -qm "shared constitution" >/dev/null
 node "$CLI" upgrade </dev/null > "$stub_dir/symlink.log" 2>&1
 check "a symlinked IDENTITY.md's target is not overwritten" "$(cat "$shared")" "# Our shared constitution"
 check "the symlink itself is kept" "$([ -L .evolve/IDENTITY.md ] && echo symlink || echo replaced)" "symlink"
-check "upgrade says it left the symlink alone" "$(grep -c 'IDENTITY.md is a symlink' "$stub_dir/symlink.log")" "1"
+check "upgrade says it left the symlink alone" "$(grep -c 'IDENTITY.md is a symlink to a file outside' "$stub_dir/symlink.log")" "1"
 git add -A && git commit -qm "after symlink upgrade" >/dev/null || true
 
 # A newer engine is never downgraded by an older CLI.

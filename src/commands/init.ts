@@ -185,9 +185,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     // The agent's constitution is framework code too (protected from the agent), so it is refreshed.
     const identityPath = path.join(evolveDir, 'IDENTITY.md');
     const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
-    if (fs.lstatSync(identityPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
-      // Writing would go through the link to a file outside the repo that git cannot restore.
-      console.warn('  ⚠ IDENTITY.md is a symlink (a shared constitution?); left alone, so it is not updated');
+    if (!writesInsideProject(identityPath)) {
+      console.warn('  ⚠ IDENTITY.md is a symlink to a file outside the project (a shared constitution?); left alone, so it is not updated');
     } else {
       if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
         console.log('  IDENTITY.md replaced with this version (restore your own copy from git if you customised it)');
@@ -297,9 +296,8 @@ export async function runInit(options: InitOptions): Promise<void> {
         const installed = fs.existsSync(destPath) ? fs.readFileSync(destPath, 'utf8') : null;
         const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
         if (installed === null && !wantCi) continue;
-        if (fs.lstatSync(destPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
-          // Writing would go through the link to a file outside the repo that git cannot restore.
-          console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink; left alone, so it is not updated`);
+        if (!writesInsideProject(destPath)) {
+          console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} resolves outside the project (a symlink); left alone, so it is not updated`);
           continue;
         }
         if (installed !== null && !ours) {
@@ -607,6 +605,18 @@ async function promptForInterval(fallback: number): Promise<number> {
 }
 
 /** The cadence of the installed local schedule, or null when there is none (or it is unreadable). */
+/**
+ * False when writing `file` would land outside the project through a symlink (the file itself or a
+ * parent directory): git could neither show nor restore what the refresh overwrote there.
+ */
+function writesInsideProject(file: string): boolean {
+  let existing = file;
+  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+  const target = fs.realpathSync(existing);
+  const projectRoot = fs.realpathSync(process.cwd());
+  return target === projectRoot || target.startsWith(projectRoot + path.sep);
+}
+
 function readScheduleEvery(): number | null {
   try {
     const schedule: unknown = JSON.parse(fs.readFileSync(evolveFile('schedule.json'), 'utf8'));
