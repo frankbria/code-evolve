@@ -70,6 +70,14 @@ node -e "const f='.evolve/config.json';const c=require('./'+f);c.agent='claude';
 OPENAI_API_KEY=sk-test node "$CLI" start --agent codex --every 6 </dev/null > "$work/switch.log" 2>&1 || true
 check "start with a new agent does not carry the old agent's model" "$(node -p "require('./.evolve/config.json').model ?? 'none'")" "none"
 
+# init switching agents drops it too.
+node -e "const f='.evolve/config.json';const c=require('./'+f);c.agent='claude';c.model='claude-opus-custom';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+node "$CLI" init --yes --agent codex </dev/null > "$work/init-switch.log" 2>&1
+check "init with a new agent does not carry the old agent's model" "$(node -p "require('./.evolve/config.json').model ?? 'none'")" "none"
+node -e "const f='.evolve/config.json';const c=require('./'+f);c.model='my-codex-model';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+node "$CLI" init --yes </dev/null > "$work/init-keep.log" 2>&1
+check "an init refresh with the same agent keeps the saved model" "$(node -p "require('./.evolve/config.json').model")" "my-codex-model"
+
 # init falls back to api-key when a login mode does not belong to the agent.
 other="$work/other"; mkdir -p "$other"; cd "$other"; git init -q
 node "$CLI" init --yes --agent codex --auth-mode oauth </dev/null > "$work/fallback.log" 2>&1

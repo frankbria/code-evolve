@@ -119,10 +119,14 @@ export function getDefaultModel(agent: string): string {
   return AGENT_DEFAULT_MODELS[agent] || 'claude-sonnet-4-6';
 }
 
+/** The saved model, when it was chosen for `agent`; a model belongs to the agent it was set for. */
+export function savedModelFor(config: EvolveConfig, agent: string): string | undefined {
+  return config.agent === agent ? config.model : undefined;
+}
+
 /** The model a cycle uses: --model, else the configured model (when it was set for this agent), else the agent's default. */
 export function resolveModel(agent: string, explicitModel: string | undefined, config: EvolveConfig): string {
-  const configuredModel = config.agent === agent ? config.model : undefined;
-  return explicitModel || configuredModel || getDefaultModel(agent);
+  return explicitModel || savedModelFor(config, agent) || getDefaultModel(agent);
 }
 
 /**

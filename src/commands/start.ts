@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isLoginAuth, isValidAgent, resolveModel, AuthMode } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, isLoginAuth, isValidAgent, resolveModel, savedModelFor, AuthMode } from '../utils/config';
 import { codexLoginMissing } from '../utils/checks';
 
 
@@ -133,7 +133,7 @@ export const startCommand = new Command('start')
     // Persist agent choice + mode. `start` always sets up a local schedule, so
     // the mode is at least 'local' (keep 'both' if CI was also chosen).
     // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
-    const savedModel = options.model ? model : config.agent === agent ? config.model : undefined;
+    const savedModel = options.model ? model : savedModelFor(config, agent);
     writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', model: savedModel });
 
     // Install cron entry + write .env + schedule.json

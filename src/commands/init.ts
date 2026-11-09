@@ -16,6 +16,7 @@ import {
   getDefaultModel,
   isLoginAuth,
   resolveModel,
+  savedModelFor,
   getSupportedAgents,
   resolveAgentSelection,
   resolveModeSelection,
@@ -396,6 +397,8 @@ export async function runInit(options: InitOptions): Promise<void> {
       gitignoreLinesAdded,
       createdPaths,
       engineVersion: packageVersion(),
+      // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
+      model: savedModelFor(currentConfig, agent),
     });
     if (agent !== 'claude') {
       console.log(`  Agent: ${agent}`);
