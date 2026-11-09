@@ -17,6 +17,9 @@ counting the interview for an empty repository, and not counting yes/no consent 
 - The project must be a git repository (`git rev-parse --git-dir`). If it is not, offer to run `git init`.
 - `npx` must work (`npx --version`). If it does not, tell the user code-evolve needs Node.js 18 or newer.
 - Know which agent you are: `claude`, `codex` or `opencode`. Use it for `--agent` below.
+- If any code-evolve command fails, stop and tell the user what failed. Never patch, shim, wrap or
+  bypass code-evolve or its checks (for example with `NODE_OPTIONS` preloads or edited copies) to get
+  past a failure: a faked check leaves a broken install that reports itself as healthy.
 
 ## 2. Install the engine
 
@@ -30,7 +33,13 @@ npx -y code-evolve@latest init --yes --agent <your agent>
 and keeps the user's state and schedule. If `.evolve/` exists but `.evolve/config.json` names a
 different agent, run the same command so the install is set for you. If `npx` cannot reach npm
 (an offline sandbox): with an existing `.evolve/`, say so and continue with it; without one, stop
-and tell the user setup needs network access to npm. Never edit `config.json` by hand.
+and tell the user setup needs network access to npm. Codex's default sandbox has no network: ask
+the user to start Codex with `-c sandbox_workspace_write.network_access=true` for setup, or to run
+`npx code-evolve init --yes --agent codex` in a terminal first. Never edit `config.json` by hand.
+
+init may report a skill directory as `Left alone: ... (not writable here)`: Codex's sandbox makes
+`.agents/` read-only. That is fine while the code-evolve plugin is installed (its skills cover it);
+mention it, and suggest running init once outside the sandbox to add the project copies.
 
 ## 3. Draft the vision and spec
 

@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { spawn, spawnSync } from 'child_process';
+import { spawn } from 'child_process';
+import { runProcess } from '../utils/checks';
 import { compareVersions, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
 import { readConfig } from '../utils/config';
 import { runInit } from './init';
@@ -12,7 +13,7 @@ import { runInit } from './init';
  * so no cycle can start, snapshot the old engine and later restore it over the upgrade.
  */
 async function holdRunLock(): Promise<'locked' | 'busy' | 'failed'> {
-  const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim();
+  const gitDir = (await runProcess('git', ['rev-parse', '--absolute-git-dir'])).stdout.trim();
   // Private (0700) dir: the holder writes status.tmp next to the status file.
   const statusDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-evolve-upgrade-'));
   const statusFile = path.join(statusDir, 'status');
@@ -46,7 +47,7 @@ export const upgradeCommand = new Command('upgrade')
       console.error('Not initialized. Run `code-evolve init` first.');
       process.exit(1);
     }
-    const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+    const status = await runProcess('git', ['status', '--porcelain']);
     if (status.status !== 0) {
       console.error('upgrade needs a git repository, so the upgrade can be reviewed and undone.');
       process.exit(1);

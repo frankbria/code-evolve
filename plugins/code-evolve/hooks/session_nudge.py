@@ -61,8 +61,8 @@ def main() -> int:
         cwd = payload.get("cwd") if isinstance(payload, dict) else None
         with open(os.path.join(PLUGIN_ROOT, "plugin.json"), encoding="utf-8") as manifest:
             plugin_version = json.load(manifest)["version"]
-        # Codex sets PLUGIN_ROOT (Claude Code sets only CLAUDE_PLUGIN_ROOT) and names skills with "$".
-        setup_skill = "$evolve-setup" if os.environ.get("PLUGIN_ROOT") else "/code-evolve:evolve-setup"
+        # Codex sets PLUGIN_ROOT (Claude Code sets only CLAUDE_PLUGIN_ROOT) and names plugin skills "$plugin:skill".
+        setup_skill = "$code-evolve:evolve-setup" if os.environ.get("PLUGIN_ROOT") else "/code-evolve:evolve-setup"
         message = nudge(cwd or os.getcwd(), plugin_version, setup_skill)
     except Exception:  # a nudge must never break session start
         return 0

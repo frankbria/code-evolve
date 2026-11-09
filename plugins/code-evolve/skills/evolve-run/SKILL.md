@@ -54,6 +54,10 @@ On failure, read `.evolve/run/ERRORS.md`, fix the code, commit the fix, and veri
 after three failed verifications: finalize will revert the session and record a requirement for
 the failure.
 
+Under Codex's sandbox, a failure like `spawnSync ... EPERM` comes from the sandbox, not the code:
+it blocks synchronous child processes (Node's `spawnSync`/`execSync`). Prefer async APIs in tests
+you write, and tell the user if the project's own tests need them.
+
 ## 4. Finalize (always)
 
 ```bash

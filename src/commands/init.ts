@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { WORKFLOW_MARKER, AGENT_SKILL_DIRS, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
+import { WORKFLOW_MARKER, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -159,7 +159,7 @@ export async function runInit(options: InitOptions): Promise<void> {
 
     // Check dependencies
     console.log('Checking dependencies...');
-    const { ok, results } = checkDependencies(agent);
+    const { ok, results } = await checkDependencies(agent);
     console.log(formatDependencyResults(results));
 
     if (!ok) {
@@ -385,7 +385,9 @@ export async function runInit(options: InitOptions): Promise<void> {
       ...skills.createdDirs,
       ...createdInstructionFiles,
     ])];
-    console.log(`  Installed skills (${skills.installed.join(', ')}) into ${AGENT_SKILL_DIRS.join(' and ')}`);
+    if (skills.installedDirs.length > 0) {
+      console.log(`  Installed skills (${skills.installed.join(', ')}) into ${skills.installedDirs.join(' and ')}`);
+    }
     for (const skipped of skills.skipped) console.warn(`  ⚠ Left alone: ${skipped}`);
 
     // Write agent config (persist execution mode when one was chosen)

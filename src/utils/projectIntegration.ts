@@ -96,6 +96,8 @@ function crossesSymlink(projectDir: string, relativeDir: string): boolean {
 
 export interface SkillInstallResult {
   installed: string[];
+  /** The agent skill directories the skills were actually written to. */
+  installedDirs: string[];
   skipped: string[];
   /** Skill directories (and their parents) that did not exist before; eject may remove them. */
   createdDirs: string[];
@@ -108,24 +110,32 @@ export interface SkillInstallResult {
  */
 export function installOperatorSkills(projectDir: string, operatorSkillsDir: string): SkillInstallResult {
   const names = operatorSkillNames(operatorSkillsDir);
-  const result: SkillInstallResult = { installed: names, skipped: [], createdDirs: [] };
+  const result: SkillInstallResult = { installed: names, installedDirs: [], skipped: [], createdDirs: [] };
   for (const skillDir of AGENT_SKILL_DIRS) {
     if (crossesSymlink(projectDir, skillDir)) {
       result.skipped.push(`${skillDir} (symlinked directory)`);
       continue;
     }
-    for (const dir of [path.dirname(skillDir), skillDir]) {
-      if (!fs.existsSync(path.join(projectDir, dir))) result.createdDirs.push(dir);
-    }
-    for (const name of names) {
-      const destination = path.join(projectDir, skillDir, name);
-      if (fs.existsSync(destination) && !isManagedSkill(destination)) {
-        result.skipped.push(`${skillDir}/${name} (not installed by code-evolve)`);
-        continue;
+    const createdDirs = [path.dirname(skillDir), skillDir].filter((dir) => !fs.existsSync(path.join(projectDir, dir)));
+    try {
+      for (const name of names) {
+        const destination = path.join(projectDir, skillDir, name);
+        if (fs.existsSync(destination) && !isManagedSkill(destination)) {
+          result.skipped.push(`${skillDir}/${name} (not installed by code-evolve)`);
+          continue;
+        }
+        fs.rmSync(destination, { recursive: true, force: true });
+        fs.cpSync(path.join(operatorSkillsDir, name), destination, { recursive: true });
       }
-      fs.rmSync(destination, { recursive: true, force: true });
-      fs.cpSync(path.join(operatorSkillsDir, name), destination, { recursive: true });
+    } catch (error) {
+      // An agent sandbox can make a skill directory read-only (Codex does for .agents/): report it, don't crash.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EROFS' && code !== 'EACCES' && code !== 'EPERM') throw error;
+      result.skipped.push(`${skillDir} (not writable here: ${code})`);
+      continue;
     }
+    result.createdDirs.push(...createdDirs);
+    result.installedDirs.push(skillDir);
   }
   return result;
 }

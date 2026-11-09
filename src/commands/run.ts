@@ -34,7 +34,7 @@ export const runCommand = new Command('run')
       console.error(getAgentEnvHint(agent, authMode));
       process.exit(3);
     }
-    if (codexLoginMissing(agent, authMode)) {
+    if (await codexLoginMissing(agent, authMode)) {
       console.error('Codex is not logged in.');
       console.error(getAgentEnvHint(agent, authMode));
       process.exit(3);
