@@ -26,6 +26,8 @@ export interface EvolveConfig {
   agentCommand?: string;
   /** agent "custom": an extended regex; a matching log line marks the session failed. */
   agentErrorPattern?: string;
+  /** agent "custom": environment variables its CLI needs (credentials); their values reach cron's .env. */
+  agentEnvVars?: string[];
 }
 
 const CONFIG_FILE = 'config.json';
@@ -137,10 +139,34 @@ export function customCommandBinary(agentCommand?: string): string {
   return agentCommand?.trim().split(/\s+/)[0] ?? '';
 }
 
-/** Engine variables for the custom adapter (agents/custom.sh); empty for the built-in agents. */
+// Variables a credential must not set: the engine's own (it would override them), and ones that change
+// how the cron shell or the tools it starts behave (they would break or hijack every cycle).
+const RESERVED_ENV_NAMES = new Set([
+  'AGENT', 'MODEL', 'TIMEOUT', 'EVOLVE_DIR', 'PROJECT_DIR', 'REPO', 'FORCE_RUN', 'PATH', 'HOME',
+  'CLAUDE_AUTH_MODE', 'AGENT_COMMAND', 'AGENT_ERROR_PATTERN', 'CODE_EVOLVE_MODEL', 'CODE_EVOLVE_PROMPT_FILE',
+  'IFS', 'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'PS4', 'PROMPT_COMMAND', 'CDPATH', 'GLOBIGNORE',
+  'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'NODE_OPTIONS', 'PYTHONPATH', 'PYTHONSTARTUP',
+]);
+
+/** A valid environment variable name that --agent-env may carry (not one the engine sets itself). */
+export function isEnvVarName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !RESERVED_ENV_NAMES.has(name);
+}
+
+/**
+ * Engine variables for the custom adapter (agents/custom.sh): the command, the error pattern, and the
+ * current values of the credentials it names (agentEnvVars), so scheduled cycles get them too.
+ * Empty for the built-in agents.
+ */
 export function customAgentEnv(agent: string, config: EvolveConfig): Record<string, string> {
   if (agent !== 'custom') return {};
+  const credentials = Object.fromEntries(
+    (config.agentEnvVars ?? [])
+      .filter((name) => isEnvVarName(name) && process.env[name] !== undefined)
+      .map((name) => [name, process.env[name] as string]),
+  );
   return {
+    ...credentials,
     AGENT_COMMAND: config.agentCommand ?? '',
     ...(config.agentErrorPattern ? { AGENT_ERROR_PATTERN: config.agentErrorPattern } : {}),
   };

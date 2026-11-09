@@ -18,6 +18,7 @@ import {
   resolveModel,
   customAgentEnv,
   customCommandBinary,
+  isEnvVarName,
 } from '../config';
 
 describe('agent validation', () => {
@@ -208,5 +209,29 @@ describe('custom agent', () => {
     expect(customAgentEnv('custom', config)).toEqual({ AGENT_COMMAND: 'goose run -i {prompt_file}', AGENT_ERROR_PATTERN: 'quota' });
     expect(customAgentEnv('custom', { agent: 'custom', agentCommand: 'x' })).toEqual({ AGENT_COMMAND: 'x' });
     expect(customAgentEnv('claude', config)).toEqual({});
+  });
+});
+
+describe('custom agent credentials', () => {
+  it('copies the named variables that are set, and accepts only valid names', () => {
+    process.env.CODE_EVOLVE_TEST_TOKEN = 'abc';
+    try {
+      const config = { agent: 'custom', agentCommand: 'x', agentEnvVars: ['CODE_EVOLVE_TEST_TOKEN', 'CODE_EVOLVE_UNSET_VAR'] };
+      expect(customAgentEnv('custom', config)).toEqual({ AGENT_COMMAND: 'x', CODE_EVOLVE_TEST_TOKEN: 'abc' });
+    } finally {
+      delete process.env.CODE_EVOLVE_TEST_TOKEN;
+    }
+    expect(isEnvVarName('GEMINI_API_KEY')).toBe(true);
+    expect(isEnvVarName('BAD-NAME')).toBe(false);
+    expect(isEnvVarName('1ABC')).toBe(false);
+    for (const reserved of ['MODEL', 'AGENT', 'AGENT_COMMAND', 'PATH', 'TIMEOUT', 'IFS', 'BASH_ENV', 'LD_PRELOAD', 'NODE_OPTIONS']) {
+      expect(isEnvVarName(reserved)).toBe(false);
+    }
+    process.env.AGENT_COMMAND = 'planted';
+    try {
+      expect(customAgentEnv('custom', { agent: 'custom', agentCommand: 'cmd', agentEnvVars: ['AGENT_COMMAND'] })).toEqual({ AGENT_COMMAND: 'cmd' });
+    } finally {
+      delete process.env.AGENT_COMMAND;
+    }
   });
 });

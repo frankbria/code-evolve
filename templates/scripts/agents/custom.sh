@@ -27,7 +27,11 @@ run_agent() {
         return 1
     fi
 
-    local model_reference='"$CODE_EVOLVE_MODEL"' prompt_file_reference='"$CODE_EVOLVE_PROMPT_FILE"'
+    local model_reference='"$CODE_EVOLVE_MODEL"' prompt_file_reference='"$CODE_EVOLVE_PROMPT_FILE"' quoted
+    # A placeholder the user quoted ('{model}' or "{model}") is unwrapped first: the reference is already
+    # quoted, and inside single quotes it would reach the agent as literal text.
+    for quoted in "'{model}'" '"{model}"'; do command="${command//"$quoted"/{model\}}"; done
+    for quoted in "'{prompt_file}'" '"{prompt_file}"'; do command="${command//"$quoted"/{prompt_file\}}"; done
     command="${command//\{model\}/$model_reference}"
     if [[ "$command" == *"{prompt_file}"* ]]; then
         command="${command//\{prompt_file\}/$prompt_file_reference}"

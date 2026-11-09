@@ -18,6 +18,7 @@ import {
   resolveModel,
   savedModelFor,
   customAgentEnv,
+  isEnvVarName,
   getSupportedAgents,
   getPickableAgents,
   resolveAgentSelection,
@@ -45,6 +46,7 @@ export interface InitOptions {
   yes?: boolean;
   agentCommand?: string;
   agentErrorPattern?: string;
+  agentEnv?: string;
 }
 
 export const initCommand = new Command('init')
@@ -54,6 +56,7 @@ export const initCommand = new Command('init')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama, custom)', 'claude')
   .option('--agent-command <command>', 'For --agent custom: the headless command (prompt on stdin, or {prompt_file}; {model})')
   .option('--agent-error-pattern <regex>', 'For --agent custom: a log line matching this regex fails the session')
+  .option('--agent-env <names>', 'For --agent custom: comma-separated environment variables its CLI needs (saved into the cron .env)')
   .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
@@ -168,6 +171,19 @@ export async function runInit(options: InitOptions): Promise<void> {
     // A custom agent is a command template; keep the saved one unless a new one is passed.
     const agentCommand = agent === 'custom' ? options.agentCommand ?? readConfig().agentCommand : undefined;
     const agentErrorPattern = agent === 'custom' ? options.agentErrorPattern ?? readConfig().agentErrorPattern : undefined;
+    // An empty --agent-env (say, an unset $VARS in a script) keeps the saved names; "," clears them.
+    const agentEnvVars = agent === 'custom'
+      ? (options.agentEnv ? options.agentEnv.split(',').map((name) => name.trim()).filter(Boolean) : readConfig().agentEnvVars)
+      : undefined;
+    const invalidEnvName = agentEnvVars?.find((name) => !isEnvVarName(name));
+    if (invalidEnvName !== undefined) {
+      console.error(`--agent-env: "${invalidEnvName}" is not a valid environment variable name, or is one code-evolve sets itself (MODEL, AGENT, PATH, …).`);
+      process.exit(1);
+    }
+    const unsetEnvNames = (agentEnvVars ?? []).filter((name) => process.env[name] === undefined);
+    if (unsetEnvNames.length > 0) {
+      console.warn(`  ⚠ --agent-env: ${unsetEnvNames.join(', ')} not set in this shell; scheduled cycles won't get ${unsetEnvNames.length > 1 ? 'them' : 'it'} until you set it and run code-evolve start`);
+    }
     if (agent === 'custom' && !agentCommand?.trim()) {
       console.error('--agent custom needs --agent-command "<your CLI> -p ..." (the prompt goes to stdin, or replaces {prompt_file}).');
       process.exit(1);
@@ -362,7 +378,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     const authChanged = authMode !== (previousConfig.authMode ?? 'api-key');
     // A custom agent's command and pattern live in the cron .env, so changing either reinstalls it.
     const customCommandChanged = agent === 'custom'
-      && (agentCommand !== previousConfig.agentCommand || agentErrorPattern !== previousConfig.agentErrorPattern);
+      && (agentCommand !== previousConfig.agentCommand || agentErrorPattern !== previousConfig.agentErrorPattern
+        || (agentEnvVars ?? []).join(',') !== (previousConfig.agentEnvVars ?? []).join(','));
     const keepSchedule = wasInitialized && !interactive && !modeExplicit && !everyExplicit
       && !agentChanged && !authChanged && !customCommandChanged && fs.existsSync(evolveFile('schedule.json'));
     // Reinstalling for a changed agent, auth or custom command keeps the cadence the user already chose.
@@ -388,7 +405,7 @@ export async function runInit(options: InitOptions): Promise<void> {
             installLocalSchedule({
               agent, authMode, model: resolveModel(agent, undefined, previousConfig), hours, projectDir: process.cwd(),
               // The config is written after scheduling, so pass this run's custom command directly.
-              agentEnv: customAgentEnv(agent, { agent, agentCommand, agentErrorPattern }),
+              agentEnv: customAgentEnv(agent, { agent, agentCommand, agentErrorPattern, agentEnvVars }),
             });
             console.log(`Local schedule installed: every ${hours}h (.evolve/evolve.log)`);
             localScheduled = true;
@@ -425,7 +442,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       gitignoreLinesAdded,
       createdPaths,
       engineVersion: packageVersion(),
-      ...(agent === 'custom' ? { agentCommand, agentErrorPattern } : {}),
+      ...(agent === 'custom' ? { agentCommand, agentErrorPattern, agentEnvVars } : {}),
       // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
       model: savedModelFor(currentConfig, agent),
     });
