@@ -176,7 +176,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       : undefined;
     const invalidEnvName = agentEnvVars?.find((name) => !isEnvVarName(name));
     if (invalidEnvName !== undefined) {
-      console.error(`--agent-env: "${invalidEnvName}" is not a valid environment variable name.`);
+      console.error(`--agent-env: "${invalidEnvName}" is not a valid environment variable name, or is one code-evolve sets itself (MODEL, AGENT, PATH, …).`);
       process.exit(1);
     }
     const unsetEnvNames = (agentEnvVars ?? []).filter((name) => process.env[name] === undefined);

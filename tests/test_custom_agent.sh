@@ -106,6 +106,8 @@ check "init saves the credential names" "$(node -p "JSON.stringify(require('./.e
 check "the credential's value reaches the cron .env, quoted" "$(grep -c "export CUSTOM_TOKEN='s3cret\$value'" .evolve/.env)" "1"
 status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'BAD-NAME' </dev/null > "$work/init-badenv.log" 2>&1 || status=$?
 check "an invalid variable name is rejected" "$status" "1"
+status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'MODEL' </dev/null > "$work/init-reserved.log" 2>&1 || status=$?
+check "a name the engine sets itself (MODEL) is rejected" "$status" "1"
 
 # Validation uses the same grep the adapter runs (GNU grep, ugrep, BSD grep differ), so an
 # unbalanced group, invalid in every grep -E, is the portable case to test.

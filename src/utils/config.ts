@@ -139,9 +139,15 @@ export function customCommandBinary(agentCommand?: string): string {
   return agentCommand?.trim().split(/\s+/)[0] ?? '';
 }
 
-/** A valid environment variable name (what --agent-env accepts). */
+// Variables the engine and its adapters set; a credential with one of these names would override them.
+const RESERVED_ENV_NAMES = new Set([
+  'AGENT', 'MODEL', 'TIMEOUT', 'EVOLVE_DIR', 'PROJECT_DIR', 'REPO', 'FORCE_RUN', 'PATH', 'HOME',
+  'CLAUDE_AUTH_MODE', 'AGENT_COMMAND', 'AGENT_ERROR_PATTERN', 'CODE_EVOLVE_MODEL', 'CODE_EVOLVE_PROMPT_FILE',
+]);
+
+/** A valid environment variable name that --agent-env may carry (not one the engine sets itself). */
 export function isEnvVarName(name: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !RESERVED_ENV_NAMES.has(name);
 }
 
 /**
@@ -157,9 +163,9 @@ export function customAgentEnv(agent: string, config: EvolveConfig): Record<stri
       .map((name) => [name, process.env[name] as string]),
   );
   return {
+    ...credentials,
     AGENT_COMMAND: config.agentCommand ?? '',
     ...(config.agentErrorPattern ? { AGENT_ERROR_PATTERN: config.agentErrorPattern } : {}),
-    ...credentials,
   };
 }
 

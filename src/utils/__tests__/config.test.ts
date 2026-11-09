@@ -224,5 +224,12 @@ describe('custom agent credentials', () => {
     expect(isEnvVarName('GEMINI_API_KEY')).toBe(true);
     expect(isEnvVarName('BAD-NAME')).toBe(false);
     expect(isEnvVarName('1ABC')).toBe(false);
+    for (const reserved of ['MODEL', 'AGENT', 'AGENT_COMMAND', 'PATH', 'TIMEOUT']) expect(isEnvVarName(reserved)).toBe(false);
+    process.env.AGENT_COMMAND = 'planted';
+    try {
+      expect(customAgentEnv('custom', { agent: 'custom', agentCommand: 'cmd', agentEnvVars: ['AGENT_COMMAND'] })).toEqual({ AGENT_COMMAND: 'cmd' });
+    } finally {
+      delete process.env.AGENT_COMMAND;
+    }
   });
 });
