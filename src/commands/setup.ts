@@ -14,7 +14,7 @@ export const setupCommand = new Command('setup')
   .option('--with-ci', 'Install GitHub Actions workflows')
   .option('--force', 'Reconfigure even if .evolve/ already exists')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
-  .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
+  .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
   .action(async (options: InitOptions) => {

@@ -1,7 +1,14 @@
 import fs from 'fs';
 import { evolveFile } from './paths';
 
-export type AuthMode = 'api-key' | 'oauth';
+export type AuthMode = 'api-key' | 'oauth' | 'chatgpt';
+
+/** Each agent's subscription-login auth mode: the CLI's own login replaces an API key. */
+const LOGIN_AUTH_MODES: Record<string, AuthMode> = { claude: 'oauth', codex: 'chatgpt' };
+
+export function isLoginAuth(agent: string, authMode?: AuthMode): boolean {
+  return authMode !== undefined && LOGIN_AUTH_MODES[agent] === authMode;
+}
 export type ExecutionMode = 'local' | 'ci' | 'both';
 
 export interface EvolveConfig {
@@ -95,7 +102,7 @@ const AGENT_ENV_KEYS: Record<string, string> = {
 };
 
 export function getAgentEnvKey(agent: string, authMode?: AuthMode): string {
-  if (agent === 'claude' && authMode === 'oauth') return '';
+  if (isLoginAuth(agent, authMode)) return '';
   return AGENT_ENV_KEYS[agent] || '';
 }
 
@@ -110,6 +117,12 @@ const AGENT_DEFAULT_MODELS: Record<string, string> = {
 
 export function getDefaultModel(agent: string): string {
   return AGENT_DEFAULT_MODELS[agent] || 'claude-sonnet-4-6';
+}
+
+/** The model a cycle uses: --model, else the configured model (when it was set for this agent), else the agent's default. */
+export function resolveModel(agent: string, explicitModel: string | undefined, config: EvolveConfig): string {
+  const configuredModel = config.agent === agent ? config.model : undefined;
+  return explicitModel || configuredModel || getDefaultModel(agent);
 }
 
 /**
@@ -176,6 +189,9 @@ export function getAgentCiProfile(agent: string): AgentCiProfile | null {
 export function getAgentEnvHint(agent: string, authMode?: AuthMode): string {
   if (agent === 'claude' && authMode === 'oauth') {
     return 'Ensure you are logged in via `claude login` (OAuth/subscription auth)';
+  }
+  if (agent === 'codex' && authMode === 'chatgpt') {
+    return 'Log in with `codex login` (ChatGPT subscription auth)';
   }
   switch (agent) {
     case 'claude':

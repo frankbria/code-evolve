@@ -69,8 +69,9 @@ Offer these options and set up the one the user picks (recommend the first for a
 dev box, the second for a team repository):
 
 - **Local schedule:** `npx code-evolve start --every <hours>` installs a cron job. It needs the
-  agent's API key in the environment; for a Claude subscription instead, install with
-  `npx code-evolve init --yes --agent claude --auth-mode oauth` and log in with `claude auth login`.
+  agent's API key in the environment. For a Claude subscription instead, install with
+  `npx code-evolve init --yes --agent claude --auth-mode oauth` and log in with `claude auth login`;
+  for Codex with a ChatGPT login, use `--agent codex --auth-mode chatgpt` and `codex login`.
 - **GitHub Actions:** `npx code-evolve init --yes --mode ci --every <hours>` adds the workflows. The
   repository needs the agent's API key as a secret; offer to run the `gh secret set` command that
   init prints, and run it only with the user's explicit consent.

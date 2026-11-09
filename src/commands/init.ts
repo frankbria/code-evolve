@@ -14,6 +14,8 @@ import {
   getAgentEnvKey,
   getAgentCiProfile,
   getDefaultModel,
+  isLoginAuth,
+  resolveModel,
   getSupportedAgents,
   resolveAgentSelection,
   resolveModeSelection,
@@ -45,7 +47,7 @@ export const initCommand = new Command('init')
   .option('--with-ci', 'Install GitHub Actions workflows')
   .option('--force', 'Overwrite existing .evolve/ directory')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama)', 'claude')
-  .option('--auth-mode <mode>', 'Auth mode for Claude: api-key or oauth', 'api-key')
+  .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, or both')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
   .option('--yes', 'Never prompt; refresh an existing install (managed files only, state kept)')
@@ -89,21 +91,18 @@ export async function runInit(options: InitOptions): Promise<void> {
     let agent = agentExplicit ? options.agent : existingConfig.agent || 'claude';
 
     // Validate the --auth-mode flag value up front (before any agent-specific rules).
-    let authMode: AuthMode;
-    if (options.authMode === 'oauth') {
-      authMode = 'oauth';
-    } else if (options.authMode === 'api-key') {
-      authMode = 'api-key';
-    } else {
-      console.error(`Unknown auth mode "${options.authMode}". Supported: api-key, oauth`);
+    const isAuthMode = (value: unknown): value is AuthMode => value === 'api-key' || value === 'oauth' || value === 'chatgpt';
+    if (!isAuthMode(options.authMode)) {
+      console.error(`Unknown auth mode "${options.authMode}". Supported: api-key, oauth (Claude), chatgpt (Codex)`);
       process.exit(1);
     }
+    let authMode: AuthMode = options.authMode;
     // On --force, preserve existing authMode if --auth-mode wasn't explicitly passed.
     // readConfig() only guarantees `agent` is a string, so validate the on-disk value
     // before trusting it — a hand-edited config.json must not bypass the check above.
     const existingAuthMode = (existingConfig as { authMode?: unknown }).authMode;
     if (options.force && !authModeExplicit && typeof existingAuthMode === 'string') {
-      if (existingAuthMode === 'api-key' || existingAuthMode === 'oauth') {
+      if (isAuthMode(existingAuthMode)) {
         authMode = existingAuthMode;
       } else {
         console.warn(`Warning: ignoring unsupported auth mode "${existingAuthMode}" from config.json.`);
@@ -151,9 +150,9 @@ export async function runInit(options: InitOptions): Promise<void> {
       process.exit(1);
     }
 
-    // oauth only applies to Claude — fall back for other backends.
-    if (authMode === 'oauth' && agent !== 'claude') {
-      console.warn(`Warning: oauth auth is only applicable to the Claude agent. Falling back to api-key.`);
+    // Each login mode belongs to one agent (oauth: Claude, chatgpt: Codex); fall back for the others.
+    if (authMode !== 'api-key' && !isLoginAuth(agent, authMode)) {
+      console.warn(`Warning: ${authMode} auth does not apply to the ${agent} agent. Falling back to api-key.`);
       authMode = 'api-key';
     }
 
@@ -363,7 +362,7 @@ export async function runInit(options: InitOptions): Promise<void> {
         const envKey = getAgentEnvKey(agent, authMode);
         if (!envKey || process.env[envKey]) {
           try {
-            installLocalSchedule({ agent, authMode, model: getDefaultModel(agent), hours, projectDir: process.cwd() });
+            installLocalSchedule({ agent, authMode, model: resolveModel(agent, undefined, previousConfig), hours, projectDir: process.cwd() });
             console.log(`Local schedule installed: every ${hours}h (.evolve/evolve.log)`);
             localScheduled = true;
           } catch (err) {
@@ -403,6 +402,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
     if (authMode === 'oauth') {
       console.log(`  Auth: OAuth (claude login)`);
+    }
+    if (authMode === 'chatgpt') {
+      console.log(`  Auth: ChatGPT login (codex login); CI still uses OPENAI_API_KEY`);
     }
     if (mode) {
       console.log(`  Mode: ${mode}`);

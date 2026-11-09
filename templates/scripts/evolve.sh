@@ -22,7 +22,7 @@
 # Environment:
 #   ANTHROPIC_API_KEY  — required (used by claude CLI)
 #   REPO               — GitHub repo (default: auto-detected from git remote)
-#   MODEL              — LLM model (default: claude-sonnet-4-6)
+#   MODEL              — LLM model (default: the agent's default model, see below)
 #   TIMEOUT            — Max session time in seconds (default: 3600)
 #   FORCE_RUN          — Set to "true" to bypass the bonus-run gate
 #   EVOLVE_DIR         — Directory containing evolution framework (default: .evolve)
@@ -32,11 +32,19 @@ set -euo pipefail
 
 # ── Configuration ──
 REPO="${REPO:-$(git remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||;s|\.git$||' || echo "owner/code-evolve")}"
-MODEL="${MODEL:-claude-sonnet-4-6}"
 TIMEOUT="${TIMEOUT:-3600}"
 EVOLVE_DIR="${EVOLVE_DIR:-.evolve}"
 PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
+# Each agent's default model. Keep in sync with AGENT_DEFAULT_MODELS in src/utils/config.ts
+# (tests/test_model_auth.sh checks both).
+case "$AGENT" in
+    codex)    DEFAULT_MODEL="o4-mini" ;;
+    opencode) DEFAULT_MODEL="anthropic/claude-sonnet-4-6" ;;
+    ollama)   DEFAULT_MODEL="llama3" ;;
+    *)        DEFAULT_MODEL="claude-sonnet-4-6" ;;
+esac
+MODEL="${MODEL:-$DEFAULT_MODEL}"
 BIRTH_DATE="${BIRTH_DATE:-$(date +%Y-%m-%d)}"
 ENGINE_PHASE="${1:-cycle}"
 AGENT_CALLS_ALLOWED=true

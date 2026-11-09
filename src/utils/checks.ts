@@ -1,4 +1,5 @@
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
+import type { AuthMode } from './config';
 
 interface DependencyCheck {
   name: string;
@@ -46,4 +47,10 @@ export function formatDependencyResults(results: DependencyCheck[]): string {
       return `  ${status} ${r.name}${version}`;
     })
     .join('\n');
+}
+
+/** In Codex's ChatGPT-login mode, true when `codex login status` reports no usable login. */
+export function codexLoginMissing(agent: string, authMode?: AuthMode): boolean {
+  if (agent !== 'codex' || authMode !== 'chatgpt') return false;
+  return spawnSync('codex', ['login', 'status'], { stdio: 'ignore', timeout: 10000 }).status !== 0;
 }
