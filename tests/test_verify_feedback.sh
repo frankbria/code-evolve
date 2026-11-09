@@ -56,6 +56,17 @@ rm -f "$work"/prompt.*
 engine > "$work/cycle4.log" 2>&1 || true
 contains "$work/prompt.1" "verification passed" "and reaches the next session"
 
+# The agent-driven flow (prepare, verify, finalize --no-agent: separate processes) records it too.
+printf '{"name":"demo","scripts":{"test":"echo SPLIT-FLOW-MARKER >&2; exit 1"}}\n' > package.json
+git add -A && git commit -qm "tests fail again"
+engine prepare > "$work/prepare.log" 2>&1
+check "prepare does not overwrite the record before anything ran" "$(grep -c 'verification passed' .evolve/LAST_VERIFY.md)" "1"
+engine verify > "$work/verify.log" 2>&1 || true
+engine finalize --no-agent > "$work/finalize.log" 2>&1 || true
+contains .evolve/LAST_VERIFY.md "verification failed" "finalize records the failure verify found"
+contains .evolve/LAST_VERIFY.md "SPLIT-FLOW-MARKER" "with verify's errors"
+check "and it is committed" "$(git status --porcelain -- .evolve/LAST_VERIFY.md)" ""
+
 # The workflow can read CI runs, and the stale java comments are gone.
 check "evolve.yml grants actions: read" "$(grep -c '^  actions: read' "$ROOT/templates/workflows/evolve.yml")" "1"
 check "no stale 'java not emitted' comments remain" "$(grep -c 'not yet emitted by detect_stack' "$ROOT"/templates/workflows/*.yml | awk -F: '{s+=$2} END {print s}')" "0"
