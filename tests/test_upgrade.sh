@@ -81,11 +81,18 @@ ci_project="$(mktemp -d)"
     node "$CLI" upgrade </dev/null >/dev/null 2>&1
     [ "$(cat .github/workflows/evolve.yml)" = "$shipped_workflow" ] && echo refreshed > "$stub_dir/workflow.local" || echo stale > "$stub_dir/workflow.local"
     [ -e .github/workflows/evolve-ci.yml ] && echo present > "$stub_dir/ci-workflow.local" || echo absent > "$stub_dir/ci-workflow.local"
+    # A symlinked workflow (shared outside the repo) is never written through.
+    shared_workflow="$stub_dir/shared-evolve.yml"; cp .github/workflows/evolve.yml "$shared_workflow"; echo "# shared copy" >> "$shared_workflow"
+    rm .github/workflows/evolve.yml && ln -s "$shared_workflow" .github/workflows/evolve.yml
+    git add -A && git commit -qm "shared workflow" >/dev/null
+    node "$CLI" upgrade </dev/null >/dev/null 2>&1
+    tail -1 "$shared_workflow" > "$stub_dir/shared-workflow.tail"
 )
 rm -rf "$ci_project"
 check "a CI install's evolve workflow is refreshed" "$(cat "$stub_dir/workflow")" "refreshed"
 check "workflows installed earlier are refreshed after a switch to local mode" "$(cat "$stub_dir/workflow.local")" "refreshed"
 check "local mode creates no workflow that was never installed" "$(cat "$stub_dir/ci-workflow.local")" "absent"
+check "a symlinked workflow's target is not overwritten" "$(cat "$stub_dir/shared-workflow.tail")" "# shared copy"
 check "every other config key survives the upgrade (mode, model, ...)" "$(cat "$stub_dir/config.after")" "$(cat "$stub_dir/config.before")"
 
 # An unfinished cycle would restore the old engine from its snapshot, so upgrade waits for it.

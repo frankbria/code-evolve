@@ -297,6 +297,11 @@ export async function runInit(options: InitOptions): Promise<void> {
         const installed = fs.existsSync(destPath) ? fs.readFileSync(destPath, 'utf8') : null;
         const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
         if (installed === null && !wantCi) continue;
+        if (fs.lstatSync(destPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+          // Writing would go through the link to a file outside the repo that git cannot restore.
+          console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink; left alone, so it is not updated`);
+          continue;
+        }
         if (installed !== null && !ours) {
           // A same-named file already exists — leave it untouched, but make clear our
           // workflow was NOT installed so the user knows evolution/CI won't run from it.
