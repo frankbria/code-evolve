@@ -24,7 +24,10 @@ export function isOnPath(binary: string): boolean {
   });
 }
 
-/** Run a command without a shell; resolves with its exit status (null if it could not start) and stdout. */
+/**
+ * Run a command without a shell; resolves with its exit status (null if it could not start or timed out)
+ * and stdout. `timeoutMs` 0 means no limit (for git on a large repository).
+ */
 export function runProcess(command: string, args: string[], timeoutMs = 10000): Promise<{ status: number | null; stdout: string }> {
   return new Promise((resolve) => {
     let stdout = '';

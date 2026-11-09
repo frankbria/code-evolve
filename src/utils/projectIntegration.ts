@@ -132,6 +132,8 @@ export function installOperatorSkills(projectDir: string, operatorSkillsDir: str
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== 'EROFS' && code !== 'EACCES' && code !== 'EPERM') throw error;
       result.skipped.push(`${skillDir} (not writable here: ${code})`);
+      // Directories created before the failure stay recorded, so eject can still remove them.
+      result.createdDirs.push(...createdDirs.filter((dir) => fs.existsSync(path.join(projectDir, dir))));
       continue;
     }
     result.createdDirs.push(...createdDirs);

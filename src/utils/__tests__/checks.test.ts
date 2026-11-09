@@ -56,5 +56,6 @@ describe('runProcess', () => {
   it('resolves with exit status and stdout, and null when the command cannot start', async () => {
     expect(await runProcess(process.execPath, ['-e', 'process.stdout.write("hi"); process.exit(3)'])).toEqual({ status: 3, stdout: 'hi' });
     expect((await runProcess('no-such-binary-code-evolve', [])).status).toBeNull();
+    expect((await runProcess(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], 0)).status).toBe(0);
   });
 });
