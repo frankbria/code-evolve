@@ -339,8 +339,14 @@ export async function runInit(options: InitOptions): Promise<void> {
       const previousEvery = readScheduleEvery();
       if (previousEvery !== null) hours = previousEvery;
     }
+    // `stop` removes schedule.json but keeps the mode, so a plain refresh of a stopped engine
+    // (no --mode/--every, not interactive) must not quietly start unattended cycles again.
+    const engineStopped = wasInitialized && !interactive && !modeExplicit && !everyExplicit
+      && !fs.existsSync(evolveFile('schedule.json'));
     if (keepSchedule && wantLocal) {
       console.log('  Keeping the existing local schedule');
+    } else if (wantLocal && engineStopped) {
+      console.log('  Local schedule is stopped; leaving it stopped (resume with: code-evolve start)');
     } else if (wantLocal) {
       if (process.platform === 'win32') {
         console.warn('  ⚠ Local scheduling is not supported on native Windows — use WSL or ci mode.');

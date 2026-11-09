@@ -14,6 +14,8 @@ same() { cmp -s "$1" "$2" && echo same || echo different; }
 project="$(mktemp -d)"; stub_dir="$(mktemp -d)"
 trap 'rm -rf "$project" "$stub_dir"' EXIT
 printf '#!/bin/bash\necho "claude 0.0.0-stub"\n' > "$stub_dir/claude"; chmod +x "$stub_dir/claude"
+# Never touch the real crontab: this stub records each call and holds an empty table.
+printf '#!/bin/bash\necho "$*" >> "%s/crontab.calls"\n[ "${1:-}" = "-l" ] && { echo "no crontab for $USER" >&2; exit 1; }\ncat > /dev/null\n' "$stub_dir" > "$stub_dir/crontab"; chmod +x "$stub_dir/crontab"
 export PATH="$stub_dir:$PATH"
 cd "$project"
 git init -q; git config user.email t@example.com; git config user.name t
@@ -114,9 +116,23 @@ for _ in $(seq 1 40); do
 done
 wait "$upgrader" || true
 check "the run lock is held while the upgrade runs" "$held" "yes"
-check "the run lock is released after the upgrade" \
-    "$(python3 -c "import fcntl,sys;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB);print('free')" "$lock_file" 2>/dev/null || echo held)" "free"
+released=no
+for _ in $(seq 1 20); do
+    if python3 -c "import fcntl,sys;f=open(sys.argv[1],'a');fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)" "$lock_file" 2>/dev/null; then released=yes; break; fi
+    sleep 0.1
+done
+check "the run lock is released after the upgrade" "$released" "yes"
 git add -A && git commit -qm "upgraded again" >/dev/null || true
+
+# A stopped engine stays stopped: `stop` removes schedule.json but keeps mode local.
+node -e "const f='.evolve/config.json';const c=require('./'+f);c.mode='local';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+rm -f .evolve/schedule.json "$stub_dir/crontab.calls"
+git add -A && git commit -qm "stopped local engine" >/dev/null
+ANTHROPIC_API_KEY=test-key node "$CLI" upgrade </dev/null > "$stub_dir/stopped.log" 2>&1
+check "upgrade does not restart a stopped engine" "$(cat "$stub_dir/crontab.calls" 2>/dev/null | grep -cv '^-l' || true)" "0"
+check "no schedule is recorded for a stopped engine" "$([ -e .evolve/schedule.json ] && echo present || echo absent)" "absent"
+check "upgrade says the schedule stays stopped" "$(grep -c 'code-evolve start' "$stub_dir/stopped.log")" "1"
+git add -A && git commit -qm "upgraded stopped engine" >/dev/null || true
 
 # A newer engine is never downgraded by an older CLI.
 node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
