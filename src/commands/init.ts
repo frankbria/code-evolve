@@ -575,8 +575,10 @@ async function promptForAgentAndAuth(
     const agents = getPickableAgents();
     console.log('Which agent backend should drive evolution?');
     agents.forEach((a, i) => console.log(`  ${i + 1}. ${a}${a === defaultAgent ? ' (default)' : ''}`));
-    const defaultIdx = Math.max(agents.indexOf(defaultAgent), 0) + 1;
-    const raw = await ask(`Select [1-${agents.length}] (default ${defaultIdx}): `);
+    // A saved custom agent is not in the menu, so Enter keeps it; say so instead of showing a number.
+    const defaultLabel = agents.includes(defaultAgent) ? String(agents.indexOf(defaultAgent) + 1) : `keep ${defaultAgent}`;
+    const defaultIdx = agents.indexOf(defaultAgent) + 1;
+    const raw = await ask(`Select [1-${agents.length}] (default ${defaultLabel}): `);
     const agent = resolveAgentSelection(raw, defaultAgent);
     if (raw.trim() && agent === defaultAgent && raw.trim() !== defaultAgent && raw.trim() !== String(defaultIdx)) {
       console.log(`  Unrecognized choice — using ${defaultAgent}.`);
