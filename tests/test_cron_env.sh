@@ -65,7 +65,7 @@ run_with_timeout 120 env -i HOME="$HOME" PATH=/usr/bin:/bin SHELL=/bin/sh GIT_AU
     /bin/sh -c "$cron_command" || true
 
 first_call=$(head -1 "$stub_dir/agent-calls" 2>/dev/null || true)
-if [ "$first_call" = "argv=-p --model my-model --allowedTools Bash,Read,Write,Edit,Glob,Grep key=$tricky_key model_env=my-model run=cron" ]; then
+if [ "$first_call" = "argv=-p --model my-model --output-format stream-json --verbose --permission-mode dontAsk --allowedTools Bash,Read,Write,Edit,Glob,Grep key=$tricky_key model_env=my-model run=cron" ]; then
     ok "cron run: agent env has MODEL and the exact API key from .env"
 else
     bad "cron run: agent call was '$first_call'; log tail: $(tail -5 .evolve/evolve.log 2>/dev/null)"

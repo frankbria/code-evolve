@@ -23,21 +23,18 @@ run_agent() {
 
     agent_auth_check || return 1
 
+    # Stream JSON events so a failed session is detectable even when claude exits 0; claude_stream.py
+    # turns them back into a readable log. dontAsk denies, rather than waits on, any tool not allowed.
+    # The prompt names every runtime skill by path, so nothing depends on what --bare would skip.
     ${timeout_cmd:+$timeout_cmd "$timeout"} claude -p --model "$model" \
+        --output-format stream-json --verbose \
+        --permission-mode dontAsk \
         --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
-        < "$prompt_file" 2>&1
+        < "$prompt_file" 2>&1 | python3 "$(dirname "${BASH_SOURCE[0]}")/../claude_stream.py"
 }
 
-# agent_detect_error <logfile> — returns 0 if the log shows a Claude API error.
-# Claude's stream-JSON emits {"type":"error",...} even on exit 0, so grep for it.
+# agent_detect_error <logfile> — returns 0 if the log shows a failed session. claude_stream.py writes
+# this marker for an error event or an error result, which claude can report with exit code 0.
 agent_detect_error() {
-    grep -q '"type":"error"' "$1" 2>/dev/null
-}
-
-agent_env_hint() {
-    if [ "${CLAUDE_AUTH_MODE:-api-key}" = "oauth" ]; then
-        echo "Run 'claude login' to authenticate via OAuth"
-    else
-        echo "ANTHROPIC_API_KEY"
-    fi
+    grep -q '^code-evolve: agent error' "$1" 2>/dev/null
 }

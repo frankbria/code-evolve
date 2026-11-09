@@ -25,7 +25,3 @@ run_agent() {
         --skip-git-repo-check \
         < "$prompt_file" 2>&1
 }
-
-agent_env_hint() {
-    echo "OPENAI_API_KEY (or a ChatGPT login via 'codex login')"
-}

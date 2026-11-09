@@ -15,16 +15,27 @@ bad()  { echo "  FAIL: $1"; fail=$((fail+1)); }
 
 log="$(mktemp)"; trap 'rm -f "$log"' EXIT
 
-# ── claude.sh: detects the JSON error marker, ignores clean output ──
-( source "$AGENTS/claude.sh"
-  printf '%s\n' '{"type":"error","error":{"message":"overloaded"}}' > "$log"
-  agent_detect_error "$log" ) && ok "claude: detects \"type\":\"error\"" \
-                              || bad "claude: should detect \"type\":\"error\""
-
-( source "$AGENTS/claude.sh"
-  printf '%s\n' 'all good, feature implemented' > "$log"
-  agent_detect_error "$log" ) && bad "claude: false positive on clean log" \
-                              || ok "claude: clean log not flagged"
+# ── claude.sh: claude_stream.py turns stream-json events into a log agent_detect_error can read ──
+STREAM="$ROOT/templates/scripts/claude_stream.py"
+# detected <events>: "error" when the formatted log is flagged, else "clean".
+detected() {
+    printf '%s\n' "$1" | python3 "$STREAM" > "$log"
+    ( source "$AGENTS/claude.sh"; agent_detect_error "$log" ) && echo error || echo clean
+}
+success='{"type":"assistant","message":{"content":[{"type":"text","text":"Implemented done."},{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"Implemented done."}'
+[ "$(detected "$success")" = clean ] && ok "claude: a successful session is not flagged" || bad "claude: success flagged as error"
+grep -q "Implemented done." "$log" && grep -q -- "-> Bash npm test" "$log" \
+    && ok "claude: the log stays readable (text and tool calls)" || bad "claude: readable log missing: $(cat "$log")"
+[ "$(detected '{"type":"result","subtype":"success","is_error":true,"api_error_status":529,"result":"API Error: 529 Overloaded"}')" = error ] \
+    && ok "claude: an API-error result is flagged" || bad "claude: API-error result not flagged"
+grep -q "529 Overloaded" "$log" && ok "claude: the error reason is in the log" || bad "claude: error reason missing"
+[ "$(detected '{"type":"result","subtype":"error_max_turns","is_error":false}')" = error ] \
+    && ok "claude: a non-success result subtype is flagged" || bad "claude: error_max_turns not flagged"
+[ "$(detected '{"type":"error","error":{"message":"overloaded"}}')" = error ] \
+    && ok "claude: an error event is flagged" || bad "claude: error event not flagged"
+[ "$(detected 'plain stderr line, not JSON')" = clean ] && grep -q "plain stderr line" "$log" \
+    && ok "claude: non-JSON lines pass through and are not flagged" || bad "claude: non-JSON handling"
 
 # ── fallback: adapters without agent_detect_error rely on exit code ──
 # Replicates the evolve.sh guard: define the fallback only if unset.

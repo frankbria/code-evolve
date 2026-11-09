@@ -34,7 +34,6 @@ for adapter in claude codex opencode ollama; do
         set -euo pipefail
         source "$1"
         run_agent "$2" some-model "" ""
-        agent_env_hint
         if declare -F agent_detect_error >/dev/null; then agent_detect_error "$2" || true; fi
     ' _ "$AGENTS/$adapter.sh" "$prompt_file" 2>&1 </dev/null) && status=0 || status=$?
     if [ "$status" -eq 0 ] && ! grep -q "unbound variable" <<<"$output"; then
@@ -43,10 +42,11 @@ for adapter in claude codex opencode ollama; do
         bad "$adapter: failed under set -u (exit $status): $output"
     fi
     if [ "$adapter" = claude ]; then
-        if grep -qx "ANTHROPIC_API_KEY" <<<"$output"; then
-            ok "claude: unset CLAUDE_AUTH_MODE means API-key mode (hint names ANTHROPIC_API_KEY)"
+        # API-key mode skips the OAuth login check, so `claude auth status` is never called.
+        if ! grep -q "^claude auth" "$stub_dir/agent-calls" 2>/dev/null; then
+            ok "claude: unset CLAUDE_AUTH_MODE means API-key mode (no OAuth login check)"
         else
-            bad "claude: unset CLAUDE_AUTH_MODE should mean API-key mode, hint was: $output"
+            bad "claude: unset CLAUDE_AUTH_MODE should mean API-key mode, but it ran: $(grep '^claude auth' "$stub_dir/agent-calls")"
         fi
     fi
 done
