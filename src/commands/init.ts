@@ -171,8 +171,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     // A custom agent is a command template; keep the saved one unless a new one is passed.
     const agentCommand = agent === 'custom' ? options.agentCommand ?? readConfig().agentCommand : undefined;
     const agentErrorPattern = agent === 'custom' ? options.agentErrorPattern ?? readConfig().agentErrorPattern : undefined;
+    // An empty --agent-env (say, an unset $VARS in a script) keeps the saved names; "," clears them.
     const agentEnvVars = agent === 'custom'
-      ? options.agentEnv?.split(',').map((name) => name.trim()).filter(Boolean) ?? readConfig().agentEnvVars
+      ? (options.agentEnv ? options.agentEnv.split(',').map((name) => name.trim()).filter(Boolean) : readConfig().agentEnvVars)
       : undefined;
     const invalidEnvName = agentEnvVars?.find((name) => !isEnvVarName(name));
     if (invalidEnvName !== undefined) {

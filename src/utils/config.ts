@@ -139,10 +139,13 @@ export function customCommandBinary(agentCommand?: string): string {
   return agentCommand?.trim().split(/\s+/)[0] ?? '';
 }
 
-// Variables the engine and its adapters set; a credential with one of these names would override them.
+// Variables a credential must not set: the engine's own (it would override them), and ones that change
+// how the cron shell or the tools it starts behave (they would break or hijack every cycle).
 const RESERVED_ENV_NAMES = new Set([
   'AGENT', 'MODEL', 'TIMEOUT', 'EVOLVE_DIR', 'PROJECT_DIR', 'REPO', 'FORCE_RUN', 'PATH', 'HOME',
   'CLAUDE_AUTH_MODE', 'AGENT_COMMAND', 'AGENT_ERROR_PATTERN', 'CODE_EVOLVE_MODEL', 'CODE_EVOLVE_PROMPT_FILE',
+  'IFS', 'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'PS4', 'PROMPT_COMMAND', 'CDPATH', 'GLOBIGNORE',
+  'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'NODE_OPTIONS', 'PYTHONPATH', 'PYTHONSTARTUP',
 ]);
 
 /** A valid environment variable name that --agent-env may carry (not one the engine sets itself). */
