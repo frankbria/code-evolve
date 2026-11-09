@@ -360,9 +360,12 @@ export async function runInit(options: InitOptions): Promise<void> {
     const previousConfig = readConfig();
     const agentChanged = agent !== previousConfig.agent;
     const authChanged = authMode !== (previousConfig.authMode ?? 'api-key');
+    // A custom agent's command and pattern live in the cron .env, so changing either reinstalls it.
+    const customCommandChanged = agent === 'custom'
+      && (agentCommand !== previousConfig.agentCommand || agentErrorPattern !== previousConfig.agentErrorPattern);
     const keepSchedule = wasInitialized && !interactive && !modeExplicit && !everyExplicit
-      && !agentChanged && !authChanged && fs.existsSync(evolveFile('schedule.json'));
-    // Reinstalling for a changed agent or auth keeps the cadence the user already chose.
+      && !agentChanged && !authChanged && !customCommandChanged && fs.existsSync(evolveFile('schedule.json'));
+    // Reinstalling for a changed agent, auth or custom command keeps the cadence the user already chose.
     if (wasInitialized && !everyExplicit && !interactive) {
       const previousEvery = readScheduleEvery();
       if (previousEvery !== null) hours = previousEvery;

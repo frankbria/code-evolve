@@ -89,6 +89,9 @@ check "init --mode local writes the custom command into the cron .env" "$(grep -
 
 # Validation uses the same grep the adapter runs (GNU grep, ugrep, BSD grep differ), so an
 # unbalanced group, invalid in every grep -E, is the portable case to test.
+node "$CLI" init --yes --agent custom --agent-command 'fakeagent --new-flag' </dev/null > "$work/init-change.log" 2>&1
+check "re-running init with a new command refreshes the scheduled cron .env" "$(grep -c "AGENT_COMMAND='fakeagent --new-flag'" .evolve/.env 2>/dev/null || echo 0)" "1"
+
 status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-error-pattern 'quota(' </dev/null > "$work/init-regex.log" 2>&1 || status=$?
 check "a pattern this system's grep -E rejects is rejected at init" "$status" "1"
 check "and the message names grep -E" "$(grep -c 'not a valid grep -E pattern' "$work/init-regex.log")" "1"
