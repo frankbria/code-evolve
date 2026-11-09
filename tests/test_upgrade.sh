@@ -155,8 +155,13 @@ git add -A && git commit -qm "shared constitution" >/dev/null
 node "$CLI" upgrade </dev/null > "$stub_dir/symlink.log" 2>&1
 check "a symlinked IDENTITY.md's target is not overwritten" "$(cat "$shared")" "# Our shared constitution"
 check "the symlink itself is kept" "$([ -L .evolve/IDENTITY.md ] && echo symlink || echo replaced)" "symlink"
-check "upgrade says it left the symlink alone" "$(grep -c 'IDENTITY.md is a symlink to a file outside' "$stub_dir/symlink.log")" "1"
+check "upgrade says it left the symlink alone" "$(grep -c 'IDENTITY.md is a symlink' "$stub_dir/symlink.log")" "1"
 git add -A && git commit -qm "after symlink upgrade" >/dev/null || true
+rm .evolve/IDENTITY.md && ln -s vision.md .evolve/IDENTITY.md
+git add -A && git commit -qm "identity linked to vision" >/dev/null
+node "$CLI" upgrade </dev/null >/dev/null 2>&1
+check "an IDENTITY.md symlinked to a user file inside the project leaves that file alone" "$(same .evolve/vision.md "$saved/vision.md")" "same"
+git add -A && git commit -qm "after inside-symlink upgrade" >/dev/null || true
 
 # A newer engine is never downgraded by an older CLI.
 node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"

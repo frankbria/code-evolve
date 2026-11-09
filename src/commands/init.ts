@@ -186,7 +186,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     const identityPath = path.join(evolveDir, 'IDENTITY.md');
     const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
     if (!writesInsideProject(identityPath)) {
-      console.warn('  ⚠ IDENTITY.md is a symlink to a file outside the project (a shared constitution?); left alone, so it is not updated');
+      console.warn('  ⚠ IDENTITY.md is a symlink (a shared constitution?); left alone, so it is not updated');
     } else {
       if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
         console.log('  IDENTITY.md replaced with this version (restore your own copy from git if you customised it)');
@@ -297,7 +297,7 @@ export async function runInit(options: InitOptions): Promise<void> {
         const ours = installed !== null && installed.includes(WORKFLOW_MARKER);
         if (installed === null && !wantCi) continue;
         if (!writesInsideProject(destPath)) {
-          console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} resolves outside the project (a symlink); left alone, so it is not updated`);
+          console.warn(`  ⚠ ${path.relative(process.cwd(), destPath)} is a symlink or under one leading outside the project; left alone, so it is not updated`);
           continue;
         }
         if (installed !== null && !ours) {
@@ -606,10 +606,12 @@ async function promptForInterval(fallback: number): Promise<number> {
 
 /** The cadence of the installed local schedule, or null when there is none (or it is unreadable). */
 /**
- * False when writing `file` would land outside the project through a symlink (the file itself or a
- * parent directory): git could neither show nor restore what the refresh overwrote there.
+ * False when `file` is a symlink, or a symlinked parent directory would land the write outside the
+ * project, where git could neither show nor restore what the refresh overwrote.
  */
 function writesInsideProject(file: string): boolean {
+  // A symlinked managed file is left alone even inside the project: it may point at a user-owned file.
+  if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
   let existing = file;
   while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
   const target = fs.realpathSync(existing);
