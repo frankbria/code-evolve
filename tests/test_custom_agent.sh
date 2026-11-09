@@ -51,6 +51,7 @@ check "a non-zero exit is the adapter's exit" "$(FAKE_EXIT=7 adapter 'fakeagent'
 log="$work/log"; echo "Error: QUOTA EXCEEDED" > "$log"
 check "the error pattern flags a matching log" "$( (AGENT_ERROR_PATTERN='QUOTA (EXCEEDED|LIMIT)'; source "$ADAPTER"; agent_detect_error "$log") && echo flagged || echo clean)" "flagged"
 check "no pattern, no log-based flag" "$( (source "$ADAPTER"; agent_detect_error "$log") && echo flagged || echo clean)" "clean"
+check "check_agent finds the binary of a command with leading or tab-separated whitespace" "$( (AGENT_COMMAND=$'  fakeagent\t--model {model}'; source "$ADAPTER"; check_agent) && echo found || echo missing)" "found"
 check "check_agent needs the command's binary on PATH" "$( (AGENT_COMMAND='no-such-cli -p'; source "$ADAPTER"; check_agent) && echo found || echo missing)" "missing"
 
 # CLI: init validates the command, run drives the engine with it.
@@ -64,6 +65,13 @@ check "init with a command whose binary is missing fails the dependency check" "
 node "$CLI" init --yes --agent custom --agent-command 'fakeagent --model {model}' --agent-error-pattern 'QUOTA EXCEEDED' </dev/null >/dev/null 2>&1
 check "init saves the command and pattern" "$(node -p "const c=require('./.evolve/config.json');c.agent+'|'+c.agentCommand+'|'+c.agentErrorPattern")" "custom|fakeagent --model {model}|QUOTA EXCEEDED"
 git add -A && git commit -qm "custom install"
+
+node -e "const f='.evolve/config.json';const c=require('./'+f);delete c.agentCommand;require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+status=0; node "$CLI" run --timeout 60 </dev/null > "$work/run-nocmd.log" 2>&1 || status=$?
+check "run with no configured command exits 3 with a config message" "$status:$(grep -c 'needs agentCommand' "$work/run-nocmd.log")" "3:1"
+status=0; node "$CLI" start --every 6 </dev/null > "$work/start-nocmd.log" 2>&1 || status=$?
+check "start with no configured command refuses to schedule" "$status" "3"
+git checkout -q -- .evolve/config.json
 
 rm -f "$work/calls"
 node "$CLI" run --timeout 60 </dev/null > "$work/run.log" 2>&1 || true

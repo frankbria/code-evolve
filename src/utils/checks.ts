@@ -13,16 +13,20 @@ interface DependencyCheck {
   version?: string;
 }
 
-/** True when `binary` is an executable file on PATH; spawns nothing. */
+function isExecutableFile(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** True when `binary` is an executable file on PATH (or, when it holds a "/", at that path); spawns nothing. */
 export function isOnPath(binary: string): boolean {
-  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => {
-    try {
-      fs.accessSync(path.join(dir, binary), fs.constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  if (!binary) return false;
+  if (binary.includes('/')) return isExecutableFile(binary);
+  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => isExecutableFile(path.join(dir, binary)));
 }
 
 /**

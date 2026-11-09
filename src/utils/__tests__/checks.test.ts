@@ -50,6 +50,12 @@ describe('isOnPath', () => {
     expect(isOnPath('node')).toBe(true);
     expect(isOnPath('no-such-binary-code-evolve')).toBe(false);
   });
+
+  it('never accepts an empty name (a PATH directory is not a binary), and checks a path directly', () => {
+    expect(isOnPath('')).toBe(false);
+    expect(isOnPath(process.execPath)).toBe(true);
+    expect(isOnPath('/no/such/binary')).toBe(false);
+  });
 });
 
 describe('runProcess', () => {

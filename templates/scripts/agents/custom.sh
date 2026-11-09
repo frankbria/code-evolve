@@ -9,7 +9,10 @@
 # and cannot add commands of their own, whatever characters they hold.
 
 check_agent() {
-    [ -n "${AGENT_COMMAND:-}" ] && command -v "${AGENT_COMMAND%% *}" &>/dev/null
+    local binary=""
+    # The first word, with surrounding whitespace (spaces or tabs) trimmed, as init reads it.
+    read -r binary _ <<<"${AGENT_COMMAND:-}"
+    [ -n "$binary" ] && command -v "$binary" &>/dev/null
 }
 
 # run_agent <prompt_file> <model> <timeout_cmd> <timeout>
