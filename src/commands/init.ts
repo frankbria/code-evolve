@@ -185,10 +185,15 @@ export async function runInit(options: InitOptions): Promise<void> {
     // The agent's constitution is framework code too (protected from the agent), so it is refreshed.
     const identityPath = path.join(evolveDir, 'IDENTITY.md');
     const shippedIdentity = fs.readFileSync(path.join(templatesDir, 'state', 'IDENTITY.md'));
-    if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
-      console.log('  IDENTITY.md replaced with this version (restore your own copy from git if you customised it)');
+    if (fs.lstatSync(identityPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      // Writing would go through the link to a file outside the repo that git cannot restore.
+      console.warn('  ⚠ IDENTITY.md is a symlink (a shared constitution?); left alone, so it is not updated');
+    } else {
+      if (fs.existsSync(identityPath) && !fs.readFileSync(identityPath).equals(shippedIdentity)) {
+        console.log('  IDENTITY.md replaced with this version (restore your own copy from git if you customised it)');
+      }
+      fs.writeFileSync(identityPath, shippedIdentity);
     }
-    fs.writeFileSync(identityPath, shippedIdentity);
 
     // Migrate root-level vision.md/spec.md into .evolve/ (0.1.x upgrade path). Only on an explicit
     // --force: under --yes those root files are the project's own documents.

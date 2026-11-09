@@ -134,6 +134,16 @@ check "no schedule is recorded for a stopped engine" "$([ -e .evolve/schedule.js
 check "upgrade says the schedule stays stopped" "$(grep -c 'code-evolve start' "$stub_dir/stopped.log")" "1"
 git add -A && git commit -qm "upgraded stopped engine" >/dev/null || true
 
+# A symlinked IDENTITY.md (a constitution shared outside the repo) is left alone, never written through.
+shared="$stub_dir/shared-identity.md"; printf '# Our shared constitution\n' > "$shared"
+rm .evolve/IDENTITY.md && ln -s "$shared" .evolve/IDENTITY.md
+git add -A && git commit -qm "shared constitution" >/dev/null
+node "$CLI" upgrade </dev/null > "$stub_dir/symlink.log" 2>&1
+check "a symlinked IDENTITY.md's target is not overwritten" "$(cat "$shared")" "# Our shared constitution"
+check "the symlink itself is kept" "$([ -L .evolve/IDENTITY.md ] && echo symlink || echo replaced)" "symlink"
+check "upgrade says it left the symlink alone" "$(grep -c 'IDENTITY.md is a symlink' "$stub_dir/symlink.log")" "1"
+git add -A && git commit -qm "after symlink upgrade" >/dev/null || true
+
 # A newer engine is never downgraded by an older CLI.
 node -e "const f='.evolve/config.json';const c=require('./'+f);c.engineVersion='99.0.0';require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
 git add -A && git commit -qm "newer engine"
