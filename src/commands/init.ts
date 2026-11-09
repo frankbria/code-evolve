@@ -179,6 +179,10 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.error(`--agent-env: "${invalidEnvName}" is not a valid environment variable name.`);
       process.exit(1);
     }
+    const unsetEnvNames = (agentEnvVars ?? []).filter((name) => process.env[name] === undefined);
+    if (unsetEnvNames.length > 0) {
+      console.warn(`  ⚠ --agent-env: ${unsetEnvNames.join(', ')} not set in this shell; scheduled cycles won't get ${unsetEnvNames.length > 1 ? 'them' : 'it'} until you set it and run code-evolve start`);
+    }
     if (agent === 'custom' && !agentCommand?.trim()) {
       console.error('--agent custom needs --agent-command "<your CLI> -p ..." (the prompt goes to stdin, or replaces {prompt_file}).');
       process.exit(1);
