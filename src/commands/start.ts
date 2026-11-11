@@ -227,16 +227,16 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode: A
 }
 
 /** The values in a cron .env, read back from the `export NAME='…'` lines writeEnvFile writes. */
-function readEnvFile(envFile: string): Record<string, string> {
+function readEnvFile(envFile: string): Map<string, string> {
   let text: string;
   try {
     text = fs.readFileSync(envFile, 'utf8');
   } catch {
-    return {};
+    return new Map();
   }
-  const values: Record<string, string> = {};
+  const values = new Map<string, string>();
   for (const [, name, quoted] of text.matchAll(/^export ([A-Za-z_][A-Za-z0-9_]*)='((?:[^']|'\\'')*)'$/gm)) {
-    values[name] = quoted.replace(/'\\''/g, "'");
+    values.set(name, quoted.replace(/'\\''/g, "'"));
   }
   return values;
 }
@@ -247,14 +247,15 @@ function readEnvFile(envFile: string): Record<string, string> {
  */
 export function credentialsKeptFromEnvFile(names: string[], envFile: string): { kept: Record<string, string>; warnings: string[] } {
   const unsetNames = names.filter((name) => isEnvVarName(name) && process.env[name] === undefined);
-  const saved = unsetNames.length > 0 ? readEnvFile(envFile) : {};
+  const saved = unsetNames.length > 0 ? readEnvFile(envFile) : new Map<string, string>();
   const savedFile = `${EVOLVE_DIR_NAME}/.env`;
   const kept: Record<string, string> = {};
   const warnings = unsetNames.map((name) => {
-    if (!saved[name]) {
+    const savedValue = saved.get(name);
+    if (!savedValue) {
       return `${name} is not set in this shell and no value is saved in ${savedFile}; scheduled cycles won't get it until you set it and run code-evolve start`;
     }
-    kept[name] = saved[name];
+    kept[name] = savedValue;
     return `${name} is not set in this shell; keeping the value saved in ${savedFile}`;
   });
   return { kept, warnings };
