@@ -171,8 +171,9 @@ writes a journal entry (`.evolve/JOURNAL.md`), and commits.
 `node scripts/sync-plugin-version.js --check` and fails on any mismatch.
 
 A release is a pushed `v<version>` tag. The **Release** workflow (`.github/workflows/release.yml`)
-then checks the tag against `package.json`, runs the type check and the tests, publishes the package
-to npm with provenance, and creates the GitHub release with the plugin ZIP
+then checks the tag against `package.json`, runs the type check and the tests, and, in a second job
+that alone holds the publish rights, publishes the package to npm with provenance and creates the
+GitHub release with the plugin ZIP
 (`code-evolve-plugin-<version>.zip`) attached. Only `dist/`, `templates/` and `plugins/` are shipped
 (see the `files` field in `package.json`).
 
@@ -184,7 +185,12 @@ npm version patch                # or minor / major: bumps every pinned version,
 git push --follow-tags           # the tag starts the Release workflow
 ```
 
-One-time setup on npmjs.com, either of:
+Only stable `v<major>.<minor>.<patch>` tags start the workflow; a pre-release tag such as
+`v1.3.0-beta.1` does not.
+
+One-time setup on npmjs.com, **before the first tag is pushed**. The version bump reaches `main`
+together with the tag, and the plugin served from `main` then installs that exact version, so a
+release that cannot publish leaves setup falling back to `@latest` until it is re-run. Either of:
 
 - **Trusted publishing (recommended, no secret):** package settings → Trusted Publisher → GitHub
   Actions, with organization or user `frankbria`, repository `code-evolve`, workflow filename

@@ -17,7 +17,8 @@ else
     npm publish --provenance --access public
 fi
 
-archive="$(scripts/pack-codex-plugin)"
+# Not into dist/: the npm package ships that directory.
+archive="$(scripts/pack-codex-plugin "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/code-evolve-plugin-$version.zip")"
 if gh release view "$tag" >/dev/null 2>&1; then
     gh release upload "$tag" "$archive" --clobber
 else

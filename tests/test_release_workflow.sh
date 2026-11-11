@@ -32,19 +32,22 @@ chmod +x "$work/bin/npm" "$work/bin/gh"
 publish_release() {
     : > "$work/log"
     local status=0
-    PATH="$work/bin:$PATH" STUB_LOG="$work/log" STUB_STATE="$work/state" \
+    PATH="$work/bin:$PATH" STUB_LOG="$work/log" STUB_STATE="$work/state" RUNNER_TEMP="$work" \
         "$ROOT/scripts/publish-release" "$@" > "$work/out" 2>&1 || status=$?
     echo "$status"
 }
 calls() { grep -c -- "$1" "$work/log" || true; }
-archive="dist/code-evolve-plugin-$VERSION.zip"
+archive="$work/code-evolve-plugin-$VERSION.zip"
+rm -f "$ROOT"/dist/*.zip
 
 mkdir "$work/state"
 check "a first release succeeds" "$(publish_release "v$VERSION")" "0"
 check "it publishes to npm with provenance" "$(calls '^npm publish --provenance --access public$')" "1"
 check "it creates the GitHub release for the tag with the plugin ZIP" \
     "$(calls "^gh release create v$VERSION $archive --title v$VERSION --generate-notes --verify-tag\$")" "1"
-check "the plugin ZIP was built" "$([ -s "$ROOT/$archive" ] && echo yes || echo no)" "yes"
+check "the plugin ZIP was built" "$([ -s "$archive" ] && echo yes || echo no)" "yes"
+# The release tests run before the publish, and the npm package ships dist/.
+check "the plugin ZIP is kept out of dist/, which the npm package ships" "$(ls "$ROOT"/dist/*.zip 2>/dev/null | wc -l | tr -d ' ')" "0"
 
 echo "$VERSION" > "$work/state/published"; touch "$work/state/released"
 check "a re-run after a finished release succeeds" "$(publish_release "v$VERSION")" "0"
@@ -67,11 +70,21 @@ check "no GitHub release is created after a failed publish" "$(calls '^gh releas
 # release.yml: only version tags trigger it, it can mint the OIDC token npm needs, and it tests before publishing.
 line_of() { grep -n -- "$1" "$WORKFLOW" | head -1 | cut -d: -f1; }
 check "the workflow runs on version tags only" "$(grep -A2 '^on:' "$WORKFLOW" | tr -d ' \n')" "on:push:tags:['v[0-9]+.[0-9]+.[0-9]+']"
-check "it may request an OIDC token (trusted publishing, provenance)" "$(grep -c '^  id-token: write' "$WORKFLOW")" "1"
-check "it may create the GitHub release" "$(grep -c '^  contents: write' "$WORKFLOW")" "1"
+# Install scripts and tests must not be able to publish: only the publish job holds those rights.
+publish_job="$(sed -n '/^  publish:/,$p' "$WORKFLOW")"
+check "the workflow itself is read-only" "$(grep -A1 '^permissions:' "$WORKFLOW" | tr -d ' \n')" "permissions:contents:read"
+check "only the publish job may request an OIDC token" \
+    "$(grep -c 'id-token: write' "$WORKFLOW") $(grep -c '^      id-token: write' <<<"$publish_job")" "1 1"
+check "only the publish job may create the GitHub release" \
+    "$(grep -c 'contents: write' "$WORKFLOW") $(grep -c '^      contents: write' <<<"$publish_job")" "1 1"
+check "the publish job waits for the tests" "$(grep -c '^    needs: test$' <<<"$publish_job")" "1"
+check "the publish job runs no dependency install scripts" "$(grep -c 'run: npm ci' <<<"$publish_job") $(grep -c 'run: npm ci --ignore-scripts$' <<<"$publish_job")" "1 1"
+check "no job leaves the repository token in the checkout" "$(grep -c 'uses: actions/checkout' "$WORKFLOW") $(grep -c 'persist-credentials: false' "$WORKFLOW")" "2 2"
 check "it publishes through scripts/publish-release" "$(grep -c 'scripts/publish-release "\$GITHUB_REF_NAME"' "$WORKFLOW")" "1"
 check "it checks the tag before installing anything" \
     "$([ "$(line_of 'sync-plugin-version.js --check --tag "\$GITHUB_REF_NAME"')" -lt "$(line_of 'npm ci')" ] && echo yes || echo no)" "yes"
+check "the setup skill falls back when its pinned version is not on npm" \
+    "$(grep -c 'code-evolve@latest' "$ROOT/plugins/code-evolve/skills/evolve-setup/SKILL.md" | sed 's/^[1-9][0-9]*$/yes/')" "yes"
 check "it runs the tests before publishing" \
     "$([ "$(line_of 'run: npm test')" -lt "$(line_of 'scripts/publish-release')" ] && echo yes || echo no)" "yes"
 check "CI fails a pull request whose versions drifted" \

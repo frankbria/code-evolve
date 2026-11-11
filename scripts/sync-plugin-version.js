@@ -9,7 +9,7 @@ const repoRoot = path.join(__dirname, '..');
 const { version } = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
 const manifests = ['plugins/code-evolve/plugin.json', 'plugins/code-evolve/.claude-plugin/plugin.json'];
 const setupSkill = 'plugins/code-evolve/skills/evolve-setup/SKILL.md';
-const pinnedInstall = /^(npx -y code-evolve@)\S+/m;
+const pinnedInstall = /^(npx -y code-evolve@)\S+/gm;
 
 const flags = process.argv.slice(2);
 const tagFlag = flags.indexOf('--tag');
@@ -23,7 +23,7 @@ for (const manifest of manifests) {
   synced.set(manifest, `${JSON.stringify(data, null, 2)}\n`);
 }
 const skillText = fs.readFileSync(path.join(repoRoot, setupSkill), 'utf8');
-if (!pinnedInstall.test(skillText)) {
+if (skillText.search(pinnedInstall) === -1) {
   console.error(`${setupSkill} has no \`npx -y code-evolve@<version>\` install command to pin.`);
   process.exit(1);
 }

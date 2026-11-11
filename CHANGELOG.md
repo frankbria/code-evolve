@@ -25,7 +25,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - The `evolve-setup` skill installs the engine version it was written for
   (`npx -y code-evolve@<version> init ...`) instead of `@latest`, so a plugin and the engine it
-  installs stay in step. `npm version` keeps that version current along with the plugin manifests (#95).
+  installs stay in step. It falls back to `@latest` when that version is not on npm yet, and does
+  not put an older engine over a newer one. `npm version` keeps the pinned version current along
+  with the plugin manifests (#95).
 - `init` says when a switch of mode leaves an earlier cron job or GitHub Actions schedule
   installed, and `start` says when it replaces native scheduling, so two schedulers do not run
   side by side unnoticed. The `evolve-run` skill now checks that the push landed and reports a

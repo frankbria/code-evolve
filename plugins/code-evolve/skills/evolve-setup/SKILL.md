@@ -34,7 +34,9 @@ and keeps the user's state and schedule. If `.evolve/` exists but `.evolve/confi
 different agent, run the same command so the install is set for you. The command installs the
 version this skill was written for. If `config.json` records an `engineVersion` newer than the one
 in the command, do not run it (it would put an older engine back): tell the user this plugin or
-skill copy is out of date and should be updated. If `npx` cannot reach npm
+skill copy is out of date and should be updated. If npm answers that this version does not exist
+(a 404, `ETARGET` or "No matching version"), the release is not published yet: run the command once
+more with `code-evolve@latest` and tell the user which version was installed. If `npx` cannot reach npm
 (an offline sandbox): with an existing `.evolve/`, say so and continue with it; without one, stop
 and tell the user setup needs network access to npm. Codex's default sandbox has no network: ask
 the user to start Codex with `-c sandbox_workspace_write.network_access=true` for setup, or to run

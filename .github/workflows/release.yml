@@ -10,27 +10,27 @@ on:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 permissions:
-  contents: write # create the GitHub release
-  id-token: write # npm trusted publishing and provenance
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
 
 jobs:
-  release:
+  # Runs dependency install scripts and the whole test suite, so it holds no publish rights.
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # Trusted publishing needs npm 11.5.1 or later, which Node 24 ships.
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Check the tag and every pinned version match package.json
         run: node scripts/sync-plugin-version.js --check --tag "$GITHUB_REF_NAME"
@@ -43,6 +43,31 @@ jobs:
 
       - name: Build and test
         run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # npm trusted publishing and provenance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs npm 11.5.1 or later, which Node 24 ships.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # The publish builds the package (prepublishOnly), which needs the compiler but no install scripts.
+      - name: Install dependencies without running their scripts
+        run: npm ci --ignore-scripts
 
       - name: Publish to npm and create the GitHub release
         env:
