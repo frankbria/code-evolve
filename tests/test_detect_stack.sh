@@ -187,6 +187,16 @@ JR=$(installed_detect "$MIXED")
 check "unverified: a name with | is named too" "$(listing "$JR" unverified dir)" "a|b,examples"
 rm -rf "$MIXED/a|b"
 
+# A folder named like an option of echo is a name like any other.
+mkdir "$MIXED/-e" "$MIXED/-n"
+echo '<project/>' > "$MIXED/-e/pom.xml"
+echo '<project/>' > "$MIXED/-n/pom.xml"
+printf 'api\n-e\n-n\n' > "$MIXED/.evolve/nested-projects.txt"
+JR=$(installed_detect "$MIXED")
+check "listed: names that look like echo options are projects too" "$(listing "$JR" substacks dir)" "api,-e,-n"
+rm -rf "$MIXED/-e" "$MIXED/-n"
+printf 'api\n' > "$MIXED/.evolve/nested-projects.txt"
+
 # A name that is not valid UTF-8 would make every reader of the JSON fail, and the root
 # project would lose its checks with it: such a folder is skipped, listed or not.
 LATIN1_NAME="caf"$'\xe9'

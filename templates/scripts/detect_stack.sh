@@ -324,7 +324,7 @@ listed_nested_dirs() {
     while IFS= LC_ALL=C read -r line || [ -n "$line" ]; do
         line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s|^\(\./\)*||; s|/*$||')
         case "/$line/" in //|/'#'*|//*|*/../*|*/./*) continue ;; esac
-        echo "$line"
+        printf '%s\n' "$line"
     done < "$NESTED_LIST"
 }
 
