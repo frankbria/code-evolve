@@ -135,7 +135,20 @@ esac
 # users, and a planted sponsor list there could grant sponsor priority to any issue author.
 # The trap goes first so the lock holder is released even if mktemp fails.
 RUN_TMP=""
-trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true; [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"' EXIT
+# Set once a restore pass had to leave a swapped link alone (see restore_protected_paths).
+PROTECTED_PATHS_UNCHECKED=false
+# However the run ends after that (an agent error and an aborted step included), its status is
+# 5: any other failure status would have the workflow retry with a new session, which would take
+# the swapped directory for the user's layout.
+end_of_run() {
+    kill "$LOCK_HOLDER_PID" 2>/dev/null || true
+    [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"
+    if [ "$PROTECTED_PATHS_UNCHECKED" = true ]; then
+        echo "=== Ended with protected files NOT checked (exit status 5): see the WARNING above ==="
+        exit 5
+    fi
+}
+trap end_of_run EXIT
 RUN_TMP=$(mktemp -d)
 
 # ── Session state (shared by prepare, verify and finalize) ──
@@ -478,9 +491,6 @@ protected_file_changed() {
     [ -L "$1" ] || [ ! -f "$1" ] || ! cmp -s "$saved" "$1" || { [ -x "$saved" ] && [ ! -x "$1" ]; } || { [ ! -x "$saved" ] && [ -x "$1" ]; }
 }
 
-# Set once a restore pass had to leave a swapped link alone; the cycle then ends with status 5.
-PROTECTED_PATHS_UNCHECKED=false
-
 # Undoes any agent change to a protected path since the snapshot: modified or deleted files
 # get their snapshot back, new matching files are removed, and a directory the agent turned
 # into a symlink is replaced by a real one first (writes would otherwise land wherever the link
@@ -504,6 +514,11 @@ restore_protected_paths() {
             echo "  WARNING: $session_link no longer leads to $session_physical; protected files behind it were NOT checked or restored. Put that directory back before the next cycle."
         fi
     done < "$PROTECTED_SNAPSHOT/ancestor_links"
+    # The walk for names with a newline starts at the search roots: a directory above one that
+    # the agent turned into a symlink goes first, or the walk would pass through it.
+    while IFS= read -r protected_file; do
+        restored="$restored$(repair_protected_ancestors "$protected_file")"
+    done < <(protected_search_roots)
     while IFS= read -r -d '' protected_file; do
         git rm -rqf --cached --ignore-unmatch -- "$protected_file" >/dev/null 2>&1 || true
         rm -rf -- "$protected_file" 2>/dev/null || true
@@ -1813,10 +1828,8 @@ echo ""
 if [ "$ENGINE_PHASE" = "finalize" ]; then rm -rf "$RUN_DIR"; fi
 
 if [ "$PROTECTED_PATHS_UNCHECKED" = true ]; then
-    # Not retried by the workflow: a new session would take the swapped directory as the user's layout.
-    [ "$SESSION_PUSHED" = true ] || echo "  Day $DAY is committed locally but NOT pushed."
-    echo "=== Day $DAY ended with protected files NOT checked (exit status 5): see the WARNING above ==="
-    exit 5
+    [ "$SESSION_PUSHED" = true ] || echo "=== Day $DAY is committed locally but NOT pushed ==="
+    exit 5   # end_of_run says why
 fi
 
 if [ "$SESSION_PUSHED" != true ]; then

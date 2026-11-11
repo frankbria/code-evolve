@@ -519,7 +519,7 @@ The agent is powerful but constrained:
 
 **Protected directories you keep as symlinks.** A protected directory may be a symlink of yours (`.evolve/skills` pointing at a shared store, say); the engine follows it, restores the files behind it and puts the link back if the agent repoints it. Two limits:
 
-- If the directory such a link leads to is itself replaced by a symlink to somewhere else during a session, the engine does not touch anything behind it (it could be writing into an unrelated directory). It prints `WARNING: <link> no longer leads to <directory>`, finishes the cycle and exits with status 5, which `code-evolve run` passes on; the `evolve.yml` workflow fails the run without retrying. Put the directory back before the next cycle: a new session takes whatever the link leads to then as your layout.
+- If the directory such a link leads to is itself replaced by a symlink to somewhere else during a session, the engine does not touch anything behind it (it could be writing into an unrelated directory). It prints `WARNING: <link> no longer leads to <directory>`, finishes the cycle (or stops where it would have stopped anyway, after an agent error for example) and exits with status 5, which `code-evolve run` passes on; the `evolve.yml` workflow fails the run without retrying. Put the directory back before the next cycle: a new session takes whatever the link leads to then as your layout.
 - A session does not start (exit status 1, with the name) while a symlinked protected directory has a tab or newline in its name or target, or any protected path has a newline in its name. Rename it. Such a name that appears during a session is removed as planted.
 
 ## Review Before You Ship

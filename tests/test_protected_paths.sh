@@ -386,6 +386,33 @@ grep -q "WARNING: .evolve/skills no longer leads to" "$stub_dir/engine10.log" \
     || bad "swapped target: exit $tenth_status, $(tail -2 "$stub_dir/engine10.log")"
 cd / && rm -rf "$tenth_root"
 
+# Same swap, but the agent then fails. The engine's own "exit for retry" status must not hide
+# it: a retried session would take the swapped directory for the user's layout.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+mv ../shared-skills ../moved-skills && ln -s victim ../shared-skills
+exit 1
+STUB
+tenth_root="$(mktemp -d)"
+mkdir -p "$tenth_root/project" "$tenth_root/victim"
+cd "$tenth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "tenth (failing agent) init failed"
+mv .evolve/skills ../shared-skills && ln -s ../../shared-skills .evolve/skills
+git add -A && git commit -qm "baseline, skills symlinked to a shared store"
+tenth_status=0
+ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine10b.log" 2>&1 || tenth_status=$?
+grep -q "Agent error detected" "$stub_dir/engine10b.log" && [ "$tenth_status" -eq 5 ] \
+    && grep -q "protected files NOT checked (exit status 5)" "$stub_dir/engine10b.log" \
+    && ok "a swapped link target followed by an agent failure still ends with exit status 5" \
+    || bad "swap then agent failure: exit $tenth_status, $(tail -2 "$stub_dir/engine10b.log")"
+cd / && rm -rf "$tenth_root"
+
 # Eleventh project (#150): the agent moves the store aside and moves a different real directory
 # to its path. To do that it must be able to write both, so this is handled like any other files
 # moved into a protected directory: the strays go, the protected files come back, no failure.
@@ -500,6 +527,32 @@ STUB_MARKER="$thirteenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve P
     || bad "trailing-newline repoint not undone: $(readlink .evolve/skills/shared | od -c | tail -2 | head -1)"
 [ "$thirteenth_status" -eq 0 ] && grep -q "=== Day 0 complete ===" "$stub_dir/engine13.log" \
     && ok "the cycle with planted newline names still completes" || bad "thirteenth: exit $thirteenth_status, $(tail -2 "$stub_dir/engine13.log")"
+cd / && rm -rf "$thirteenth_root"
+
+# The agent turns .evolve itself into a symlink to a directory that holds a file with a newline
+# in its name. Removing "planted" newline names must not reach through that link.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+mv .evolve ../aside && ln -s ../victim .evolve
+STUB
+thirteenth_root="$(mktemp -d)"
+mkdir -p "$thirteenth_root/project" "$thirteenth_root/victim/scripts"
+echo "keep me" > "$thirteenth_root/victim/scripts/keep${newline}me"
+cd "$thirteenth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "thirteenth (swapped .evolve) init failed"
+git add -A && git commit -qm "baseline"
+STUB_MARKER="$thirteenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine13b.log" 2>&1 || true
+[ -e "$thirteenth_root/stub-ran" ] && [ "$(cat "../victim/scripts/keep${newline}me" 2>/dev/null)" = "keep me" ] && [ ! -L .evolve ] \
+    && ok "a newline-named file behind an .evolve the agent turned into a symlink is not deleted" \
+    || bad "file outside the project deleted through a planted .evolve link: $(ls ../victim/scripts 2>&1 | tr '\n' '?')"
 cd / && rm -rf "$thirteenth_root"
 
 # Fourteenth project (#150): not a git repository, engine directory named by an absolute path

@@ -81,4 +81,5 @@ jobs:
           # Recorded in the log: which bash and find the engine got.
           command -v bash find
           bash --version | head -1
+          find --version 2>/dev/null | grep -m1 . || echo "find has no --version (BSD find)"
           bash tests/test_protected_paths.sh
