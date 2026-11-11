@@ -38,6 +38,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **In-session cycles keep every check they find** (#113). `evolve.sh verify` now saves the build,
+  test and lint commands and the nested projects it finds to `.evolve/run/session.env`. A check
+  that first appears during the session (a new `package.json`, a new `app/` project) is run again
+  by every later `verify` and by `finalize`, even if the session has since removed the script, so
+  removing a failing check no longer makes the session pass. Until the session ends, a check that
+  was found can only be fixed, not dropped. Verification also runs a nested project that replaces
+  a root with nothing to run (a static `index.html`), which was skipped before.
 - **Protected-files guard, two layouts it missed** (#109):
   - A protected directory you keep as a symlink (for example `.evolve/skills` pointing at a shared
     store, or one skill directory inside it) is now followed when the session starts. Files
