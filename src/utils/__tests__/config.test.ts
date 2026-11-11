@@ -233,6 +233,27 @@ describe('custom agent', () => {
 });
 
 describe('custom agent credentials', () => {
+  const inheritedNames = ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__'];
+
+  it('treats a name every object inherits as unset when the environment does not set it', () => {
+    const config = { agent: 'custom', agentCommand: 'x', agentEnvVars: inheritedNames };
+    expect(Object.entries(customAgentEnv('custom', config))).toEqual([['AGENT_COMMAND', 'x']]);
+  });
+
+  it('copies a variable the environment really sets under such a name', () => {
+    const reallySet = [['constructor', 'built'], ['__proto__', 'chain']];
+    // Jest's process.env is a plain object, where assigning to __proto__ sets no key.
+    for (const [name, value] of reallySet) {
+      Object.defineProperty(process.env, name, { value, enumerable: true, configurable: true, writable: true });
+    }
+    try {
+      const config = { agent: 'custom', agentCommand: 'x', agentEnvVars: inheritedNames };
+      expect(Object.entries(customAgentEnv('custom', config))).toEqual([...reallySet, ['AGENT_COMMAND', 'x']]);
+    } finally {
+      for (const [name] of reallySet) delete process.env[name];
+    }
+  });
+
   it('copies the named variables that are set, and accepts only valid names', () => {
     process.env.CODE_EVOLVE_TEST_TOKEN = 'abc';
     try {

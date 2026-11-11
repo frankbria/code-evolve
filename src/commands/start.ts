@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, isEnvVarName, AuthMode, NATIVE_REPLACED_WARNING } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, environmentValue, isEnvVarName, AuthMode, NATIVE_REPLACED_WARNING } from '../utils/config';
 import { codexLoginMissing, isExecutableFile, isOnPath } from '../utils/checks';
 
 
@@ -268,18 +268,17 @@ function readEnvFile(envFile: string): Map<string, string> {
  * the cron .env already holds, so rewriting that file does not drop them, and a warning for each name.
  */
 export function credentialsKeptFromEnvFile(names: string[], envFile: string): { kept: Record<string, string>; warnings: string[] } {
-  const unsetNames = names.filter((name) => isEnvVarName(name) && process.env[name] === undefined);
+  const unsetNames = names.filter((name) => isEnvVarName(name) && environmentValue(name) === undefined);
   const saved = unsetNames.length > 0 ? readEnvFile(envFile) : new Map<string, string>();
   const savedFile = `${EVOLVE_DIR_NAME}/.env`;
-  const kept: Record<string, string> = {};
-  const warnings = unsetNames.map((name) => {
+  const warnings = unsetNames.map((name) => saved.get(name)
+    ? `${name} is not set in this shell; keeping the value saved in ${savedFile}`
+    : `${name} is not set in this shell and no value is saved in ${savedFile}; scheduled cycles won't get it until you set it and run code-evolve start`);
+  // Object.fromEntries, because assigning kept['__proto__'] would set no key.
+  const kept = Object.fromEntries(unsetNames.flatMap((name) => {
     const savedValue = saved.get(name);
-    if (!savedValue) {
-      return `${name} is not set in this shell and no value is saved in ${savedFile}; scheduled cycles won't get it until you set it and run code-evolve start`;
-    }
-    kept[name] = savedValue;
-    return `${name} is not set in this shell; keeping the value saved in ${savedFile}`;
-  });
+    return savedValue ? [[name, savedValue]] : [];
+  }));
   return { kept, warnings };
 }
 
