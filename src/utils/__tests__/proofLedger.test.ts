@@ -141,6 +141,11 @@ describe('writeLedger', () => {
     expect(requirement.satisfiedBy).toBeUndefined();
   });
 
+  it('does not take a line that starts with inline code in triple backticks for a fence', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Source**: manual\n\n```code-evolve proof run``` checks the gates.\n- **Status**: satisfied\n');
+    expect(readLedger()[0]).toMatchObject({ status: 'satisfied', notes: '```code-evolve proof run``` checks the gates.' });
+  });
+
   it('reads a field the same way before and after a rewrite when its first line is empty', () => {
     fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Status**: waived\n- **Waiver expires**:\n- **Waiver expires**: Day 12\n');
     const before = readLedger();

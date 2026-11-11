@@ -33,6 +33,8 @@ const LEDGER_FIELD_LINE =
 /** The code fence still open after `line` ('' for none). A fence is closed by a line of the same character, at least as many times, and nothing else. */
 function openFenceAfter(openFence: string, line: string): string {
   const [, fence = '', rest = ''] = line.match(/^\s*(`{3,}|~{3,})(.*)$/) ?? [];
+  // CommonMark: the text after a backtick fence cannot contain a backtick, so such a line is prose.
+  if (fence.startsWith('`') && rest.includes('`')) return openFence;
   if (!openFence) return fence;
   return fence.startsWith(openFence) && !rest.trim() ? '' : openFence;
 }
