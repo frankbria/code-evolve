@@ -131,13 +131,14 @@ describe('writeLedger', () => {
     expect(fs.readFileSync(ledgerPath, 'utf8').endsWith(`- **Status**: open\n\n${example}\n`)).toBe(true);
   });
 
-  it('ends a fenced example only at a fence of the same kind that is at least as long', () => {
-    const example = '````\n```\n- **Waiver expires**: Day 9999\n~~~~\n- **Waiver reason**: example\n````';
+  it('ends a fenced example only at a bare fence of the same kind that is at least as long', () => {
+    const example = '````text\n```\n- **Waiver expires**: Day 9999\n~~~~\n- **Waiver reason**: example\n````javascript\n- **Satisfied by**: example\n````';
     fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n- **Evidence**: after the example\n`);
     const [requirement] = readLedger();
     expect(requirement).toMatchObject({ notes: example, evidence: 'after the example' });
     expect(requirement.waiverExpires).toBeUndefined();
     expect(requirement.waiverReason).toBeUndefined();
+    expect(requirement.satisfiedBy).toBeUndefined();
   });
 
   it('reads a field the same way before and after a rewrite when its first line is empty', () => {
