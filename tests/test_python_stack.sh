@@ -286,6 +286,8 @@ parsed_as "a TestCase named through unittest.case runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass TestLong(unittest.case.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "unittest imported twice, with unittest.mock and in try/except, runs unittest" "$UNITTEST" \
     'import unittest\nimport unittest.mock\n\ntry:\n    from unittest import IsolatedAsyncioTestCase\nexcept ImportError:\n    from unittest import IsolatedAsyncioTestCase\n\n\nclass TestMocked(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(unittest.mock.Mock())\n\n\nclass TestAsync(IsolatedAsyncioTestCase):\n    async def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "setting an attribute of unittest.TestCase does not rebind unittest" "$UNITTEST" \
+    'import unittest\n\nunittest.TestCase.maxDiff = None\nsettings = {}\nsettings[unittest] = 1\n\n\nclass TestLong(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a mixin holding the tests of a TestCase runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass GreetingChecks:\n    def test_passes(self):\n        self.assertTrue(True)\n\n\nclass MixedTest(GreetingChecks, unittest.TestCase):\n    pass\n'
 parsed_as "a Test-named helper class with no test in it or its bases runs unittest" "$UNITTEST" \

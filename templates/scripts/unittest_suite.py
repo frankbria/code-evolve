@@ -83,8 +83,12 @@ def bound_names(statement):
         targets = [item.optional_vars for item in statement.items if item.optional_vars]
     else:
         return []
+    # Only a name that is stored to: `unittest.TestCase.maxDiff = None` binds nothing.
     return [
-        node.id for target in targets for node in ast.walk(target) if isinstance(node, ast.Name)
+        node.id
+        for target in targets
+        for node in ast.walk(target)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
     ]
 
 
