@@ -667,8 +667,8 @@ if date -j &>/dev/null; then
 else
     DAY=$(( ($(date +%s) - $(date -d "$BIRTH_DATE" +%s)) / 86400 ))
 fi
-# A birth date after today (a clock that was set back, or a date written in another time zone)
-# is the first day, as `code-evolve status` and `proof` count it.
+# A birth date a day or more ahead (a clock that was set back) is the first day, as
+# `code-evolve status` and `proof` count it.
 [ "$DAY" -ge 0 ] || DAY=0
 echo "$DAY" > "$EVOLVE_DIR/DAY_COUNT"
 

@@ -80,8 +80,8 @@ check "after a cycle: status reports the engine's day" "$(status_day)" "4"
 check "and proof reports the same day" "$(proof_day)" "4"
 check "the terminal view prints that day" "$(script -qec "node '$CLI' status" /dev/null 2>/dev/null | grep -c 'Day:      4' || true)" "1"
 
-# A birth date in the future (a clock that was set back, or a file written by an older init
-# west of UTC in the evening) must not produce a negative day.
+# A birth date a day or more in the future (a clock that was set back) must not produce a
+# negative day.
 new_project
 local_date 2 > .evolve/.birth_date
 git add -A -f .evolve/.birth_date . && git commit -qm baseline

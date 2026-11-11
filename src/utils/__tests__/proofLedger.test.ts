@@ -110,9 +110,30 @@ describe('writeLedger', () => {
     ]);
   });
 
-  it('takes the first value of a field that is written twice', () => {
+  it('takes the first value of a field that is written twice and keeps the other line', () => {
     fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Status**: satisfied\n- **Status**: open\n');
     expect(readLedger()[0].status).toBe('satisfied');
+    expect(readLedger()[0].notes).toBe('- **Status**: open');
+    writeLedger(readLedger());
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written.endsWith('- **Status**: satisfied\n\n- **Status**: open\n')).toBe(true);
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
+  });
+
+  it('leaves a fenced example alone, even one that looks like a field the requirement lacks', () => {
+    const example = '```\n- **Waiver reason**: an example, not a waiver\n- **Status**: satisfied\n```';
+    fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n`);
+    const [requirement] = readLedger();
+    expect(requirement).toMatchObject({ status: 'open', notes: example });
+    expect(requirement.waiverReason).toBeUndefined();
+    writeLedger([requirement]);
+    expect(fs.readFileSync(ledgerPath, 'utf8').endsWith(`- **Status**: open\n\n${example}\n`)).toBe(true);
+  });
+
+  it('reads fields written as a numbered, plus-bulleted or quoted list, as it did before', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n1. **Severity**: low\n+ **Status**: satisfied\n> **Source**: manual\n**Evidence**: e1\n');
+    expect(readLedger()[0]).toMatchObject({ severity: 'low', status: 'satisfied', source: 'manual', evidence: 'e1' });
     expect(readLedger()[0].notes).toBeUndefined();
   });
 

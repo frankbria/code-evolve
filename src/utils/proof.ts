@@ -28,7 +28,7 @@ export interface Req {
 // ── Ledger parse/serialize ─────────────────────────────────────────────────────
 
 const LEDGER_FIELD_LINE =
-  /^\s*(?:[-*]\s+)?\*\*(Source|Severity|Scope|Obligations|Evidence|Status|Satisfied by|Waiver reason|Waiver expires)\*\*:(.*)$/;
+  /^\s*(?:(?:[-*+]|\d+[.)])\s+|>\s*)?\*\*(Source|Severity|Scope|Obligations|Evidence|Status|Satisfied by|Waiver reason|Waiver expires)\*\*:(.*)$/;
 
 export function parseRequirements(content: string): Req[] {
   const reqs: Req[] = [];
@@ -45,13 +45,16 @@ export function parseRequirements(content: string): Req[] {
     const id = idMatch[1];
     const title = idMatch[2].trim();
 
-    // First value of each field; every other line is the user's and is kept as notes.
+    // The first line for a field is its value. Every other line is the user's and is kept as
+    // notes: free text, a repeated field, and anything inside a fenced code block.
     const fields = new Map<string, string>();
     const noteLines: string[] = [];
+    let insideFence = false;
     for (const line of body.split(/\r?\n/)) {
-      const field = line.match(LEDGER_FIELD_LINE);
-      if (!field) noteLines.push(line);
-      else if (!fields.has(field[1])) fields.set(field[1], field[2].trim());
+      if (/^\s*(```|~~~)/.test(line)) insideFence = !insideFence;
+      const field = insideFence ? null : line.match(LEDGER_FIELD_LINE);
+      if (field && !fields.has(field[1])) fields.set(field[1], field[2].trim());
+      else noteLines.push(line);
     }
     const get = (field: string): string => fields.get(field) ?? '';
     const notes = noteLines.join('\n').replace(/^(\s*\n)+/, '').trimEnd();
