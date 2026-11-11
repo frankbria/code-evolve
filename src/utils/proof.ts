@@ -85,16 +85,22 @@ export function parseRequirements(content: string): Req[] {
   return reqs;
 }
 
-export function serializeRequirements(reqs: Req[]): string {
-  const header = `# Requirements Ledger
+const STANDARD_LEDGER_HEADER = `# Requirements Ledger
 
 <!-- REQ states: open | satisfied | regressed | waived -->
 <!-- Severity:   critical | high | medium | low -->
 <!-- Gates:      UNIT | BUILD | LINT | CONTRACT | E2E | SEC | PERF | DEMO | MANUAL -->
-
 `;
 
-  if (reqs.length === 0) return header.trimEnd() + '\n';
+/** Everything above the first requirement: the title, the format notes, a user's own text. */
+export function ledgerHeader(content: string): string {
+  return content.split(/^## REQ-\d{4}: /m)[0].trim();
+}
+
+export function serializeRequirements(reqs: Req[], header = ''): string {
+  const preamble = (header || STANDARD_LEDGER_HEADER).trimEnd() + '\n';
+
+  if (reqs.length === 0) return preamble;
 
   const blocks = reqs.map((req) => {
     const lines = [
@@ -112,7 +118,7 @@ export function serializeRequirements(reqs: Req[]): string {
     return lines.join('\n');
   });
 
-  return header + blocks.join('\n\n') + '\n';
+  return preamble + '\n' + blocks.join('\n\n') + '\n';
 }
 
 export function nextReqId(reqs: Req[]): string {
@@ -145,7 +151,9 @@ export function readLedger(): Req[] {
 }
 
 export function writeLedger(reqs: Req[]): void {
-  fs.writeFileSync(requirementsFile(), serializeRequirements(reqs));
+  const file = requirementsFile();
+  const header = fs.existsSync(file) ? ledgerHeader(fs.readFileSync(file, 'utf8')) : '';
+  fs.writeFileSync(file, serializeRequirements(reqs, header));
 }
 
 // ── Gate assignment heuristics ─────────────────────────────────────────────────

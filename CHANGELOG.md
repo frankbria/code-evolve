@@ -34,6 +34,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **Engine papercuts** (#98):
+  - A reverted session keeps the lessons it wrote to `.evolve/LEARNINGS.md` and the day counter.
+    The revert used to take all of `.evolve/` back with the code, so what a failed session learned
+    was lost. Spec checkboxes, the session's own journal entry and requirement edits still go back,
+    because they describe work that no longer exists.
+  - `code-evolve proof` keeps everything above the first requirement in `REQUIREMENTS.md` (the
+    template's format notes, or your own text) when it rewrites the ledger.
+  - `proof` and `status` count the first day as Day 0, as the engine does. They used to call it
+    Day 1 once a birth date existed, so evidence files and "Satisfied by" lines were a day ahead
+    of the journal on the first day. A birth date is read as local midnight, as the engine reads it.
 - Two schedulers working from separate clones (a cloud task or GitHub Actions next to a cron job)
   no longer lose a cycle. Before it pushes, the engine fetches the branch's upstream and rebases the
   session onto what the remote gained, keeping both cycles' journal entries. When the two cycles

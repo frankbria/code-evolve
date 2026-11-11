@@ -939,6 +939,14 @@ for s in json.load(sys.stdin):
 # Returns the work tree to the session's starting point after verification kept failing, and
 # records a PROOF9 requirement for the failure. Uses $ERRORS from the last verification round.
 revert_session_and_capture_req() {
+    # With PROJECT_DIR=. the revert covers $EVOLVE_DIR too. What a failed session learned is the
+    # part of it worth keeping, and the day counter belongs to the engine, so both are carried
+    # across. Everything else in there describes the reverted work and goes back with it.
+    local kept_state kept_name
+    kept_state=$(mktemp -d)
+    for kept_name in LEARNINGS.md DAY_COUNT; do
+        [ ! -f "$EVOLVE_DIR/$kept_name" ] || cp -p "$EVOLVE_DIR/$kept_name" "$kept_state/$kept_name"
+    done
     if git checkout "$SESSION_START_SHA" -- "$PROJECT_DIR/" 2>/dev/null; then
         # Restored tracked files to baseline. Also drop files the session ADDED
         # since the baseline, so the revert truly returns to pre-session state.
@@ -971,6 +979,10 @@ revert_session_and_capture_req() {
             fi
         fi
     fi
+    for kept_name in LEARNINGS.md DAY_COUNT; do
+        [ ! -f "$kept_state/$kept_name" ] || { mkdir -p "$EVOLVE_DIR" && cp -p "$kept_state/$kept_name" "$EVOLVE_DIR/$kept_name"; }
+    done
+    rm -rf "$kept_state"
     git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
 
     # PROOF9: Auto-capture REQ from revert
