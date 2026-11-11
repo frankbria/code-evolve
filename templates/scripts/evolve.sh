@@ -1464,11 +1464,17 @@ while git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; do
     TAG_SERIAL=$((TAG_SERIAL + 1))
     TAG_NAME="$TAG_BASE-$TAG_SERIAL"
 done
-git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null || true
-echo "  Tagged: $TAG_NAME"
+# Another worktree of this repository can take the name between the check and here; its tag is not this session's to remove.
+TAG_CREATED=false
+if git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null; then
+    TAG_CREATED=true
+    echo "  Tagged: $TAG_NAME"
+else
+    echo "  Could not create tag $TAG_NAME; the session is not tagged."
+fi
 
 if [ "$SESSION_PUSHED" = true ] && ! push_session; then SESSION_PUSHED=false; fi
-if [ "$SESSION_PUSHED" != true ]; then
+if [ "$SESSION_PUSHED" != true ] && [ "$TAG_CREATED" = true ]; then
     # The commits may still be rebased before they reach the remote; a tag kept here would later be
     # pushed pointing at a commit that is on no branch. The cycle that pushes them tags them.
     git tag -d "$TAG_NAME" >/dev/null 2>&1 || true
