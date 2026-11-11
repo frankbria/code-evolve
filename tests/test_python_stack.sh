@@ -192,6 +192,19 @@ check "a plain tests/ folder holding only test packages is the start" "$(field "
 run_in "$nested" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
     && ok "tests/ holding only packages: the test is found and passes" || bad "tests/ holding only packages: $(tail -3 "$scratch/run.log")"
 mv "$nested/tests/unit/test_greeting.py" "$nested/tests/"; rm -rf "$nested/tests/unit"
+# A relative star import is followed to the package it names, however many levels up.
+relative="$(new_fixture relative)"
+printf '[project]\nname = "relative"\nversion = "0.1.0"\n' > "$relative/pyproject.toml"
+mkdir -p "$relative/tests/unit"; : > "$relative/tests/__init__.py"; : > "$relative/tests/unit/__init__.py"
+printf 'def greeting():\n    return "hi"\n' > "$relative/tests/checks.py"
+printf 'import unittest\n\nfrom ..checks import *\n\n\nclass LocalTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(greeting(), "hi")\n' > "$relative/tests/unit/test_local.py"
+J=$(detect_in "$relative")
+check "a star import from a parent package without tests runs unittest" "$(field "$J" test)" "python3 -m unittest discover"
+run_in "$relative" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "star import from a parent package: the test is found and passes" || bad "star import from a parent package: $(tail -3 "$scratch/run.log")"
+printf 'def test_shared():\n    assert False\n' >> "$relative/tests/checks.py"
+J=$(detect_in "$relative")
+check "a star import of a parent package's file that holds a test keeps pytest" "$(field "$J" test)" "pytest"
 in_app="$(new_fixture in_app)"
 printf '[project]\nname = "in_app"\nversion = "0.1.0"\n' > "$in_app/pyproject.toml"
 write_unittest "$in_app/app/tests/test_greeting.py"
@@ -282,6 +295,11 @@ parsed_as "a star import of a project file that holds a test function keeps pyte
     'import unittest\n\nfrom checks import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a class made by a call and assigned to a Test name keeps pytest" "pytest" \
     'import unittest\n\nTestGenerated = type("TestGenerated", (), {"test_failure": lambda self: 1 / 0})\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+printf 'from checks import *\n' > "$parsed/tests/relay.py"
+parsed_as "a star import of a file that star-imports another keeps pytest" "pytest" \
+    'import unittest\n\nfrom relay import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a class made by a call and assigned to an annotated Test name keeps pytest" "pytest" \
+    'import unittest\n\nTestGenerated: type = type("TestGenerated", (), {"test_failure": lambda self: 1 / 0})\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a TestCase file that imports pytest keeps pytest" "pytest" \
     'import unittest\n\nimport pytest\n\n\nclass MarkedTest(unittest.TestCase):\n    @pytest.mark.slow\n    def test_marked(self):\n        pass\n'
 parsed_as "a test file this Python cannot parse keeps pytest" "pytest" \

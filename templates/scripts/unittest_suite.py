@@ -158,10 +158,16 @@ def names_a_test(name):
 
 def star_import_brings_tests(statement, directories):
     """True when `from module import *` reads a file of the project that binds a name pytest
-    looks at, or one that cannot be parsed. A module found nowhere in `directories` is an
-    installed one and brings none."""
+    looks at, has a star import of its own, or cannot be parsed. A module found nowhere in
+    `directories` is an installed one and brings none."""
     relative = (statement.module or "").replace(".", os.sep)
-    for directory in directories[:1] if statement.level else directories:
+    if statement.level:
+        # `from ..module`: one package up from the file's own for each further dot.
+        package = directories[0]
+        for _ in range(statement.level - 1):
+            package = os.path.dirname(package)
+        directories = [package]
+    for directory in directories:
         for path in (
             os.path.join(directory, relative + ".py"),
             os.path.join(directory, relative, "__init__.py"),
@@ -170,7 +176,7 @@ def star_import_brings_tests(statement, directories):
                 try:
                     statements = scope_statements(parse(path).body)
                     return any(
-                        names_a_test(name)
+                        names_a_test(name) or name == "*"
                         for imported in statements
                         for name in bound_names(imported)
                     )
@@ -230,7 +236,7 @@ def classify(tree, directories):
                 return "pytest"
         elif is_test_function(statement):
             return "pytest"
-        elif isinstance(statement, ast.Assign) and any(
+        elif isinstance(statement, (ast.Assign, ast.AnnAssign)) and any(
             name.startswith("Test") for name in bound_names(statement)
         ):
             # A class made by a call is collected under the name it is assigned to.
