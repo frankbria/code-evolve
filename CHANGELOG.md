@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Release workflow**: pushing a `v<version>` tag publishes that version to npm with provenance and
+  creates the GitHub release with the plugin ZIP attached (`.github/workflows/release.yml`,
+  `scripts/publish-release`). It refuses a tag that does not match `package.json`, and a re-run after
+  a partial failure does not publish twice. Maintainer steps are in [INSTALL.md](INSTALL.md) (#95).
+- **Version lockstep check**: `node scripts/sync-plugin-version.js --check` fails when a plugin
+  manifest or the setup skill's install command is not at `package.json`'s version; CI runs it (#95).
 - **Native scheduling** (`--mode native`): cycles run from the agent's own scheduler (a Claude Code
   cloud or Desktop scheduled task, `/loop`, or a Codex scheduled task) instead of cron or GitHub
   Actions. `init --mode native` records the choice and `status` reports it; the `evolve-setup` skill
@@ -17,6 +23,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2026-11-08, with the defects they turned up (#85).
 
 ### Changed
+- The `evolve-setup` skill installs the engine version it was written for
+  (`npx -y code-evolve@<version> init ...`) instead of `@latest`, so a plugin and the engine it
+  installs stay in step. `npm version` keeps that version current along with the plugin manifests (#95).
 - `init` says when a switch of mode leaves an earlier cron job or GitHub Actions schedule
   installed, and `start` says when it replaces native scheduling, so two schedulers do not run
   side by side unnoticed. The `evolve-run` skill now checks that the push landed and reports a

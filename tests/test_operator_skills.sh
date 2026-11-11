@@ -65,7 +65,7 @@ PY
         if grep -qF -- '--yes' <<<"$invocation" && ! grep -qF -- '--yes' <<<"$help_text"; then
             bad "$skill_dir: 'code-evolve $command_name' has no --yes option"
         fi
-    done < <(grep -oE 'npx (-y )?code-evolve(@latest)? [a-z]+[^`]*' "$skill_file" | sed -E 's/npx (-y )?code-evolve(@latest)? /npx code-evolve /')
+    done < <(grep -oE 'npx (-y )?code-evolve(@[0-9a-z.-]+)? [a-z]+[^`]*' "$skill_file" | sed -E 's/npx (-y )?code-evolve(@[0-9a-z.-]+)? /npx code-evolve /')
 done
 ok "every code-evolve command and flag the skills mention exists (failures listed above)"
 

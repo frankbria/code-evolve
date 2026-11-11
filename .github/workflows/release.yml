@@ -1,0 +1,53 @@
+name: Release
+
+# Pushing a v<version> tag (`npm version` creates it) publishes that version to npm with provenance
+# and creates the GitHub release with the plugin ZIP attached. See INSTALL.md, "For maintainers".
+# npm auth is trusted publishing (OIDC): on npmjs.com the package names this repository and this
+# file name (release.yml) as its trusted publisher. An NPM_TOKEN repository secret is used instead
+# when one is set.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # npm trusted publishing and provenance
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs npm 11.5.1 or later, which Node 24 ships.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check the tag and every pinned version match package.json
+        run: node scripts/sync-plugin-version.js --check --tag "$GITHUB_REF_NAME"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run lint
+
+      - name: Build and test
+        run: npm test
+
+      - name: Publish to npm and create the GitHub release
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then export NODE_AUTH_TOKEN="$NPM_TOKEN"; fi
+          scripts/publish-release "$GITHUB_REF_NAME"

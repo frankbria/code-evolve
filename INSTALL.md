@@ -163,18 +163,37 @@ writes a journal entry (`.evolve/JOURNAL.md`), and commits.
 
 ---
 
-## For maintainers — publishing to npm
+## For maintainers — releasing
 
-The package builds on publish (`prepublishOnly` runs `npm run build`), and only
-`dist/` and `templates/` are shipped (see the `files` field in `package.json`).
+`package.json` is the single source of the version. `npm version` rewrites the files that repeat it
+(both plugin manifests and the install command pinned in the `evolve-setup` skill) through
+`scripts/sync-plugin-version.js`; never edit those by hand. CI runs
+`node scripts/sync-plugin-version.js --check` and fails on any mismatch.
+
+A release is a pushed `v<version>` tag. The **Release** workflow (`.github/workflows/release.yml`)
+then checks the tag against `package.json`, runs the type check and the tests, publishes the package
+to npm with provenance, and creates the GitHub release with the plugin ZIP
+(`code-evolve-plugin-<version>.zip`) attached. Only `dist/`, `templates/` and `plugins/` are shipped
+(see the `files` field in `package.json`).
 
 ```bash
 npm run lint && npm test         # gate
 npm pack --dry-run               # inspect exactly what ships
-npm version patch                # or minor / major — bumps + tags
-npm publish                      # builds via prepublishOnly, then publishes
-git push --follow-tags
+# move the "Unreleased" notes in CHANGELOG.md under the new version and commit
+npm version patch                # or minor / major: bumps every pinned version, commits, tags
+git push --follow-tags           # the tag starts the Release workflow
 ```
+
+One-time setup on npmjs.com, either of:
+
+- **Trusted publishing (recommended, no secret):** package settings → Trusted Publisher → GitHub
+  Actions, with organization or user `frankbria`, repository `code-evolve`, workflow filename
+  `release.yml`, and no environment. Renaming the workflow file breaks this until the setting is updated.
+- **A token:** create a granular access token that can publish `code-evolve` and save it as the
+  `NPM_TOKEN` repository secret. The workflow uses it when it is set.
+
+If the workflow fails part-way, fix the cause and re-run the job: a version that is already on npm
+is not published again, and an existing release only gets the ZIP re-attached.
 
 To test the tarball locally before publishing:
 

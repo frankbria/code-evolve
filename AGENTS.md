@@ -60,10 +60,10 @@ code-evolve/                  # npm package source
 │   ├── skills/               # Runtime skills (6 dirs, Agent Skills SKILL.md format; indexed into the cycle prompt)
 │   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, REQUIREMENTS.md, DAY_COUNT, vision.md, spec.md
 │   └── workflows/            # GitHub Actions (evolve.yml, ci.yml)
-├── scripts/                  # Repo tooling: sync-plugin-version.js (npm version hook), pack-codex-plugin (plugin ZIP)
+├── scripts/                  # Repo tooling: sync-plugin-version.js (npm version hook; --check for CI), pack-codex-plugin (plugin ZIP), publish-release (run by release.yml)
 ├── docs/                     # STATUS.md, PROOF9.md, demos/ (live acceptance records)
 ├── dist/                     # Compiled output (gitignored; built on publish)
-└── .github/workflows/        # CI for this package
+└── .github/workflows/        # CI for this package; release.yml publishes on a pushed v<version> tag
 ```
 
 ## Commands

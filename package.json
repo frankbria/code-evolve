@@ -43,7 +43,7 @@
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test:shell": "npm run build && bash tests/run_shell_tests.sh",
-    "version": "node scripts/sync-plugin-version.js && git add -- plugins/code-evolve/plugin.json plugins/code-evolve/.claude-plugin/plugin.json"
+    "version": "node scripts/sync-plugin-version.js && git add -- plugins/code-evolve/plugin.json plugins/code-evolve/.claude-plugin/plugin.json plugins/code-evolve/skills/evolve-setup/SKILL.md"
   },
   "dependencies": {
     "commander": "^11.0.0",
