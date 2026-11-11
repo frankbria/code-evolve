@@ -11,12 +11,13 @@
 # Usage:
 #   ANTHROPIC_API_KEY=sk-... .evolve/scripts/evolve.sh [cycle|prepare|verify|finalize [--no-agent]]
 #     cycle     (default) one full evolution cycle: prepare, run the agent, verify, wrap up
-#     prepare   everything up to the agent call; writes .evolve/run/PROMPT.md and
-#               .evolve/run/session.env so an in-session agent can do the work itself
+#     prepare   everything up to the agent call: brings the branch up to date with its upstream,
+#               then writes .evolve/run/PROMPT.md and .evolve/run/session.env so an in-session
+#               agent can do the work itself
 #     verify    after the work: format-fix, build, test, lint; writes .evolve/run/ERRORS.md
 #               and exits non-zero on failure (no agent call)
-#     finalize  restore protected paths, revert if the last verify failed, journal and issue
-#               responses, wrap-up commit, rebase onto the upstream's new commits, tag, push.
+#     finalize  restore protected paths, revert if the last verify failed, journal, wrap-up
+#               commit, rebase onto the upstream's new commits, tag, push, issue responses.
 #               --no-agent uses only the bash fallbacks, so an in-session caller never starts
 #               a nested headless agent.
 #   cycle and finalize exit with status 4 when the session is committed but could not be pushed.
@@ -498,7 +499,140 @@ if ! command -v timeout &>/dev/null; then
     fi
 fi
 
+# ── Syncing with the remote (at the start of a cycle and before the push) ──
+# The agent may switch branches during a session, so the branch is read again before the push.
+read_session_branch() {
+    # Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
+    SESSION_BRANCH=$(git symbolic-ref -q HEAD || true)
+    SESSION_BRANCH="${SESSION_BRANCH#refs/heads/}"
+}
+read_session_branch
+# Per run: linked worktrees share one ref store, and two of them can finalize at the same time.
+SYNC_REF="refs/code-evolve/upstream-$$"
+
+branch_has_upstream() {
+    [ -n "$SESSION_BRANCH" ] && git config --get "branch.$SESSION_BRANCH.remote" >/dev/null \
+        && git config --get "branch.$SESSION_BRANCH.merge" >/dev/null
+}
+
+# Prints the line of git's output that carries its reason: a refused ref first (in --porcelain
+# output it can come after the closing "error:" line), then git's own error.
+git_failure_reason() { # <git output>
+    local reason
+    reason=$(printf '%s\n' "$1" | grep -m1 -E $'^( ! |!\t)' || printf '%s\n' "$1" | grep -m1 -E '^(fatal:|error:)' \
+        || printf '%s\n' "$1" | grep -m1 . || true)
+    reason="${reason# }"
+    printf '%s' "${reason:-git gave no reason}" | tr '\t' ' '
+}
+
+# Two cycles always change the same lines of the engine's own state files, so a plain rebase would
+# stop on them every time. For the rebase only: the journal and learnings keep both cycles'
+# entries, and the files each cycle rewrites take this session's version (%B is the commit being
+# replayed). Passed as a throwaway attributes file so the repository's configuration is untouched.
+write_sync_attributes() { # <file>
+    local name path
+    for name in JOURNAL.md LEARNINGS.md LAST_VERIFY.md DAY_COUNT; do
+        path=$(git ls-files --full-name -- "$EVOLVE_DIR/$name")
+        [ -n "$path" ] || continue
+        case "$name" in
+            JOURNAL.md|LEARNINGS.md) printf '"%s" merge=union\n' "$path" ;;
+            *) printf '"%s" merge=code-evolve-session\n' "$path" ;;
+        esac
+    done > "$1"
+}
+
+# Another scheduler working from its own clone may have pushed; git would refuse this clone's push
+# and, in a cloud or Actions clone, the cycle would be discarded. The branch is rebased onto what
+# the upstream gained: at the start of a cycle ("start"), so the agent works on the upstream's
+# state, and again before the push ("finalize"), for what arrived during the session. A rebase
+# that fails is undone, so the commits stay on the local branch. Fails only when the branch cannot
+# be pushed as it is.
+# shortcut: a push that lands between the fetch before the push and the push itself is not retried, it fails the cycle
+# (status 4) and the next cycle pushes both; add a retry if schedulers finishing in the same second become common.
+sync_with_upstream() { # <start|finalize>
+    local moment="$1" remote merge_ref fetch_from push_urls output conflicts new_commits synced=true
+    remote=$(git config --get "branch.$SESSION_BRANCH.remote")
+    merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
+    # "." is git's name for this repository itself: a branch tracking a local branch has nothing to fetch.
+    [ "$remote" != "." ] || return 0
+    # Only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping, rebasing
+    # onto the upstream would rewrite commits the push destination already has, and it would refuse them.
+    # Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
+    [ "$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null || true)" \
+        = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || return 0
+    # A remote whose push URL is written differently from its fetch URL may push to another repository,
+    # and that one decides whether the push is a fast-forward. The branch is read through the push URL
+    # then, which is right for both cases: no guess whether two URLs name one repository.
+    fetch_from="$remote"
+    push_urls=$(git remote get-url --push --all "$remote" 2>/dev/null || true)
+    if [ "$push_urls" != "$(git remote get-url --all "$remote" 2>/dev/null || true)" ] \
+        && [ "$(printf '%s\n' "$push_urls" | grep -c .)" -eq 1 ]; then
+        fetch_from="$push_urls"
+    fi
+    # A destination ref makes the fetch bring the tags on the fetched commits too (`git fetch <remote> <ref>`
+    # alone does not), so the tag name below does not collide with one the other scheduler already pushed.
+    if ! output=$(git fetch -q "$fetch_from" "+$merge_ref:$SYNC_REF" 2>&1); then
+        if [ "$moment" = start ]; then
+            echo "  Could not fetch $merge_ref from $remote ($(git_failure_reason "$output")); starting from the local branch."
+        else
+            echo "  Could not fetch $merge_ref from $remote ($(git_failure_reason "$output")); pushing without syncing."
+        fi
+        return 0
+    fi
+    new_commits=$(git rev-list --count "HEAD..$SYNC_REF")
+    if [ "$new_commits" -eq 0 ]; then
+        git update-ref -d "$SYNC_REF"
+        return 0
+    fi
+    if [ "$moment" = start ] && git merge-base --is-ancestor HEAD "$SYNC_REF"; then
+        # Nothing of this clone's own to replay. A fast-forward also leaves uncommitted edits alone
+        # unless the new commits touch the same files, where a rebase refuses any edit at all.
+        output=$(git merge -q --ff-only "$SYNC_REF" 2>&1) || synced=false
+    else
+        write_sync_attributes "$RUN_TMP/sync-attributes"
+        output=$(git -c core.attributesFile="$RUN_TMP/sync-attributes" -c merge.code-evolve-session.driver='cp %B %A' \
+            rebase --rebase-merges "$SYNC_REF" 2>&1) || synced=false
+    fi
+    if [ "$synced" = true ]; then
+        git update-ref -d "$SYNC_REF"
+        if [ "$moment" = start ]; then
+            echo "  Brought $SESSION_BRANCH up to date with $new_commits new commit(s) from $remote."
+        else
+            echo "  Rebased the session onto $new_commits new commit(s) from $remote."
+        fi
+        return 0
+    fi
+    conflicts=$(git diff --name-only --diff-filter=U | paste -sd ' ' - || true)
+    git rebase --abort 2>/dev/null || true
+    git update-ref -d "$SYNC_REF"
+    [ -n "$conflicts" ] || printf '%s\n' "$output"
+    if [ "$moment" = start ]; then
+        if [ -n "$conflicts" ]; then
+            echo "  Could not bring $SESSION_BRANCH up to date: its unpushed commits and $new_commits new commit(s) on $remote change the same lines in: $conflicts"
+        else
+            echo "  Could not bring $SESSION_BRANCH up to date with $remote: $(git_failure_reason "$output")"
+        fi
+        echo "  This cycle starts from the local branch. Resolve with: git pull --rebase && git push"
+        return 1
+    fi
+    if [ -n "$conflicts" ]; then
+        echo "  Sync failed: this session and $new_commits new commit(s) on $remote change the same lines in: $conflicts"
+    else
+        echo "  Sync failed: $(git_failure_reason "$output")"
+    fi
+    echo "  The session's commits are kept on $SESSION_BRANCH. Resolve with: git pull --rebase && git push"
+    return 1
+}
+
 if [ "$ENGINE_PHASE" = "cycle" ] || [ "$ENGINE_PHASE" = "prepare" ]; then
+# A clone that fell behind (another scheduler pushed, or an earlier cycle here was not pushed) would
+# otherwise build on a stale tree and, after a conflict, replay that conflict at every push. Done
+# before the engine writes anything: a rebase refuses a tree with changes. A repository with no
+# commit yet has nothing to bring up to date.
+if git rev-parse -q --verify HEAD >/dev/null 2>&1 && branch_has_upstream; then
+    sync_with_upstream start || true
+fi
+
 # Read birth date from file if it exists, otherwise set it
 if [ -f "$EVOLVE_DIR/.birth_date" ]; then
     BIRTH_DATE=$(cat "$EVOLVE_DIR/.birth_date")
@@ -1402,60 +1536,11 @@ ACKEOF
     fi
 fi
 
-# ── Step 7: Post issue responses to GitHub ──
-process_issue_block() {
-    local block="$1"
-    local issue_num status comment
-
-    issue_num=$(echo "$block" | grep "^issue_number:" | awk '{print $2}' || true)
-    status=$(echo "$block" | grep "^status:" | awk '{print $2}' || true)
-    comment=$(echo "$block" | sed -n '/^comment:/,$ p' | sed '1s/^comment: //' || true)
-
-    if [ -z "$issue_num" ] || ! command -v gh &>/dev/null; then
-        return
-    fi
-
-    gh issue comment "$issue_num" \
-        --repo "$REPO" \
-        --body "**Day $DAY**
-
-$comment
-
-Commit: $(git rev-parse --short HEAD)" || true
-
-    if [ "$status" = "fixed" ] || [ "$status" = "wontfix" ]; then
-        gh issue close "$issue_num" --repo "$REPO" || true
-        echo "  Closed issue #$issue_num (status: $status)"
-    else
-        echo "  Commented on issue #$issue_num (status: $status)"
-    fi
-}
-
-if [ -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then
-    echo ""
-    echo "-> Posting issue responses..."
-
-    CURRENT_BLOCK=""
-    while IFS= read -r line || [ -n "$line" ]; do
-        if [ "$line" = "---" ]; then
-            if [ -n "$CURRENT_BLOCK" ]; then
-                process_issue_block "$CURRENT_BLOCK"
-                CURRENT_BLOCK=""
-            fi
-        else
-            CURRENT_BLOCK="${CURRENT_BLOCK}${CURRENT_BLOCK:+
-}${line}"
-        fi
-    done < "$EVOLVE_DIR/ISSUE_RESPONSE.md"
-
-    if [ -n "$CURRENT_BLOCK" ]; then
-        process_issue_block "$CURRENT_BLOCK"
-    fi
-
-    rm -f "$EVOLVE_DIR/ISSUE_RESPONSE.md"
-fi
-
-# ── Step 8: Final commit ──
+# ── Step 7: Final commit ──
+# The issue responses are posted after the push (Step 9), so they cite the commit that is on the
+# remote. Moved out of the tree: the wrap-up commit must not carry the file.
+ISSUE_RESPONSES="$RUN_TMP/ISSUE_RESPONSE.md"
+if [ -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then mv "$EVOLVE_DIR/ISSUE_RESPONSE.md" "$ISSUE_RESPONSES"; fi
 # Build and test steps ran agent-authored code after the last restore; re-check before committing.
 restore_protected_paths
 git add -A
@@ -1466,104 +1551,40 @@ else
     echo "  No uncommitted changes remaining."
 fi
 
-# ── Step 9: Sync with the remote, tag, push ──
+# ── Step 8: Sync with the remote, tag, push ──
 echo ""
 echo "-> Pushing..."
 
-# Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
-SESSION_BRANCH=$(git symbolic-ref -q HEAD || true)
-SESSION_BRANCH="${SESSION_BRANCH#refs/heads/}"
-# Per run: linked worktrees share one ref store, and two of them can finalize at the same time.
-SYNC_REF="refs/code-evolve/upstream-$$"
+read_session_branch
 
-branch_has_upstream() {
-    [ -n "$SESSION_BRANCH" ] && git config --get "branch.$SESSION_BRANCH.remote" >/dev/null \
-        && git config --get "branch.$SESSION_BRANCH.merge" >/dev/null
-}
-
-# Prints the line of git's output that carries its reason.
-git_failure_reason() { # <git output>
-    local reason
-    reason=$(printf '%s\n' "$1" | grep -m1 -E '^(fatal:|error:| ! )' || printf '%s\n' "$1" | grep -m1 . || true)
-    reason="${reason# }"
-    printf '%s' "${reason:-git gave no reason}"
-}
-
-# Two cycles always change the same lines of the engine's own state files, so a plain rebase would
-# stop on them every time. For the rebase only: the journal and learnings keep both cycles'
-# entries, and the files each cycle rewrites take this session's version (%B is the commit being
-# replayed). Passed as a throwaway attributes file so the repository's configuration is untouched.
-write_sync_attributes() { # <file>
-    local name path
-    for name in JOURNAL.md LEARNINGS.md LAST_VERIFY.md DAY_COUNT; do
-        path=$(git ls-files --full-name -- "$EVOLVE_DIR/$name")
-        [ -n "$path" ] || continue
-        case "$name" in
-            JOURNAL.md|LEARNINGS.md) printf '"%s" merge=union\n' "$path" ;;
-            *) printf '"%s" merge=code-evolve-session\n' "$path" ;;
-        esac
-    done > "$1"
-}
-
-# Another scheduler working from its own clone may have pushed since this session started; git
-# would refuse this session's push and, in a cloud or Actions clone, the cycle would be discarded.
-# The session is rebased onto what the upstream gained. On a conflict the rebase is undone, so the
-# session's commits stay on the local branch. Fails only when the session cannot be pushed as it is.
-# shortcut: a push that lands between this fetch and the push below is not retried, it fails the cycle
-# (status 4) and the next cycle pushes both; add a retry if schedulers finishing in the same second become common.
-sync_with_upstream() {
-    local remote merge_ref output conflicts new_commits
-    remote=$(git config --get "branch.$SESSION_BRANCH.remote")
-    merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
-    # "." is git's name for this repository itself: a branch tracking a local branch has nothing to fetch.
-    [ "$remote" != "." ] || return 0
-    # Only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping, rebasing
-    # onto the upstream would rewrite commits the push destination already has, and it would refuse them.
-    # Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
-    [ "$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null || true)" \
-        = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || return 0
-    # A destination ref makes the fetch bring the tags on the fetched commits too (`git fetch <remote> <ref>`
-    # alone does not), so the tag name below does not collide with one the other scheduler already pushed.
-    if ! output=$(git fetch -q "$remote" "+$merge_ref:$SYNC_REF" 2>&1); then
-        echo "  Could not fetch $merge_ref from $remote ($(git_failure_reason "$output")); pushing without syncing."
+# Runs `git push <args>`, shows git's output, and on failure repeats the line that carries git's reason.
+# Leaves the output in PUSH_OUTPUT.
+push_or_report() { # <label> <git push arguments...>
+    local label="$1"
+    shift
+    # push.followTags would send the session tag along with a branch the remote may refuse.
+    if PUSH_OUTPUT=$(git -c push.followTags=false push "$@" 2>&1); then
+        [ -z "$PUSH_OUTPUT" ] || printf '%s\n' "$PUSH_OUTPUT"
         return 0
     fi
-    new_commits=$(git rev-list --count "HEAD..$SYNC_REF")
-    if [ "$new_commits" -eq 0 ]; then
-        git update-ref -d "$SYNC_REF"
-        return 0
-    fi
-    write_sync_attributes "$RUN_TMP/sync-attributes"
-    if output=$(git -c core.attributesFile="$RUN_TMP/sync-attributes" -c merge.code-evolve-session.driver='cp %B %A' \
-        rebase --rebase-merges "$SYNC_REF" 2>&1); then
-        git update-ref -d "$SYNC_REF"
-        echo "  Rebased the session onto $new_commits new commit(s) from $remote."
-        return 0
-    fi
-    conflicts=$(git diff --name-only --diff-filter=U | paste -sd ' ' - || true)
-    git rebase --abort 2>/dev/null || true
-    git update-ref -d "$SYNC_REF"
-    if [ -n "$conflicts" ]; then
-        echo "  Sync failed: this session and $new_commits new commit(s) on $remote change the same lines in: $conflicts"
-    else
-        printf '%s\n' "$output"
-        echo "  Sync failed: $(git_failure_reason "$output")"
-    fi
-    echo "  The session's commits are kept on $SESSION_BRANCH. Resolve with: git pull --rebase && git push"
+    printf '%s\n' "$PUSH_OUTPUT"
+    echo "  $label failed: $(git_failure_reason "$PUSH_OUTPUT")"
     return 1
 }
 
-# Runs `git push <args>`, shows git's output, and on failure repeats the line that carries git's reason.
-push_or_report() { # <label> <git push arguments...>
-    local label="$1" output
-    shift
-    # push.followTags would send the session tag along with a branch the remote may refuse.
-    if output=$(git -c push.followTags=false push "$@" 2>&1); then
-        [ -z "$output" ] || printf '%s\n' "$output"
+# The push that carries the session's branch. git exits 0 when it sent other branches only (a
+# remote.<name>.push mapping or a push.default that leaves this one out), so it is asked for one
+# line per ref, "<flag>\t<from>:<to>\t<summary>", and the branch must be on one that went through:
+# ' ' updated, '*' new, '+' forced, '=' already there.
+push_branch_or_report() { # <git push arguments...>
+    push_or_report "Push" --porcelain "$@" || return 1
+    [ -n "$SESSION_BRANCH" ] || return 0
+    if printf '%s\n' "$PUSH_OUTPUT" | awk -F '\t' -v branch="refs/heads/$SESSION_BRANCH" '
+        $1 ~ /^[ *+=]$/ { split($2, refs, ":"); if (refs[1] == branch || refs[1] == "HEAD") sent = 1 }
+        END { exit !sent }'; then
         return 0
     fi
-    printf '%s\n' "$output"
-    echo "  $label failed: $(git_failure_reason "$output")"
+    echo "  Push failed: git sent nothing for $SESSION_BRANCH; the push settings (remote.<name>.push, push.default) leave it out."
     return 1
 }
 
@@ -1576,7 +1597,7 @@ push_session() {
     local remotes remote branch="$SESSION_BRANCH"
     # Checked before the list of remotes: an upstream can name a URL or a path instead of a remote.
     if branch_has_upstream; then
-        push_or_report "Push" || return 1
+        push_branch_or_report || return 1
         push_or_report "Tag push" --tags || true
         return 0
     fi
@@ -1605,22 +1626,22 @@ push_session() {
     if [ "$(git config --type=bool --get "remote.$remote.mirror" || true)" = "true" ]; then
         # A mirror takes every ref, tags included, and git refuses a refspec for it.
         # Atomic, so a refused branch does not leave the session's tag on the remote.
-        push_or_report "Push" --atomic "$remote"
+        push_branch_or_report --atomic "$remote"
         return
     fi
     if [ -z "$branch" ]; then
         echo "  HEAD is detached: no branch to push."
     elif git config --get-all "remote.$remote.push" >/dev/null; then
         # A refspec on the command line would override the mapping the user configured for this remote.
-        push_or_report "Push" "$remote" || return 1
+        push_branch_or_report "$remote" || return 1
     else
-        push_or_report "Push" -u "$remote" HEAD || return 1
+        push_branch_or_report -u "$remote" HEAD || return 1
     fi
     push_or_report "Tag push" "$remote" --tags || true
 }
 
 SESSION_PUSHED=true
-if branch_has_upstream && ! sync_with_upstream; then SESSION_PUSHED=false; fi
+if branch_has_upstream && ! sync_with_upstream finalize; then SESSION_PUSHED=false; fi
 
 # Tagged after the sync so the tag names the commit that is pushed. Two schedulers that start in the
 # same minute ask for the same name; the later one takes a numbered name instead of the other's tag.
@@ -1646,6 +1667,61 @@ if [ "$SESSION_PUSHED" != true ] && [ "$TAG_CREATED" = true ]; then
     # pushed pointing at a commit that is on no branch. The cycle that pushes them tags them.
     git tag -d "$TAG_NAME" >/dev/null 2>&1 || true
     echo "  Removed tag $TAG_NAME: the session was not pushed."
+fi
+
+# ── Step 9: Post issue responses to GitHub ──
+# After the push: the sync may have rebased the session, and the commit a comment cites must be on the remote.
+process_issue_block() {
+    local block="$1"
+    local issue_num status comment
+
+    issue_num=$(echo "$block" | grep "^issue_number:" | awk '{print $2}' || true)
+    status=$(echo "$block" | grep "^status:" | awk '{print $2}' || true)
+    comment=$(echo "$block" | sed -n '/^comment:/,$ p' | sed '1s/^comment: //' || true)
+
+    if [ -z "$issue_num" ] || ! command -v gh &>/dev/null; then
+        return
+    fi
+
+    gh issue comment "$issue_num" \
+        --repo "$REPO" \
+        --body "**Day $DAY**
+
+$comment
+
+Commit: $(git rev-parse --short HEAD)" || true
+
+    if [ "$status" = "fixed" ] || [ "$status" = "wontfix" ]; then
+        gh issue close "$issue_num" --repo "$REPO" || true
+        echo "  Closed issue #$issue_num (status: $status)"
+    else
+        echo "  Commented on issue #$issue_num (status: $status)"
+    fi
+}
+
+if [ -f "$ISSUE_RESPONSES" ] && [ "$SESSION_PUSHED" != true ]; then
+    # A comment would say "fixed", and close the issue, for commits the remote does not have.
+    echo "  Issue responses not posted: this cycle's commits are not on the remote."
+elif [ -f "$ISSUE_RESPONSES" ]; then
+    echo ""
+    echo "-> Posting issue responses..."
+
+    CURRENT_BLOCK=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$line" = "---" ]; then
+            if [ -n "$CURRENT_BLOCK" ]; then
+                process_issue_block "$CURRENT_BLOCK"
+                CURRENT_BLOCK=""
+            fi
+        else
+            CURRENT_BLOCK="${CURRENT_BLOCK}${CURRENT_BLOCK:+
+}${line}"
+        fi
+    done < "$ISSUE_RESPONSES"
+
+    if [ -n "$CURRENT_BLOCK" ]; then
+        process_issue_block "$CURRENT_BLOCK"
+    fi
 fi
 
 echo ""
