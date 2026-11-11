@@ -21,6 +21,14 @@ UNITTEST_MODULES = {"unittest", "unittest.case", "unittest.async_case"}
 MODULE_FILE = re.compile(r"[_a-z]\w*\.py\Z", re.IGNORECASE)
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 UNREADABLE = (OSError, SyntaxError, ValueError, RecursionError)
+# Module-level names that make the two runners behave differently.
+RUNNER_HOOKS = {
+    "load_tests",
+    "setup_module",
+    "teardown_module",
+    "setup_function",
+    "teardown_function",
+}
 
 
 def is_unittest_file(name):
@@ -150,8 +158,9 @@ def imports_pytest(tree):
 
 
 def unittest_module(node):
-    """The name a base's module is reached through: `ut` for ut.TestCase and ut.case.TestCase."""
-    if isinstance(node, ast.Attribute) and node.attr == "case":
+    """The name a base's module is reached through: `ut` for ut.TestCase, ut.case.TestCase
+    and ut.async_case.IsolatedAsyncioTestCase."""
+    if isinstance(node, ast.Attribute) and node.attr in ("case", "async_case"):
         node = node.value
     return node.id if isinstance(node, ast.Name) else None
 
@@ -181,7 +190,7 @@ def star_import_brings_tests(statement, directories):
                 try:
                     statements = scope_statements(parse(path).body)
                     return any(
-                        names_a_test(name) or name in ("*", "load_tests")
+                        names_a_test(name) or name == "*" or name in RUNNER_HOOKS
                         for imported in statements
                         for name in bound_names(imported)
                     )
@@ -210,8 +219,9 @@ def classify(tree, directories):
     # across files if such suites need the unittest fallback.
     statements = list(scope_statements(tree.body))
     sources = binding_sources(tree, statements)
-    # A load_tests hook decides itself what unittest loads from the module or package.
-    if "load_tests" in sources:
+    # A load_tests hook decides itself what unittest loads from the module or package, and
+    # only pytest calls its own setup and teardown hooks.
+    if RUNNER_HOOKS & sources.keys():
         return "pytest"
 
     def trust(names, name):
@@ -289,7 +299,8 @@ def unittest_arguments(project, skipped):
     kinds = set()
     for path in loaded:
         try:
-            kinds.add(classify(parse(path), [os.path.dirname(path), start, project]))
+            directories = [os.path.dirname(path), start, project, os.path.join(project, "src")]
+            kinds.add(classify(parse(path), directories))
         except UNREADABLE:
             # A file this Python cannot read or parse is left to pytest to report.
             return ""
