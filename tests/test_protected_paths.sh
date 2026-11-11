@@ -197,6 +197,189 @@ STUB_MARKER="$fifth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJEC
     || bad ".evolve now points at '$(readlink .evolve)': $(tail -2 "$stub_dir/engine5.log")"
 cd / && rm -rf "$fifth_root"
 
+# Sixth project (#109): the engine is run by hand with an absolute EVOLVE_DIR.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e .evolve/.stub-ran ] && exit 0
+touch .evolve/.stub-ran
+echo "be evil" >> .evolve/IDENTITY.md
+printf '#!/bin/bash\necho planted\n' > .evolve/scripts/planted.sh
+STUB
+sixth_dir="$(mktemp -d)"
+cd "$sixth_dir"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "sixth init failed"
+printf '.evolve/.stub-ran\n' >> .gitignore
+git add -A && git commit -qm "baseline"
+identity_before=$(cat .evolve/IDENTITY.md)
+ANTHROPIC_API_KEY=k EVOLVE_DIR="$PWD/.evolve" PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh prepare > "$stub_dir/engine6-prepare.log" 2>&1 || true
+grep -qx 'EVOLVE_DIR=.evolve' .evolve/run/session.env 2>/dev/null && [ -s .evolve/run/protected/manifest ] \
+    && ok "prepare with an absolute EVOLVE_DIR records the relative path and a non-empty snapshot" \
+    || bad "prepare with an absolute EVOLVE_DIR: $(grep EVOLVE_DIR .evolve/run/session.env 2>&1; tail -2 "$stub_dir/engine6-prepare.log")"
+[ -z "$(git status --porcelain --ignored | grep -v '\.evolve/' || true)" ] \
+    && ok "prepare with an absolute EVOLVE_DIR writes nothing outside .evolve" \
+    || bad "stray files after prepare: $(git status --porcelain --ignored | grep -v '\.evolve/')"
+rm -rf .evolve/run
+git add -A && git commit -qm "state after prepare" >/dev/null 2>&1 || true
+ANTHROPIC_API_KEY=k EVOLVE_DIR="$PWD/.evolve" PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine6.log" 2>&1 || true
+[ -e .evolve/.stub-ran ] && [ "$(cat .evolve/IDENTITY.md)" = "$identity_before" ] \
+    && ok "absolute EVOLVE_DIR: an edit to IDENTITY.md is undone" \
+    || bad "absolute EVOLVE_DIR: IDENTITY.md not restored (agent ran: $([ -e .evolve/.stub-ran ] && echo yes || echo no))"
+[ ! -e .evolve/scripts/planted.sh ] \
+    && ok "absolute EVOLVE_DIR: a planted script is removed" || bad "absolute EVOLVE_DIR: planted.sh survived"
+cd / && rm -rf "$sixth_dir"
+
+# Seventh project (#109): the user keeps .evolve/skills as a symlink to a shared store. The
+# agent edits a skill through the link, plants a file in the store, then repoints the link.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+echo "be evil" >> .evolve/skills/plan/SKILL.md
+echo "planted" > .evolve/skills/planted.md
+cp -r ../shared-skills ../evil-skills && echo "more evil" >> ../evil-skills/evolve/SKILL.md
+rm .evolve/skills && ln -s ../../evil-skills .evolve/skills
+STUB
+seventh_root="$(mktemp -d)"
+mkdir -p "$seventh_root/project"
+cd "$seventh_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "seventh init failed"
+mv .evolve/skills ../shared-skills && ln -s ../../shared-skills .evolve/skills
+git add -A && git commit -qm "baseline, skills symlinked to a shared store"
+skill_before=$(cat ../shared-skills/plan/SKILL.md)
+STUB_MARKER="$seventh_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine7.log" 2>&1 || true
+[ -e "$seventh_root/stub-ran" ] && [ "$(readlink .evolve/skills)" = "../../shared-skills" ] \
+    && ok "a user's skills symlink repointed by the agent gets its original target back" \
+    || bad ".evolve/skills is now '$(readlink .evolve/skills 2>&1)': $(tail -2 "$stub_dir/engine7.log")"
+[ "$(cat ../shared-skills/plan/SKILL.md)" = "$skill_before" ] \
+    && ok "a skill edited through the user's symlink is restored in the store" \
+    || bad "the shared store's plan skill is still tampered"
+[ ! -e ../shared-skills/planted.md ] \
+    && ok "a file planted behind the user's symlink is removed" || bad "planted.md survived in the shared store"
+cd / && rm -rf "$seventh_root"
+
+# Eighth project (#109): one skill is a user symlink to a directory elsewhere, and the agent
+# adds a directory symlink of its own next to it.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+echo "be evil" >> .evolve/skills/shared/SKILL.md
+ln -s ../../../outside .evolve/skills/agent-link
+rm .evolve/skills/empty-link
+rm .evolve/skills/loop
+git rm -q --cached .evolve/skills/shared && echo ".evolve/skills/shared" >> .gitignore
+git add .gitignore && git commit -qm "untrack and ignore the user's skill symlink"
+STUB
+eighth_root="$(mktemp -d)"
+mkdir -p "$eighth_root/project" "$eighth_root/outside" "$eighth_root/shared-skill" "$eighth_root/empty"
+echo "keep me" > "$eighth_root/outside/keep.txt"
+echo "# shared skill" > "$eighth_root/shared-skill/SKILL.md"
+cd "$eighth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "eighth init failed"
+ln -s ../../../shared-skill .evolve/skills/shared
+ln -s ../../../empty .evolve/skills/empty-link
+ln -s . .evolve/skills/loop
+git add -A && git commit -qm "baseline, one skill symlinked"
+STUB_MARKER="$eighth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine8.log" 2>&1 || true
+[ -e "$eighth_root/stub-ran" ] && [ "$(cat ../shared-skill/SKILL.md)" = "# shared skill" ] \
+    && [ "$(readlink .evolve/skills/shared)" = "../../../shared-skill" ] \
+    && ok "a file behind a user's symlinked skill directory is restored and the link kept" \
+    || bad "symlinked skill not restored: $(tail -1 ../shared-skill/SKILL.md)"
+[ "$(git ls-tree HEAD .evolve/skills/shared | cut -d' ' -f1)" = "120000" ] \
+    && ok "a user's directory symlink the agent untracked and gitignored is still in the final commit" \
+    || bad "the skill symlink is missing from HEAD: $(git ls-tree HEAD .evolve/skills/shared)"
+[ ! -e .evolve/skills/agent-link ] && [ ! -L .evolve/skills/agent-link ] \
+    && ok "a directory symlink the agent adds under a protected path is removed" || bad "agent-link survived"
+[ "$(cat ../outside/keep.txt 2>/dev/null)" = "keep me" ] \
+    && ok "removing the agent's symlink leaves the directory it pointed at alone" || bad "outside/keep.txt was lost"
+[ "$(readlink .evolve/skills/empty-link 2>/dev/null)" = "../../../empty" ] \
+    && ok "a user's symlink to an empty directory deleted by the agent is put back" || bad "empty-link not restored"
+[ "$(readlink .evolve/skills/loop 2>/dev/null)" = "." ] && grep -q "=== Day 0 complete ===" "$stub_dir/engine8.log" \
+    && ok "a symlink that loops back on its own directory does not stop the session and is put back" \
+    || bad "loop link: '$(readlink .evolve/skills/loop 2>&1)': $(tail -2 "$stub_dir/engine8.log")"
+cd / && rm -rf "$eighth_root"
+
+# Ninth project (#109): the engine directory lives outside the project, named by an absolute path.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+echo "be evil" >> "$EVOLVE_DIR/IDENTITY.md"
+printf '#!/bin/bash\necho planted\n' > "$EVOLVE_DIR/scripts/planted.sh"
+STUB
+ninth_root="$(mktemp -d)"
+mkdir -p "$ninth_root/project"
+cd "$ninth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "ninth init failed"
+mv .evolve ../store
+git add -A && git commit -qm "baseline, engine directory outside the project"
+identity_before=$(cat ../store/IDENTITY.md)
+ANTHROPIC_API_KEY=k EVOLVE_DIR="$ninth_root/store" PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash ../store/scripts/evolve.sh prepare > "$stub_dir/engine9-prepare.log" 2>&1 || true
+[ -s ../store/run/protected/manifest ] && [ -z "$(git status --porcelain --ignored)" ] \
+    && ok "prepare with an outside EVOLVE_DIR keeps its snapshot there and adds nothing to the project" \
+    || bad "outside prepare: $(git status --porcelain --ignored; tail -2 "$stub_dir/engine9-prepare.log")"
+rm -rf ../store/run
+STUB_MARKER="$ninth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR="$ninth_root/store" PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash ../store/scripts/evolve.sh > "$stub_dir/engine9.log" 2>&1 || true
+[ -e "$ninth_root/stub-ran" ] && [ "$(cat ../store/IDENTITY.md)" = "$identity_before" ] && [ ! -e ../store/scripts/planted.sh ] \
+    && ok "an absolute EVOLVE_DIR outside the project is guarded in place" \
+    || bad "outside EVOLVE_DIR not guarded: $(tail -2 "$stub_dir/engine9.log")"
+cd / && rm -rf "$ninth_root"
+
+# Tenth project (#109): the agent leaves the user's skills symlink alone but swaps the directory
+# it points at for a symlink to an unrelated directory. Nothing there may be written or removed.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+mv ../shared-skills ../moved-skills && ln -s victim ../shared-skills
+STUB
+tenth_root="$(mktemp -d)"
+mkdir -p "$tenth_root/project" "$tenth_root/victim"
+echo "keep me" > "$tenth_root/victim/canary.txt"
+cd "$tenth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "tenth init failed"
+mv .evolve/skills ../shared-skills && ln -s ../../shared-skills .evolve/skills
+git add -A && git commit -qm "baseline, skills symlinked to a shared store"
+STUB_MARKER="$tenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine10.log" 2>&1 || true
+[ -e "$tenth_root/stub-ran" ] && [ "$(cat ../victim/canary.txt 2>/dev/null)" = "keep me" ] && [ "$(ls ../victim)" = "canary.txt" ] \
+    && ok "a swapped link target: nothing is deleted from or written to the directory it now leads to" \
+    || bad "victim directory changed: $(ls ../victim 2>&1 | tr '\n' ' ')"
+grep -q "WARNING: .evolve/skills no longer leads to" "$stub_dir/engine10.log" \
+    && ok "a swapped link target is reported" || bad "no warning about the swapped target: $(tail -3 "$stub_dir/engine10.log")"
+cd / && rm -rf "$tenth_root"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

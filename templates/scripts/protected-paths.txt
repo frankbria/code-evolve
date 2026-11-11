@@ -2,6 +2,9 @@
 # evolve.sh snapshots them at session start and, after every agent call, restores any that
 # were modified or deleted and removes any new file that matches. Patterns use bash `case`
 # glob rules, where * also matches "/".
+# A pattern is searched from its path up to the first glob character, so it must start with a
+# literal directory or file name. A directory symlink that exists at session start (yours) is
+# followed and kept on its target; one that appears later is removed.
 .evolve/IDENTITY.md
 .evolve/scripts/*
 .evolve/skills/*
