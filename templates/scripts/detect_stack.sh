@@ -13,6 +13,142 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
 
+# Directories the engine and the agent CLIs own. A linter or formatter that scans the whole
+# tree must not judge them: the project cannot fix those files (they are protected).
+ENGINE_DIRS=".evolve,.claude,.agents"
+RUFF_SCOPE="--extend-exclude $ENGINE_DIRS ."
+
+# python_tool <dir> <tool> — the project's .venv copy when there is one (so a scheduled run
+# uses what an in-session run used), else the one on PATH, else nothing.
+python_tool() {
+    if [ -x "$1/.venv/bin/$2" ]; then
+        echo ".venv/bin/$2"
+    elif command -v "$2" >/dev/null 2>&1; then
+        echo "$2"
+    fi
+}
+
+# Directories that hold no project tests: the engine, agent CLIs, and installed packages.
+PYTHON_SKIPPED_DIRS=(.git .evolve .claude .agents .venv venv node_modules)
+
+# python_test_grep <dir> <grep flags> <pattern> <file glob>... — grep the project's files with
+# one of the names. Run from inside the project: grep would skip a project directory itself
+# named "venv".
+python_test_grep() {
+    local dir="$1" flags="$2" pattern="$3" options=() name
+    shift 3
+    for name in "$@"; do options+=("--include=$name"); done
+    for name in "${PYTHON_SKIPPED_DIRS[@]}"; do options+=("--exclude-dir=$name"); done
+    (cd "$dir" && grep -rE "$flags" "${options[@]}" "$pattern" .) 2>/dev/null
+}
+
+# python_test_files <dir> <pattern> <file glob>... — true when such a file has a matching line.
+python_test_files() {
+    local dir="$1"
+    shift
+    python_test_grep "$dir" -lq "$@"
+}
+
+# unittest_module_count — counts the file paths on stdin that unittest discovery would load:
+# test*.py whose name is a valid module name (it skips the others without a word).
+unittest_module_count() {
+    grep -cE '(^|/)test[A-Za-z0-9_]*\.py$' || true
+}
+
+# A class base list naming TestCase itself (TestCase, unittest.TestCase,
+# IsolatedAsyncioTestCase), not a longer name that merely contains it.
+UNITTEST_BASE='[(,.[:space:]](IsolatedAsyncio)?TestCase[,)[:space:]]'
+
+# python_unittest_command <dir> <python> — prints the unittest command when it runs the whole
+# suite: only TestCase classes, all in files discovery will load. Prints nothing otherwise,
+# because a suite unittest would run in part (or not at all) must not pass as verified.
+python_unittest_command() {
+    local dir="$1" python="$2" start_directory="" prunes=() name all_count seen_count pytest_only
+    python_test_files "$dir" "^[[:space:]]*class[[:space:]].*$UNITTEST_BASE" 'test*.py' || return 0
+    python_test_files "$dir" '' '*_test.py' && return 0
+    # A test function that does not take self, or a Test* class without a TestCase base,
+    # belongs to pytest. Both scans are read to the end: stopping at the first hit
+    # would kill the first grep mid-write and, under pipefail, read as "no hit".
+    pytest_only=$(
+        python_test_grep "$dir" -h '^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+test[A-Za-z0-9_]*\(' 'test*.py' \
+            | grep -vE '\([[:space:]]*self\b' || true
+        python_test_grep "$dir" -h '^[[:space:]]*class[[:space:]]+Test' 'test*.py' \
+            | grep -vE "$UNITTEST_BASE" || true
+    )
+    [ -n "$pytest_only" ] && return 0
+
+    # Discovery only enters packages, so a plain tests/ folder is named as the start instead.
+    if [ ! -f "$dir/tests/__init__.py" ] && compgen -G "$dir/tests/test*.py" >/dev/null; then
+        start_directory="tests"
+    fi
+    for name in "${PYTHON_SKIPPED_DIRS[@]}"; do prunes+=(-name "$name" -o); done
+    all_count=$(cd "$dir" && find . \( "${prunes[@]}" -false \) -prune -o -type f -name 'test*.py' -print | wc -l)
+    # shortcut: counts only the start directory and a tests/ package directly under it; deeper
+    # packages fall back to pytest. Walk __init__.py chains if such a layout needs unittest.
+    if [ -n "$start_directory" ]; then
+        seen_count=$(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)
+    else
+        seen_count=$(cd "$dir" && find . -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)
+        if [ -f "$dir/tests/__init__.py" ]; then
+            seen_count=$((seen_count + $(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)))
+        fi
+    fi
+    [ "$all_count" -eq "$seen_count" ] || return 0
+    echo "$python -m unittest discover${start_directory:+ -s $start_directory}"
+}
+
+# python_declares_pytest <dir> — true when the project's own files name pytest (a dependency,
+# its configuration, a conftest). Such a suite may be collected in ways only pytest knows.
+python_declares_pytest() {
+    [ -f "$1/pytest.ini" ] || [ -f "$1/conftest.py" ] || [ -f "$1/tests/conftest.py" ] \
+        || grep -qs pytest "$1/pyproject.toml" "$1"/requirements*.txt "$1/setup.cfg" "$1/tox.ini"
+}
+
+# python_can_install <python> — true when that interpreter has pip and accepts installs.
+# PEP 668: outside a virtual environment, a distribution-owned Python refuses them.
+python_can_install() {
+    "$1" -m pip --version >/dev/null 2>&1 || return 1
+    "$1" -c 'import os, sys, sysconfig
+marker = os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")
+sys.exit(1 if sys.prefix == sys.base_prefix and os.path.exists(marker) else 0)' 2>/dev/null
+}
+
+# python_commands <dir> <pip install arguments> — for projects without a uv or poetry lock.
+# Sets BUILD_CMD, TEST_CMD, LINT_CMD, FORMAT_CMD to commands whose tools can run here.
+python_commands() {
+    local dir="$1" install_arguments="$2" python="python3" pytest ruff
+    if [ -x "$dir/.venv/bin/python" ]; then
+        python=".venv/bin/python"
+        if python_can_install "$dir/.venv/bin/python"; then
+            BUILD_CMD="$python -m pip install $install_arguments"
+        elif command -v uv >/dev/null 2>&1; then
+            # A .venv made by uv has no pip of its own.
+            BUILD_CMD="uv pip install --python $python $install_arguments"
+        fi
+    elif python_can_install python3; then
+        BUILD_CMD="python3 -m pip install $install_arguments"
+    fi
+
+    pytest=$(python_tool "$dir" pytest)
+    if [ -n "$pytest" ]; then
+        TEST_CMD="$pytest"
+    elif python_declares_pytest "$dir"; then
+        # Keep the command so the missing tool is reported instead of the tests being skipped.
+        TEST_CMD="pytest"
+    else
+        TEST_CMD=$(python_unittest_command "$dir" "$python")
+        if [ -z "$TEST_CMD" ] && python_test_files "$dir" '' 'test*.py' '*_test.py'; then
+            TEST_CMD="pytest"
+        fi
+    fi
+
+    ruff=$(python_tool "$dir" ruff)
+    if [ -n "$ruff" ]; then
+        LINT_CMD="$ruff check $RUFF_SCOPE"
+        FORMAT_CMD="$ruff format --check $RUFF_SCOPE"
+    fi
+}
+
 # ── detect_single_stack(dir) ──
 # Sets: STACK, BUILD_CMD, TEST_CMD, LINT_CMD, FORMAT_CMD
 detect_single_stack() {
@@ -35,8 +171,9 @@ detect_single_stack() {
         STACK="deno"
         BUILD_CMD=""
         TEST_CMD="deno test"
-        LINT_CMD="deno lint"
-        FORMAT_CMD="deno fmt --check"
+        # deno fmt also covers Markdown and JSON, which the engine ships.
+        LINT_CMD="deno lint --ignore=$ENGINE_DIRS"
+        FORMAT_CMD="deno fmt --check --ignore=$ENGINE_DIRS"
 
     elif [ -f "$dir/package.json" ]; then
         # Detect package manager
@@ -86,25 +223,20 @@ detect_single_stack() {
         if command -v uv &>/dev/null && [ -f "$dir/uv.lock" ]; then
             BUILD_CMD="uv sync"
             TEST_CMD="uv run pytest"
-            LINT_CMD="uv run ruff check ."
-            FORMAT_CMD="uv run ruff format --check ."
+            LINT_CMD="uv run ruff check $RUFF_SCOPE"
+            FORMAT_CMD="uv run ruff format --check $RUFF_SCOPE"
         elif [ -f "$dir/poetry.lock" ]; then
             BUILD_CMD="poetry install"
             TEST_CMD="poetry run pytest"
-            LINT_CMD="poetry run ruff check ."
-            FORMAT_CMD="poetry run ruff format --check ."
+            LINT_CMD="poetry run ruff check $RUFF_SCOPE"
+            FORMAT_CMD="poetry run ruff format --check $RUFF_SCOPE"
         else
-            BUILD_CMD="pip install -e ."
-            TEST_CMD="pytest"
-            LINT_CMD="ruff check ."
-            FORMAT_CMD="ruff format --check ."
+            python_commands "$dir" "-e ."
         fi
 
     elif [ -f "$dir/requirements.txt" ]; then
         STACK="python"
-        BUILD_CMD="pip install -r requirements.txt"
-        TEST_CMD="pytest"
-        LINT_CMD="ruff check ."
+        python_commands "$dir" "-r requirements.txt"
         FORMAT_CMD=""
 
     elif [ -f "$dir/go.mod" ]; then

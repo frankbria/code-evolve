@@ -29,7 +29,7 @@ mk_deno() { echo '{}' > deno.json; }
 J=$(detect mk_deno)
 check "deno: stack"  "$(field "$J" stack)"  "deno"
 check "deno: test"   "$(field "$J" test)"   "deno test"
-check "deno: format" "$(field "$J" format)" "deno fmt --check"
+check "deno: format" "$(field "$J" format)" "deno fmt --check --ignore=.evolve,.claude,.agents"
 
 # ── Deno wins over a co-located package.json (npm-compat projects) ──
 mk_deno_pkg() { echo '{}' > deno.json; echo '{"scripts":{"build":"x"}}' > package.json; }

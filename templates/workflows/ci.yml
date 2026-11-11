@@ -96,6 +96,11 @@ jobs:
                   else:
                       subprocess.run('pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true', shell=True, cwd=subdir)
 
+              # Read again after the install: detection only returns a Python tool that is installed.
+              detected = subprocess.run(['bash', '.evolve/scripts/detect_stack.sh', subdir], capture_output=True, text=True)
+              if detected.returncode == 0:
+                  s = {**s, **{key: value for key, value in json.loads(detected.stdout).items() if key in ('build', 'test', 'lint')}}
+
               for cmd_name in ('build', 'test', 'lint'):
                   cmd = s.get(cmd_name, '')
                   if cmd:
@@ -108,15 +113,17 @@ jobs:
           "
           else
             # Single-stack path
-            BUILD_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['build'])")
-            TEST_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['test'])")
-            LINT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['lint'])")
-
             case "$STACK" in
               typescript|javascript|nextjs) npm ci || npm install ;;
               python) pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true ;;
               rust) ;;
             esac
+
+            # Read after the install: detection only returns a Python tool that is installed.
+            STACK_JSON=$(bash .evolve/scripts/detect_stack.sh . 2>/dev/null || echo "$STACK_JSON")
+            BUILD_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['build'])")
+            TEST_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['test'])")
+            LINT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['lint'])")
 
             [ -n "$BUILD_CMD" ] && echo "Running build: $BUILD_CMD" && eval "$BUILD_CMD"
             [ -n "$TEST_CMD" ] && echo "Running tests: $TEST_CMD" && eval "$TEST_CMD"
