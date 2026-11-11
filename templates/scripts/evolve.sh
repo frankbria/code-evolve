@@ -149,7 +149,9 @@ write_session_state() {
     for key in $SESSION_STATE_KEYS; do
         value=${!key:-}
         printf '%s=%s\n' "$key" "${value//$'\n'/ }"
-    done > "$RUN_DIR/session.env"
+    done > "$RUN_DIR/session.env.new"
+    # Renamed into place: a write cut short must not leave later phases a partial state.
+    mv "$RUN_DIR/session.env.new" "$RUN_DIR/session.env"
 }
 
 # verify and finalize continue a session that prepare started. A scheduled cycle leaves a
@@ -936,7 +938,8 @@ fi  # end of the cycle/prepare region
 # ── Step 6: Verify build (if stack detected) ──
 # Commands detected when the session started win: re-detecting from the agent-edited tree
 # would let a session drop a failing check. Re-detection only fills ones that were empty
-# (a bootstrap session creates the project files).
+# (a bootstrap session creates the project files). verify saves the result, so a check found
+# at one verify is still run by the next verify and by finalize.
 PREPARED_STACK="${STACK:-}"; PREPARED_BUILD_CMD="${BUILD_CMD:-}"; PREPARED_TEST_CMD="${TEST_CMD:-}"
 PREPARED_LINT_CMD="${LINT_CMD:-}"; PREPARED_FORMAT_CMD="${FORMAT_CMD:-}"
 # Re-detect stack in case bootstrap session created project files
@@ -1005,23 +1008,16 @@ worktree_fingerprint() {
 run_verification_round() {
     ERRORS_FILE=$(mktemp)
 
-    if [ "$STACK" = "monorepo" ]; then
-        # Verify each substack
-        echo "$SUBSTACKS_JSON" | python3 -c "
+    # Every nested project and the root, whatever the stack is called: a session can add a
+    # root project next to nested ones, or replace a root that had no commands with a nested one.
+    echo "$SUBSTACKS_JSON" | python3 -c "
 import sys,json
 for s in json.load(sys.stdin):
     print(s['dir'] + '|' + s.get('build','') + '|' + s.get('test','') + '|' + s.get('lint','') + '|' + s.get('format',''))
 " 2>/dev/null | while IFS='|' read -r sdir sbuild stest slint sformat; do
-            verify_single_stack "$PROJECT_DIR/$sdir" "$sbuild" "$stest" "$slint" "$sformat" "$sdir"
-        done
-        # Root commands are only set here when the session added a project at the root.
-        if [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then
-            verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
-        fi
-    else
-        # Single-stack verification (original behavior)
-        verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
-    fi
+        verify_single_stack "$PROJECT_DIR/$sdir" "$sbuild" "$stest" "$slint" "$sformat" "$sdir"
+    done
+    verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
 
     ERRORS=$(cat "$ERRORS_FILE" 2>/dev/null)
     rm -f "$ERRORS_FILE"
@@ -1120,7 +1116,7 @@ merged += [entry for entry in detected.values() if entry.get("dir") not in known
 print(json.dumps(merged))' 2>/dev/null || echo "$DETECTED_SUBSTACKS_JSON")
 ERRORS=""
 HAS_VERIFICATION=false
-if { [ "$STACK" = "monorepo" ] && [ -n "$(substack_commands)" ]; } || [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
+if [ -n "$(substack_commands)$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
 
 case "$ENGINE_PHASE" in
     cycle)
@@ -1158,7 +1154,9 @@ FIXEOF
         fi ;;
     verify)
         echo "-> Verifying the session's work..."
-        touch "$RUN_DIR/session.env"   # an active session: restart the pending window
+        # Saved before anything runs, so a failing check stays in the set. Rewriting the
+        # file also restarts the pending window of an active session.
+        write_session_state
         if [ "$HAS_VERIFICATION" = false ] || run_verification_round; then
             echo pass > "$RUN_DIR/verify.status"
             worktree_fingerprint > "$RUN_DIR/verify.fingerprint"
