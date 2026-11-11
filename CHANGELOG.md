@@ -76,9 +76,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - `--agent-env` with a name every JavaScript object has (`constructor`, `toString`, `__proto__`)
   no longer breaks scheduling. Such a name was read as set even when the shell did not set it, so
-  `init --mode local` and `start` ended with `Could not install local cron job: value.replace is
-  not a function` and `run` handed the agent a variable holding JavaScript source. It is now a
-  variable like any other: saved when the shell exports it, reported as not set when it does not (#154).
+  `init --mode local` (`Could not install local cron job: …`) and `start` (`Failed to install cron
+  job: …`) failed with `value.replace is not a function`, and `run` handed the agent a variable
+  holding the text of a JavaScript function. It is now a variable like any other: saved when the
+  shell exports it, reported as not set when it does not (#154).
 - A nested project whose directory name contains `|` is verified in its directory. The engine
   split its `dir|build|test` lines on that character, so the baseline check and verification ran
   `cd` on half the name and the session could only be reverted (#152).
