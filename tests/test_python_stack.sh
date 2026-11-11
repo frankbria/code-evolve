@@ -274,6 +274,8 @@ parsed_as "a Test class on a base from another module keeps pytest" "pytest" \
     'from checks import Checks\n\n\nclass TestRegression(Checks):\n    pass\n'
 parsed_as "a test function imported into a TestCase file keeps pytest" "pytest" \
     'import unittest\n\nfrom helpers import test_shared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a Test class imported into a TestCase file keeps pytest" "pytest" \
+    'import unittest\n\nfrom checks import TestShared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(TestShared)\n'
 parsed_as "a TestCase file that imports pytest keeps pytest" "pytest" \
     'import unittest\n\nimport pytest\n\n\nclass MarkedTest(unittest.TestCase):\n    @pytest.mark.slow\n    def test_marked(self):\n        pass\n'
 parsed_as "a test file this Python cannot parse keeps pytest" "pytest" \

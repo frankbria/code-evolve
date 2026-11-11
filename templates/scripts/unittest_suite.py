@@ -185,8 +185,12 @@ def classify(tree):
                 for alias in statement.names:
                     if alias.name in UNITTEST_BASES:
                         trust(test_cases, alias.asname or alias.name)
-            # pytest collects a test function a module imports as if it were defined there.
-            if any((alias.asname or alias.name).startswith("test") for alias in statement.names):
+            # pytest collects a test function or Test* class a module imports as if it were
+            # defined there.
+            elif any(
+                (alias.asname or alias.name).startswith(("test", "Test"))
+                for alias in statement.names
+            ):
                 return "pytest"
         elif is_test_function(statement):
             return "pytest"
