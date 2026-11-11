@@ -37,7 +37,8 @@ new_project() {
     printf '{"name":"demo","scripts":{"test":"echo FAILING-TEST-MARKER >&2; exit 1"}}\n' > package.json
     node "$CLI" init --yes --agent claude </dev/null >/dev/null 2>&1
     # Born three days ago, with the counter still at the value the last committed session left.
-    node -e "require('fs').writeFileSync('.evolve/.birth_date', new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))"
+    # The local calendar date: the engine reads a bare date as local midnight.
+    node -e "const b=new Date(Date.now()-3*86400000),p=n=>String(n).padStart(2,'0');require('fs').writeFileSync('.evolve/.birth_date',b.getFullYear()+'-'+p(b.getMonth()+1)+'-'+p(b.getDate()))"
     echo 2 > .evolve/DAY_COUNT
     git add -A -f .evolve/.birth_date . && git commit -qm "baseline"
 }
