@@ -207,3 +207,29 @@ To test the tarball locally before publishing:
 npm pack                         # produces code-evolve-<version>.tgz
 npm install -g ./code-evolve-<version>.tgz
 ```
+
+### Upload copy for OpenAI's public plugin directory
+
+OpenAI's directory does not take a plugin ZIP that contains lifecycle hooks or app references, so
+the release ZIP cannot be uploaded there as it is. Build the upload copy instead:
+
+```bash
+scripts/pack-codex-plugin --directory    # dist/code-evolve-plugin-<version>-directory.zip
+unzip -l dist/code-evolve-plugin-<version>-directory.zip    # inspect it before the upload
+```
+
+It is the committed plugin without `hooks/` and without the `hooks` entry in `plugin.json`; the
+skills, icons and listing text are the same. A plugin installed from the directory therefore has no
+protected-files hook and no setup reminder at session start. The engine still restores its
+protected files after every agent call, and the plugin installed from this repository's marketplace
+keeps both hooks. Delete the ZIP from `dist/` afterwards: the npm package ships that directory.
+
+The command names any listing page (`websiteURL`, `supportURL`, `privacyPolicyURL`,
+`termsOfServiceURL`) that `plugins/code-evolve/plugin.json` does not have yet. Add each one, as a
+published HTTPS page, under `extensions["com.openai"].interface` before building the copy to
+upload. Release notes and the countries the plugin is offered in can be set in the same file, under
+`extensions["com.openai"].publication` (`release_notes`, `countries`), or in the portal.
+
+The upload itself is manual and needs a verified developer identity: in the plugin submission
+portal choose **Upload new or existing plugin**, pick the identity, and upload the ZIP. That creates
+a draft. Submitting the draft for review and publishing the approved version are separate steps.

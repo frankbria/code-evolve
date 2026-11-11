@@ -11,6 +11,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   creates the GitHub release with the plugin ZIP attached (`.github/workflows/release.yml`,
   `scripts/publish-release`). It refuses a tag that does not match `package.json`, and a re-run after
   a partial failure does not publish twice. Maintainer steps are in [INSTALL.md](INSTALL.md) (#95).
+- **Upload copy for OpenAI's public plugin directory**: `scripts/pack-codex-plugin --directory`
+  builds the plugin ZIP without the hooks and without their entry in `plugin.json`, because the
+  directory does not take plugins with lifecycle hooks. It names the listing pages the manifest
+  still lacks. The release ZIP is unchanged. Maintainer steps are in [INSTALL.md](INSTALL.md) (#100).
 - **Version lockstep check**: `node scripts/sync-plugin-version.js --check` fails when a plugin
   manifest or the setup skill's install command is not at `package.json`'s version; CI runs it (#95).
 - **Native scheduling** (`--mode native`): cycles run from the agent's own scheduler (a Claude Code
