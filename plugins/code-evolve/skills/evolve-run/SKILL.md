@@ -76,5 +76,5 @@ passed or the session was reverted, the tag (`git describe --tags --abbrev=0`), 
 could not finish.
 
 Check that the push landed: `git status -sb` must not show the branch ahead of its remote. If it
-does (finalize prints "Push failed" and carries on), say so first. In a cloud session or any other
+does (finalize prints "Push failed" or "Push skipped" with the reason and carries on), say so first. In a cloud session or any other
 throwaway clone, a cycle that was not pushed is lost when the session ends.

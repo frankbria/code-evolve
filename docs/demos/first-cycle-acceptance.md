@@ -346,7 +346,7 @@ document.
 | Issue | What |
 |---|---|
 | [#125](https://github.com/frankbria/code-evolve/issues/125) (closed) | The CLI failed inside Codex's sandbox |
-| [#132](https://github.com/frankbria/code-evolve/issues/132) | A branch with no upstream is not pushed; fresh repositories push only the tag |
+| [#132](https://github.com/frankbria/code-evolve/issues/132) (closed) | A branch with no upstream is not pushed; fresh repositories push only the tag |
 | [#133](https://github.com/frankbria/code-evolve/issues/133) | Python projects fail verification on tooling, and ruff checks the engine's own scripts |
 | [#134](https://github.com/frankbria/code-evolve/issues/134) | Papercuts: npx's PATH saved into the cron `.env`; headless setup ends with questions; setup files swept into the first feature commit |
 

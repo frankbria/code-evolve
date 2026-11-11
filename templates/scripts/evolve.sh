@@ -1304,8 +1304,54 @@ echo "  Tagged: $TAG_NAME"
 # ── Step 9: Push ──
 echo ""
 echo "-> Pushing..."
-git push || echo "  Push failed (maybe no remote or auth issue)"
-git push --tags || echo "  Tag push failed (non-fatal)"
+
+# Runs `git push <args>`, shows git's output, and on failure repeats the line that carries git's reason.
+push_or_report() { # <label> <git push arguments...>
+    local label="$1" output reason
+    shift
+    if output=$(git push "$@" 2>&1); then
+        [ -z "$output" ] || printf '%s\n' "$output"
+        return 0
+    fi
+    printf '%s\n' "$output"
+    reason=$(printf '%s\n' "$output" | grep -m1 -E '^(fatal:|error:| ! )' || printf '%s\n' "$output" | grep -m1 . || true)
+    echo "  $label failed: ${reason# }"
+}
+
+# A branch that was never pushed has no upstream, and a bare `git push` refuses it while the tag
+# push goes through. Such a branch is pushed with its upstream set, to origin or the only remote.
+push_session() {
+    local remotes branch remote
+    remotes=$(git remote)
+    if [ -z "$remotes" ]; then
+        echo "  No remote configured; nothing pushed."
+        return 0
+    fi
+    branch=$(git symbolic-ref -q --short HEAD || true)
+    remote=""
+    [ -z "$branch" ] || remote=$(git config --get "branch.$branch.remote" || true)
+    if [ -n "$remote" ]; then
+        push_or_report "Push"
+        push_or_report "Tag push" --tags
+        return 0
+    fi
+    if printf '%s\n' "$remotes" | grep -qx origin; then
+        remote=origin
+    elif [ "$(printf '%s\n' "$remotes" | grep -c .)" -eq 1 ]; then
+        remote="$remotes"
+    else
+        echo "  Push skipped: ${branch:-HEAD} has no upstream and there are several remotes ($(printf '%s' "$remotes" | tr '\n' ' '))."
+        echo "  Choose one with: git push -u <remote> ${branch:-<branch>} && git push <remote> --tags"
+        return 0
+    fi
+    if [ -n "$branch" ]; then
+        push_or_report "Push" -u "$remote" HEAD
+    else
+        echo "  HEAD is detached: no branch to push."
+    fi
+    push_or_report "Tag push" "$remote" --tags
+}
+push_session
 
 echo ""
 # The session is over; a later cycle or prepare starts fresh.
