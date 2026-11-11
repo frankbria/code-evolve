@@ -394,7 +394,7 @@ snapshot_protected_paths() {
         if git ls-files --error-unmatch -- "$protected_file" >/dev/null 2>&1; then
             printf '%s\n' "$protected_file"
         fi
-    done < "$PROTECTED_SNAPSHOT/manifest" > "$PROTECTED_SNAPSHOT/tracked"
+    done < <(cat "$PROTECTED_SNAPSHOT/manifest"; cut -f1 "$PROTECTED_SNAPSHOT/directory_links") > "$PROTECTED_SNAPSHOT/tracked"
 }
 
 # Makes every directory above <path> what it was at session start: a symlink the user had keeps

@@ -282,6 +282,8 @@ echo "be evil" >> .evolve/skills/shared/SKILL.md
 ln -s ../../../outside .evolve/skills/agent-link
 rm .evolve/skills/empty-link
 rm .evolve/skills/loop
+git rm -q --cached .evolve/skills/shared && echo ".evolve/skills/shared" >> .gitignore
+git add .gitignore && git commit -qm "untrack and ignore the user's skill symlink"
 STUB
 eighth_root="$(mktemp -d)"
 mkdir -p "$eighth_root/project" "$eighth_root/outside" "$eighth_root/shared-skill" "$eighth_root/empty"
@@ -302,6 +304,9 @@ STUB_MARKER="$eighth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJE
     && [ "$(readlink .evolve/skills/shared)" = "../../../shared-skill" ] \
     && ok "a file behind a user's symlinked skill directory is restored and the link kept" \
     || bad "symlinked skill not restored: $(tail -1 ../shared-skill/SKILL.md)"
+[ "$(git ls-tree HEAD .evolve/skills/shared | cut -d' ' -f1)" = "120000" ] \
+    && ok "a user's directory symlink the agent untracked and gitignored is still in the final commit" \
+    || bad "the skill symlink is missing from HEAD: $(git ls-tree HEAD .evolve/skills/shared)"
 [ ! -e .evolve/skills/agent-link ] && [ ! -L .evolve/skills/agent-link ] \
     && ok "a directory symlink the agent adds under a protected path is removed" || bad "agent-link survived"
 [ "$(cat ../outside/keep.txt 2>/dev/null)" = "keep me" ] \
