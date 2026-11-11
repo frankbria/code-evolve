@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the Agent Plugins ZIP (Codex and other clients) from exactly the committed plugins/code-evolve/.
-# Usage: scripts/pack-codex-plugin [--directory] [output.zip]
+# Usage: scripts/pack-codex-plugin [--directory] [output.zip]   (a relative output is taken from the repository root)
 #   default output: dist/code-evolve-plugin-<version>.zip
 #   --directory: the upload copy for OpenAI's public plugin directory, which takes no plugin with
 #     lifecycle hooks or app references: the same commit without hooks/, .app.json and their manifest
@@ -9,20 +9,26 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PLUGIN_DIR="plugins/code-evolve"
+usage() { echo "Usage: scripts/pack-codex-plugin [--directory] [output.zip]" >&2; exit 2; }
 suffix=""
-case "${1:-}" in
-    --directory) suffix="-directory"; shift ;;
-    -*) echo "Usage: scripts/pack-codex-plugin [--directory] [output.zip]" >&2; exit 2 ;;
-esac
+output=""
+for argument in "$@"; do
+    case "$argument" in
+        --directory) suffix="-directory" ;;
+        -*) usage ;;
+        *) [ -z "$output" ] || usage; output="$argument" ;;
+    esac
+done
 version="$(node -p "require('./$PLUGIN_DIR/plugin.json').version")"
-output="${1:-dist/code-evolve-plugin-$version$suffix.zip}"
+output="${output:-dist/code-evolve-plugin-$version$suffix.zip}"
 
 if git ls-files -s -- "$PLUGIN_DIR" | grep -q '^120000'; then
     echo "Error: $PLUGIN_DIR contains a symlink; plugin archives must not." >&2
     exit 1
 fi
 # Archiving the commit, not the working tree, keeps untracked files, dependency dirs and local secrets out.
-if [ -n "$(git status --porcelain -- "$PLUGIN_DIR")" ]; then
+# Without optional locks, so that looking does not rewrite the index.
+if [ -n "$(git --no-optional-locks status --porcelain -- "$PLUGIN_DIR")" ]; then
     echo "Warning: $PLUGIN_DIR has uncommitted changes; the archive holds the committed version only." >&2
 fi
 
