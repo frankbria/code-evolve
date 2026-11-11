@@ -346,17 +346,21 @@ fi
 executable "$tools/ruff" 'case "$*" in *"--extend-exclude '"$ENGINE_EXCLUDES"' ."*) exit 0 ;; esac
 [ -d .evolve/scripts ] && { echo "would reformat: .evolve/scripts/format_issues.py" >&2; exit 1; }
 exit 0'
-linted="$(new_fixture linted)"
 # init looks for the agent CLI; a stand-in keeps the test independent of an installed one.
 executable "$scratch/agent/claude" '[ "${1:-}" = "--version" ] && echo "claude 0.0.0-stub"; exit 0'
-(
-    cd "$linted"
-    PATH="$scratch/agent:$PATH"
-    git init -q
-    git config user.email test@example.com
-    git config user.name test
-    node "$CLI" init --agent claude </dev/null > "$scratch/init.log" 2>&1
-) || bad "init failed in the ruff fixture: $(tail -3 "$scratch/init.log")"
+# install_engine <dir>  → a fresh `code-evolve init` in that project directory
+install_engine() {
+    (
+        cd "$1"
+        PATH="$scratch/agent:$PATH"
+        git init -q
+        git config user.email test@example.com
+        git config user.name test
+        node "$CLI" init --agent claude </dev/null > "$scratch/init.log" 2>&1
+    ) || bad "init failed in $(basename "$1"): $(tail -3 "$scratch/init.log")"
+}
+linted="$(new_fixture linted)"
+install_engine "$linted"
 [ -f "$linted/.evolve/scripts/format_issues.py" ] && ok "ruff fixture: init installed the engine's Python scripts" || bad "ruff fixture: no engine scripts"
 printf '[project]\nname = "linted"\nversion = "0.1.0"\n' > "$linted/pyproject.toml"
 printf 'def greeting() -> str:\n    return "hi"\n' > "$linted/greeting.py"
@@ -424,6 +428,25 @@ echo '{}' > "$deno_dir/deno.json"
 J=$(detect_in "$deno_dir")
 check "deno: lint"   "$(field "$J" lint)"   "deno lint --ignore=$ENGINE_EXCLUDES"
 check "deno: format" "$(field "$J" format)" "deno fmt --check --ignore=$ENGINE_EXCLUDES"
+# The same commands with the real deno next to a fresh .evolve/ (#143; CI installs deno).
+REAL_DENO="$(command -v deno || true)"
+if [ -n "$REAL_DENO" ]; then
+    real_deno_dir="$(dirname "$REAL_DENO")"
+    denoed="$(new_fixture denoed)"
+    install_engine "$denoed"
+    echo '{}' > "$denoed/deno.json"
+    printf 'export function greeting(): string {\n  return "hi";\n}\n' > "$denoed/greeting.ts"
+    J=$(detect_in "$denoed")
+    run_in "$denoed" "$(field "$J" lint)" "$real_deno_dir"   && ok "real deno: lint passes next to a fresh .evolve/"   || bad "real deno lint: $(tail -8 "$scratch/run.log")"
+    run_in "$denoed" "$(field "$J" format)" "$real_deno_dir" && ok "real deno: format passes next to a fresh .evolve/" || bad "real deno format: $(tail -8 "$scratch/run.log")"
+    printf 'var unused=1\n' > "$denoed/unformatted.ts"
+    run_in "$denoed" "$(field "$J" lint)" "$real_deno_dir"   && bad "real deno: lint missed the project's own file"   || ok "real deno: the project's own files are still linted"
+    run_in "$denoed" "$(field "$J" format)" "$real_deno_dir" && bad "real deno: format missed the project's own file" || ok "real deno: the project's own files are still format-checked"
+elif [ -n "${CI:-}" ]; then
+    bad "deno is not installed in CI: the real-deno checks did not run"
+else
+    echo "  (deno is not installed: the real-deno checks were not run)"
+fi
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

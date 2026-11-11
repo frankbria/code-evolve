@@ -392,17 +392,23 @@ Package managers (npm, yarn, pnpm, bun), Python tooling (uv, poetry, pip), and
 the Gradle wrapper (`./gradlew`) are detected automatically.
 
 **Python without uv or poetry** is checked with the tools that are installed, taken from the
-project's `.venv` when it has one and from `PATH` otherwise:
+project's `.venv` when it has one and from `PATH` otherwise (pytest is never taken from `PATH`
+for a project with a `.venv`: it would run on another Python):
 
 | Check | Command | When |
 |-------|---------|------|
 | Build | `python3 -m pip install -e .` (or `-r requirements.txt`) | pip can install here: a `.venv` with pip, an active virtual environment, or a Python that is not externally managed. A `.venv` without pip is installed into with `uv pip install` when uv is available |
 | Test | `pytest` | pytest is installed |
-| Test | `python3 -m unittest discover` | pytest is not installed, the project does not name pytest (dependency, configuration or `conftest.py`), and the whole suite is `unittest.TestCase` classes in `test*.py` files, either next to the code or directly in `tests/` |
+| Test | `python3 -m unittest discover` | pytest is not installed, the project does not name pytest (dependency, configuration, `conftest.py` or an `import pytest` in a test file), and the whole suite is `unittest.TestCase` classes in `test*.py` files that discovery reaches: next to the code, in `tests/`, or in packages below either (`tests/unit/`, `app/tests/`, with an `__init__.py` at each level) |
 | Lint / format | `ruff check`, `ruff format --check` | ruff is installed |
 
-Any other test layout still gets `pytest` when it is missing, so the run reports the missing tool
-instead of skipping tests. Tree-wide linters and formatters (ruff, deno) skip `.evolve/`, `.claude/` and
+The test files are parsed, not imported, to tell the two kinds of suite apart. Any other test
+layout still gets `pytest` (`.venv/bin/python -m pytest` with a `.venv`) when it is missing, so the
+run reports the missing tool instead of skipping tests.
+
+**uv and poetry projects** run a tool through `uv run` / `poetry run` when the lock file names
+it. Without pytest in the lock, the same unittest rule applies (`uv run python -m unittest
+discover`); without ruff in the lock, the ruff of `.venv` or `PATH` is used, or lint is skipped. Tree-wide linters and formatters (ruff, deno) skip `.evolve/`, `.claude/` and
 `.agents/`, so the engine's own files never fail your project's checks.
 
 **Monorepos and nested projects** are supported automatically. If no stack marker is found at the project root, code-evolve scans immediate subdirectories. Each project it finds there (e.g., `backend/` with Python and `frontend/` with Next.js, or a single `app/`) is verified independently — build, test, and lint run in that project's own directory. The post-session fix loop and CI workflow both handle monorepos.

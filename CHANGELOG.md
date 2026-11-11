@@ -45,6 +45,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **Python test detection reads the test files instead of matching lines.** Whether a suite can
+  run through `python3 -m unittest discover` is now decided by parsing each test file (new engine
+  file `.evolve/scripts/unittest_suite.py`): a pytest function written as `def test_x ():` or
+  defined under `try`, a `Test*` class whose base is not `unittest.TestCase`, or a test file that
+  imports pytest keeps `pytest`; `TestCase` under another import name, a base class of the same
+  file, and mixins are recognised. Test packages below the start directory (`tests/unit/`,
+  `app/tests/`, with `__init__.py` at each level) now run through unittest instead of failing with
+  "pytest: command not found" (#143).
+- A project `.venv` without pytest no longer uses a pytest found on `PATH`, which ran on another
+  Python. A unittest suite runs on the `.venv` python; a pytest suite gets
+  `.venv/bin/python -m pytest`, which reports the missing module (#143).
+- uv and poetry projects get `uv run pytest` / `poetry run ruff ...` only when the lock file names
+  the tool. Without pytest in the lock, a unittest suite runs as `uv run python -m unittest
+  discover` and a project with no tests gets no test command; without ruff in the lock, the ruff
+  of `.venv` or `PATH` is used, or lint and format are skipped (#143).
+- The Deno lint and format commands are now run with a real deno next to a fresh `.evolve/` in
+  this repository's tests, and the installed CI workflow's "Detect and verify project" step has
+  a test of its own (#143).
 - **Papercuts from the live Claude acceptance runs** (#134):
   - `start` run through `npx` no longer saves npm's own `PATH` entries into `.evolve/.env`: the npx
     cache's `node_modules/.bin` (gone once the cache is cleaned), the `node_modules/.bin` of the
