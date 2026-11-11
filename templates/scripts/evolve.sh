@@ -732,6 +732,37 @@ else
 fi
 echo ""
 
+# init leaves its files uncommitted, and the session's first `git add -A` would put them into the
+# first feature commit. A new install (nothing under $EVOLVE_DIR tracked yet) gets its own commit
+# first, limited to what init wrote, so the user's other uncommitted work stays out of it.
+commit_new_install() {
+    [ -z "$(git ls-files -- "$EVOLVE_DIR")" ] || return 0
+    # An install the user keeps out of git stays out, with everything that came with it.
+    ! git check-ignore -q "$EVOLVE_DIR" || return 0
+    local candidates=("$EVOLVE_DIR") candidate install_paths=()
+    for candidate in .claude/skills/*/SKILL.md .agents/skills/*/SKILL.md; do
+        ! grep -qs "managed-by: code-evolve" "$candidate" || candidates+=("$(dirname "$candidate")")
+    done
+    for candidate in AGENTS.md CLAUDE.md; do
+        ! grep -qsF -- "<!-- code-evolve:begin -->" "$candidate" || candidates+=("$candidate")
+    done
+    for candidate in .github/workflows/evolve.yml .github/workflows/evolve-ci.yml; do
+        ! grep -qsF "code-evolve:managed" "$candidate" || candidates+=("$candidate")
+    done
+    ! grep -qsF "$EVOLVE_DIR/" .gitignore || candidates+=(.gitignore)
+    # One path at a time: git refuses a whole `add` over a single ignored or symlinked path.
+    for candidate in "${candidates[@]}"; do
+        ! git add -- "$candidate" 2>/dev/null || install_paths+=("$candidate")
+    done
+    [ "${#install_paths[@]}" -gt 0 ] || return 0
+    ! git diff --cached --quiet -- "${install_paths[@]}" || return 0
+    if git commit -q -m "code-evolve: add the engine and setup files" -- "${install_paths[@]}" >/dev/null 2>&1; then
+        echo "  Committed the code-evolve install on its own, ahead of this session's work"
+    else
+        echo "  WARNING: could not commit the code-evolve install on its own; it will be part of this session's first commit"
+    fi
+}
+
 # ── Step 5: Run evolution session ──
 # Greenfield repos (fresh `git init`, zero commits) have no HEAD, which would
 # abort under `set -e`. Seed a baseline commit so revert/log logic has a valid base.
@@ -744,6 +775,7 @@ if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
     git commit -q --allow-empty -m "code-evolve: initial commit"
     echo "  Seeded initial commit (greenfield repo)"
 fi
+commit_new_install
 SESSION_START_SHA=$(git rev-parse HEAD)
 snapshot_protected_paths
 git -c core.quotePath=false ls-files --others --exclude-standard -- "$PROJECT_DIR" | sort > "$PROTECTED_SNAPSHOT/untracked_at_start"
