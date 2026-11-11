@@ -30,6 +30,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2026-11-08, with the defects they turned up (#85).
 
 ### Changed
+- **A cycle whose protected files could not be checked ends with exit status 5** (#150). When the
+  directory behind one of your protected symlinks has been swapped for a symlink to another
+  directory, the engine still leaves everything behind it alone and prints the warning, and the
+  cycle still commits and pushes, but it no longer ends with status 0. `code-evolve run` passes
+  the status on and the `evolve.yml` workflow fails the run without retrying (a new session would
+  take the swapped directory for your layout). Run `code-evolve upgrade` to get the new workflow.
+- **A session refuses names the guard's snapshot cannot hold** (#150): it stops with exit status 1
+  before the agent runs when a symlinked protected directory has a tab or newline in its name or
+  target, or a protected path has a newline in its name. These used to be recorded wrongly.
 - A cycle starts from its upstream's state: `evolve.sh` (`cycle` and `prepare`) fetches the branch's
   upstream first, fast-forwards a branch that is behind and rebases cycles that were never pushed (a branch that
   is pushed to a fork is only ever fast-forwarded).
@@ -57,6 +66,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **Protected-files guard leftovers** (#150):
+  - A file or directory with a newline in its name that the agent plants under a protected path is
+    removed like any other planted file. It used to survive.
+  - A protected symlink repointed to a name that differs only by trailing newlines is put back; the
+    comparison used to see the two as equal.
+  - Outside a git repository, an engine run with an absolute `EVOLVE_DIR` outside the project
+    stopped with a `cd: No such file or directory` error while placing the run lock.
+  - CI runs the guard's test on macOS (BSD `find`, bash 3.2) as well as on Linux.
 - **Day count and ledger leftovers** (#147):
   - `code-evolve status` prints the same day as `code-evolve proof` in every state. Before the
     first cycle it used to print 0 from `.evolve/DAY_COUNT` while `proof` counted from the birth

@@ -99,11 +99,13 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit "$status"
 
-      # Status 4 means the cycle is committed in this runner's clone but could not be pushed. A retry
-      # would run a whole new agent session, so the retries are skipped and the last step fails the run.
+      # Status 4 means the cycle is committed in this runner's clone but could not be pushed. Status 5
+      # means protected files behind a symlink could not be checked. A retry would run a whole new
+      # agent session (and after status 5 it would take the swapped directory for the project's own
+      # layout and pass), so the retries are skipped and the last steps fail the run.
       - name: Retry after 15min
         id: attempt2
-        if: steps.attempt1.outcome == 'failure' && steps.attempt1.outputs.status != '4'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt1.outputs.status != '4' && steps.attempt1.outputs.status != '5'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,7 +121,7 @@ jobs:
           exit "$status"
 
       - name: Retry after 45min
-        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure' && steps.attempt2.outputs.status != '4'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure' && steps.attempt2.outputs.status != '4' && steps.attempt2.outputs.status != '5'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # code-evolve:secrets — agent backend secrets (templated by init)
@@ -135,4 +137,10 @@ jobs:
         if: steps.attempt1.outputs.status == '4' || steps.attempt2.outputs.status == '4'
         run: |
           echo "::error::The cycle ran but its commits could not be pushed. See the lines after 'Pushing...' in the session step."
+          exit 1
+
+      - name: Fail when protected files were not checked
+        if: steps.attempt1.outputs.status == '5' || steps.attempt2.outputs.status == '5'
+        run: |
+          echo "::error::The cycle ended, but protected files behind a symlink could not be checked. See the WARNING lines in the session step and put that directory back."
           exit 1

@@ -54,3 +54,31 @@ jobs:
           npm install -g @anthropic-ai/claude-code@2.1.319
           claude plugin validate .
           claude plugin validate plugins/code-evolve
+
+  guard-macos:
+    # The protected-path guard is bash, find, readlink and cp: the parts that differ between GNU
+    # and BSD userlands. macOS also brings bash 3.2.
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Protected-path guard test with the system bash and find
+        run: |
+          # Recorded in the log: which bash and find the engine got.
+          command -v bash find
+          bash --version | head -1
+          bash tests/test_protected_paths.sh
