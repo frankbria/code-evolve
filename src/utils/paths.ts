@@ -59,12 +59,14 @@ export function currentDay(): number {
     const dayCountPath = evolveFile('DAY_COUNT');
     if (fs.existsSync(dayCountPath)) {
       const n = parseInt(fs.readFileSync(dayCountPath, 'utf8').trim(), 10);
-      if (n >= 0) return n;
+      // 0 is also what init installs before any cycle has run, so it is checked against the birth date.
+      if (n > 0) return n;
     }
-    // Fallback: derive from birth date if DAY_COUNT is absent or corrupt
     const birthPath = evolveFile('.birth_date');
     if (fs.existsSync(birthPath)) {
-      const birth = new Date(fs.readFileSync(birthPath, 'utf8').trim());
+      const recorded = fs.readFileSync(birthPath, 'utf8').trim();
+      // The engine reads a bare date as local midnight; JavaScript would read it as UTC.
+      const birth = new Date(/^\d{4}-\d{2}-\d{2}$/.test(recorded) ? `${recorded}T00:00:00` : recorded);
       const elapsed = Math.floor((Date.now() - birth.getTime()) / 86_400_000);
       return Math.max(0, elapsed);
     }

@@ -39,6 +39,20 @@ describe('currentDay', () => {
     expect(currentDay()).toBe(7);
   });
 
+  it('counts from the birth date while DAY_COUNT is still the 0 that init installs', () => {
+    fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '0\n');
+    fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), daysAgo(5));
+    expect(currentDay()).toBe(5);
+  });
+
+  it('reads a bare birth date as local midnight, as the engine does', () => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), today + '\n');
+    expect(currentDay()).toBe(0);
+  });
+
   it('ignores a corrupt or negative DAY_COUNT', () => {
     fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), daysAgo(4));
     fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), 'not a number\n');
