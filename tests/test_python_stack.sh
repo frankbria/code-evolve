@@ -182,6 +182,13 @@ rm "$nested/tests/unit/__init__.py"
 J=$(detect_in "$nested")
 check "a package chain with a gap keeps pytest" "$(field "$J" test)" "pytest"
 rm -rf "$nested/tests/unit" "$nested/tests/__init__.py"
+mkdir "$nested/moved"; mv "$nested/tests/test_greeting.py" "$nested/moved/"
+mkdir "$nested/tests/unit"; : > "$nested/tests/unit/__init__.py"; mv "$nested/moved/test_greeting.py" "$nested/tests/unit/"; rmdir "$nested/moved"
+J=$(detect_in "$nested")
+check "a plain tests/ folder holding only test packages is the start" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+run_in "$nested" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "tests/ holding only packages: the test is found and passes" || bad "tests/ holding only packages: $(tail -3 "$scratch/run.log")"
+mv "$nested/tests/unit/test_greeting.py" "$nested/tests/"; rm -rf "$nested/tests/unit"
 in_app="$(new_fixture in_app)"
 printf '[project]\nname = "in_app"\nversion = "0.1.0"\n' > "$in_app/pyproject.toml"
 write_unittest "$in_app/app/tests/test_greeting.py"
@@ -247,9 +254,15 @@ parsed_as "an async pytest function inside try keeps pytest" "pytest" \
 parsed_as "a pytest function whose first parameter is named self keeps pytest" "pytest" \
     'def test_failure(self=None):\n    assert False\n'
 parsed_as "a Test class on a project class named TestCase keeps pytest" "pytest" \
-    'class TestCase:\n    pass\n\n\nclass TestRegression(TestCase):\n    def test_failure(self):\n        assert False\n'
+    'from unittest import TestCase\n\n\nclass TestCase:\n    pass\n\n\nclass TestRegression(TestCase):\n    def test_failure(self):\n        assert False\n'
 parsed_as "a pytest class nested in a Test class keeps pytest" "pytest" \
     'class TestOuter:\n    class TestInner:\n        def test_failure(self):\n            assert False\n'
+parsed_as "a Test class that inherits its test from a plain class keeps pytest" "pytest" \
+    'class Checks:\n    def test_failure(self):\n        assert False\n\n\nclass Shared(Checks):\n    pass\n\n\nclass TestRegression(Shared):\n    pass\n'
+parsed_as "a Test class on a base from another module keeps pytest" "pytest" \
+    'from checks import Checks\n\n\nclass TestRegression(Checks):\n    pass\n'
+parsed_as "a test function imported into a TestCase file keeps pytest" "pytest" \
+    'import unittest\n\nfrom helpers import test_shared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a TestCase file that imports pytest keeps pytest" "pytest" \
     'import unittest\n\nimport pytest\n\n\nclass MarkedTest(unittest.TestCase):\n    @pytest.mark.slow\n    def test_marked(self):\n        pass\n'
 parsed_as "a test file this Python cannot parse keeps pytest" "pytest" \
@@ -258,8 +271,12 @@ parsed_as "TestCase imported under another name runs unittest" "$UNITTEST" \
     'from unittest import TestCase as Base\n\n\nclass TestAliased(Base):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a Test class on a TestCase of the same file runs unittest" "$UNITTEST" \
     'import unittest as ut\n\n\nclass Shared(ut.TestCase):\n    pass\n\n\nclass TestDerived(Shared):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a TestCase named through unittest.case runs unittest" "$UNITTEST" \
+    'import unittest\n\n\nclass TestLong(unittest.case.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a mixin holding the tests of a TestCase runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass GreetingChecks:\n    def test_passes(self):\n        self.assertTrue(True)\n\n\nclass MixedTest(GreetingChecks, unittest.TestCase):\n    pass\n'
+parsed_as "a Test-named helper class with no test in it or its bases runs unittest" "$UNITTEST" \
+    'import unittest\n\n\nclass Settings(object):\n    name = "hi"\n\n\nclass TestSettings(Settings):\n    def build(self):\n        return self.name\n\n\nclass SettingsTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(TestSettings().build(), "hi")\n'
 parsed_as "test data and helpers named test* inside functions run unittest" "$UNITTEST" \
     'import unittest\n\ntest_cases = ["hi"]\n\n\ndef build():\n    def test_inner():\n        return 1\n    return test_inner\n\n\nclass DataTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(build()(), len(test_cases))\n'
 run_in "$parsed" "$UNITTEST" && grep -q "Ran 2 tests" "$scratch/run.log" \
@@ -362,6 +379,10 @@ install_engine() {
 linted="$(new_fixture linted)"
 install_engine "$linted"
 [ -f "$linted/.evolve/scripts/format_issues.py" ] && ok "ruff fixture: init installed the engine's Python scripts" || bad "ruff fixture: no engine scripts"
+# deno fmt wraps Markdown at 80 columns and reads the project's AGENTS.md (checked here too,
+# because the real-deno checks below only run where deno is installed).
+[ -s "$linted/AGENTS.md" ] && [ -z "$(awk 'length > 80' "$linted/AGENTS.md")" ] \
+    && ok "the section init writes into AGENTS.md stays within 80 columns" || bad "AGENTS.md has a line over 80 columns"
 printf '[project]\nname = "linted"\nversion = "0.1.0"\n' > "$linted/pyproject.toml"
 printf 'def greeting() -> str:\n    return "hi"\n' > "$linted/greeting.py"
 J=$(detect_in "$linted" "$tools")

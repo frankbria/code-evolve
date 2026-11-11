@@ -402,7 +402,8 @@ for a project with a `.venv`: it would run on another Python):
 | Test | `python3 -m unittest discover` | pytest is not installed, the project does not name pytest (dependency, configuration, `conftest.py` or an `import pytest` in a test file), and the whole suite is `unittest.TestCase` classes in `test*.py` files that discovery reaches: next to the code, in `tests/`, or in packages below either (`tests/unit/`, `app/tests/`, with an `__init__.py` at each level) |
 | Lint / format | `ruff check`, `ruff format --check` | ruff is installed |
 
-The test files are parsed, not imported, to tell the two kinds of suite apart. Any other test
+The test files are parsed, not imported, to tell the two kinds of suite apart (a file the
+installed Python cannot parse counts as pytest's). Any other test
 layout still gets `pytest` (`.venv/bin/python -m pytest` with a `.venv`) when it is missing, so the
 run reports the missing tool instead of skipping tests.
 

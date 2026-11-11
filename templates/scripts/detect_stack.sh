@@ -12,7 +12,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
-SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPTS_DIR="$(CDPATH="" cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Directories the engine and the agent CLIs own. A linter or formatter that scans the whole
 # tree must not judge them: the project cannot fix those files (they are protected).
@@ -117,6 +117,9 @@ python_commands() {
 
 # python_locked_commands <dir> <runner> <lock file> — for uv and poetry projects. The runner
 # only finds a tool the lock file names, so the others are chosen as for any Python project.
+# shortcut: a tool the lock names only for an optional extra or a group that is not installed
+# by default still gets the runner's command, as every tool did before; decide from the lock's
+# dependency groups if such projects need the fallback.
 python_locked_commands() {
     local dir="$1" runner="$2" lock="$1/$3" pytest="" ruff
     grep -qx 'name = "pytest"' "$lock" && pytest="$runner pytest"

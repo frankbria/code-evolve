@@ -67,16 +67,19 @@ def is_test_function(node):
     return isinstance(node, FUNCTIONS) and node.name.startswith("test")
 
 
-def is_pytest_class(node):
-    """A class pytest collects by its name: Test* with a test method, or with such a class inside."""
-    return (
-        isinstance(node, ast.ClassDef)
-        and node.name.startswith("Test")
-        and any(
-            is_test_function(statement) or is_pytest_class(statement)
-            for statement in scope_statements(node.body)
+def may_hold_tests(node, test_free):
+    """False only when a class that is not a TestCase is known to give pytest nothing to
+    collect: no test method, no Test* class inside that may hold one, and every base a class
+    of the same file known the same way. A base from elsewhere may bring tests along."""
+    return any(
+        is_test_function(statement)
+        or (
+            isinstance(statement, ast.ClassDef)
+            and statement.name.startswith("Test")
+            and may_hold_tests(statement, {"object"})
         )
-    )
+        for statement in scope_statements(node.body)
+    ) or not all(isinstance(base, ast.Name) and base.id in test_free for base in node.bases)
 
 
 def imports_pytest(tree):
@@ -92,6 +95,13 @@ def imports_pytest(tree):
     return False
 
 
+def unittest_module(node):
+    """The name a base's module is reached through: `ut` for ut.TestCase and ut.case.TestCase."""
+    if isinstance(node, ast.Attribute) and node.attr == "case":
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
 def classify(tree):
     """'pytest' when the file holds a test only pytest collects, 'unittest' when it defines a
     unittest.TestCase class and no such test, else 'neither'."""
@@ -99,10 +109,11 @@ def classify(tree):
         return "pytest"
     unittest_modules = set()
     test_cases = set()
+    test_free = {"object"}
     kind = "neither"
-    # shortcut: names are followed inside one file only, so a Test* class whose TestCase base
-    # is imported from the project's own module keeps pytest. Resolve imports across files
-    # if such suites need the unittest fallback.
+    # shortcut: names are followed inside one file only, so a Test* class whose base is
+    # imported from the project's own module keeps pytest, TestCase or not. Resolve imports
+    # across files if such suites need the unittest fallback.
     for statement in scope_statements(tree.body):
         if isinstance(statement, ast.Import):
             for alias in statement.names:
@@ -117,6 +128,9 @@ def classify(tree):
                     for alias in statement.names
                     if alias.name in UNITTEST_BASES
                 )
+            # pytest collects a test function a module imports as if it were defined there.
+            if any((alias.asname or alias.name).startswith("test") for alias in statement.names):
+                return "pytest"
         elif is_test_function(statement):
             return "pytest"
         elif isinstance(statement, ast.ClassDef):
@@ -125,19 +139,21 @@ def classify(tree):
                 or (
                     isinstance(base, ast.Attribute)
                     and base.attr in UNITTEST_BASES
-                    and isinstance(base.value, ast.Name)
-                    and base.value.id in unittest_modules
+                    and unittest_module(base.value) in unittest_modules
                 )
                 for base in statement.bases
             )
+            # A class of the project's own may reuse a name an earlier one had.
+            test_cases.discard(statement.name)
+            test_free.discard(statement.name)
             if derives:
                 test_cases.add(statement.name)
                 kind = "unittest"
-            else:
-                # A class of the project's own may reuse a name that was a TestCase.
-                test_cases.discard(statement.name)
-                if is_pytest_class(statement):
-                    return "pytest"
+            elif not may_hold_tests(statement, test_free):
+                test_free.add(statement.name)
+            elif statement.name.startswith("Test"):
+                # pytest collects it by its name; unittest does not.
+                return "pytest"
     return kind
 
 
@@ -152,7 +168,7 @@ def unittest_arguments(project, skipped):
     if (
         os.path.isdir(tests_directory)
         and not os.path.isfile(os.path.join(tests_directory, "__init__.py"))
-        and any(is_unittest_file(name) for name in os.listdir(tests_directory))
+        and any(discovered_files(tests_directory))
     ):
         start = tests_directory
         arguments = "discover -s tests"
