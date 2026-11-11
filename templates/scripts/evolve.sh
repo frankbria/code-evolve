@@ -1324,7 +1324,9 @@ push_or_report() { # <label> <git push arguments...>
 # to push to (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote), else origin, else the only remote.
 push_session() {
     local remotes branch remote
-    branch=$(git symbolic-ref -q --short HEAD || true)
+    # Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
+    branch=$(git symbolic-ref -q HEAD || true)
+    branch="${branch#refs/heads/}"
     # Checked before the list of remotes: an upstream can name a URL or a path instead of a remote.
     if [ -n "$branch" ] && git config --get "branch.$branch.remote" >/dev/null \
         && git config --get "branch.$branch.merge" >/dev/null; then

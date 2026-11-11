@@ -184,6 +184,16 @@ run_session only.txt
 [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && [ "$(remote_tag_count origin)" -eq 1 ] && ! grep -q "failed" "$finalize_log" \
     && ok "a mirror remote receives the branch and the tag" || bad "mirror: $(tail -4 "$finalize_log")"
 
+# ── A tag named like the branch must not hide the branch's upstream ──
+new_project branch-and-tag-share-a-name
+new_bare_remote origin
+new_bare_remote fork
+git push -q -u fork "refs/heads/$branch"
+git tag "$branch"
+run_session only.txt
+[ "$(remote_branch_sha fork)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha origin)" ] \
+    && ok "a branch that shares its name with a tag is still pushed to its upstream" || bad "branch and tag share a name: $(tail -4 "$finalize_log")"
+
 # ── Detached HEAD: there is no branch to push ──
 new_project detached
 new_bare_remote origin
