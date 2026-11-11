@@ -50,7 +50,10 @@ assert_reverted_session_kept_its_state() { # <label>
     check "$1: the lesson it wrote is kept" "$(grep -c 'LESSON-FROM-THE-FAILED-SESSION' .evolve/LEARNINGS.md)" "1"
     check "$1: and is committed" "$(git status --porcelain -- .evolve/LEARNINGS.md)" ""
     check "$1: the lesson is in HEAD" "$(git show HEAD:.evolve/LEARNINGS.md | grep -c 'LESSON-FROM-THE-FAILED-SESSION')" "1"
-    check "$1: the day counter stays on the session's day" "$(cat .evolve/DAY_COUNT)" "3"
+    # Compared with the day the engine itself reported (3, or 4 if the run crosses local midnight
+    # or follows a 25-hour day), never the committed 2 the revert used to bring back.
+    check "$1: the day counter stays on the session's day" "$(cat .evolve/DAY_COUNT)" "$(sed -n '1s/^Day \([0-9]*\) .*/\1/p' .evolve/LAST_VERIFY.md)"
+    check "$1: which is not the day committed before the session" "$(grep -cx 2 .evolve/DAY_COUNT || true)" "0"
     check "$1: the spec box for the reverted work is unticked again" "$(grep -c 'SPEC-BOX-TICKED-BY-THE-SESSION' .evolve/spec.md || true)" "0"
     check "$1: the journal entry for the reverted work is gone" "$(grep -c 'AGENT-JOURNAL-ENTRY-FOR-REVERTED-WORK' .evolve/JOURNAL.md || true)" "0"
     check "$1: the failure is recorded as a requirement" "$(grep -c '^## REQ-0001: Build failed after revert' .evolve/REQUIREMENTS.md)" "1"
