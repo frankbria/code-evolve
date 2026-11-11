@@ -93,11 +93,14 @@ def bound_names(statement):
     ]
 
 
-def binding_sources(statements):
+def binding_sources(tree, statements):
     """What binds each name: the thing an import names, else the binding statement itself.
     Importing the same thing twice (unittest and unittest.mock, or in try and except) is one
     source; a name with several may stand for any of them."""
-    sources = {}
+    # `(name := value)` binds from inside an expression, wherever it is.
+    sources = {
+        node.target.id: {id(node)} for node in ast.walk(tree) if isinstance(node, ast.NamedExpr)
+    }
     for statement in statements:
         imported = {}
         if isinstance(statement, ast.Import):
@@ -204,7 +207,7 @@ def classify(tree, directories):
     # imported from the project's own module keeps pytest, TestCase or not. Resolve imports
     # across files if such suites need the unittest fallback.
     statements = list(scope_statements(tree.body))
-    sources = binding_sources(statements)
+    sources = binding_sources(tree, statements)
     # A load_tests hook decides itself what unittest loads from the module or package.
     if "load_tests" in sources:
         return "pytest"

@@ -275,6 +275,8 @@ parsed_as "a Test class on a TestCase name that was assigned something else keep
     'from unittest import TestCase as Base\n\nBase = object\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
 parsed_as "a TestCase name bound to something else in another branch keeps pytest" "pytest" \
     'import sys\n\nif sys.argv:\n    Base = object\nelse:\n    from unittest import TestCase as Base\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a TestCase name rebound by an assignment expression keeps pytest" "pytest" \
+    'import sys\nfrom unittest import TestCase as Base\n\nif sys.argv:\n    (Base := object)\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
 parsed_as "a function assigned to a test name in a Test class keeps pytest" "pytest" \
     'def failure(self):\n    assert False\n\n\nclass TestRegression:\n    test_failure = failure\n'
 parsed_as "a load_tests hook in a test file keeps pytest" "pytest" \
