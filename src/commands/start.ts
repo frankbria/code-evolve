@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, AuthMode, NATIVE_REPLACED_WARNING } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, isEnvVarName, AuthMode, NATIVE_REPLACED_WARNING } from '../utils/config';
 import { codexLoginMissing, isOnPath } from '../utils/checks';
 
 
@@ -27,7 +27,7 @@ export interface ScheduleOptions {
   model: string;
   hours: number;
   projectDir: string;
-  /** Engine variables for a custom agent (AGENT_COMMAND, AGENT_ERROR_PATTERN); see customAgentEnv. */
+  /** Engine variables for a custom agent (AGENT_COMMAND, AGENT_ERROR_PATTERN, its credentials); see customAgentEnv. */
   agentEnv?: Record<string, string>;
 }
 
@@ -147,9 +147,13 @@ export const startCommand = new Command('start')
     }
     writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', model: savedModel });
 
+    const savedCredentials = credentialsKeptFromEnvFile(agent === 'custom' ? config.agentEnvVars ?? [] : [], path.join(evolveDir, '.env'));
+    for (const warning of savedCredentials.warnings) console.warn(`⚠ ${warning}`);
+    const agentEnv = { ...savedCredentials.kept, ...customAgentEnv(agent, config) };
+
     // Install cron entry + write .env + schedule.json
     try {
-      installLocalSchedule({ agent, authMode, model, hours, projectDir, agentEnv: customAgentEnv(agent, config) });
+      installLocalSchedule({ agent, authMode, model, hours, projectDir, agentEnv });
     } catch (err) {
       console.error('Failed to install cron job:', err);
       process.exit(1);
@@ -173,7 +177,7 @@ export const startCommand = new Command('start')
           PROJECT_DIR: '.',
           MODEL: model,
           AGENT: agent,
-          ...customAgentEnv(agent, config),
+          ...agentEnv,
           ...(authMode === 'oauth' ? { CLAUDE_AUTH_MODE: 'oauth' } : {}),
         },
       });
@@ -220,6 +224,41 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode: A
   } finally {
     fs.rmSync(temporaryFile, { force: true });
   }
+}
+
+/** The values in a cron .env, read back from the `export NAME='…'` lines writeEnvFile writes. */
+function readEnvFile(envFile: string): Map<string, string> {
+  let text: string;
+  try {
+    text = fs.readFileSync(envFile, 'utf8');
+  } catch {
+    return new Map();
+  }
+  const values = new Map<string, string>();
+  for (const [, name, quoted] of text.matchAll(/^export ([A-Za-z_][A-Za-z0-9_]*)='((?:[^']|'\\'')*)'$/gm)) {
+    values.set(name, quoted.replace(/'\\''/g, "'"));
+  }
+  return values;
+}
+
+/**
+ * For the credentials a custom agent names (agentEnvVars) that this shell does not set: the values
+ * the cron .env already holds, so rewriting that file does not drop them, and a warning for each name.
+ */
+export function credentialsKeptFromEnvFile(names: string[], envFile: string): { kept: Record<string, string>; warnings: string[] } {
+  const unsetNames = names.filter((name) => isEnvVarName(name) && process.env[name] === undefined);
+  const saved = unsetNames.length > 0 ? readEnvFile(envFile) : new Map<string, string>();
+  const savedFile = `${EVOLVE_DIR_NAME}/.env`;
+  const kept: Record<string, string> = {};
+  const warnings = unsetNames.map((name) => {
+    const savedValue = saved.get(name);
+    if (!savedValue) {
+      return `${name} is not set in this shell and no value is saved in ${savedFile}; scheduled cycles won't get it until you set it and run code-evolve start`;
+    }
+    kept[name] = savedValue;
+    return `${name} is not set in this shell; keeping the value saved in ${savedFile}`;
+  });
+  return { kept, warnings };
 }
 
 function ensureEnvGitignored(projectDir: string): void {

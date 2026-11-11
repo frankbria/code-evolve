@@ -20,6 +20,7 @@ model=""; file=""
 while [ \$# -gt 0 ]; do case "\$1" in --model) model="\$2"; shift 2 ;; --file) file="\$2"; shift 2 ;; *) shift ;; esac; done
 if [ -n "\$file" ]; then prompt="\$(cat "\$file")"; via=file; else prompt="\$(cat)"; via=stdin; fi
 printf 'via=%s model=%s prompt=%s\n' "\$via" "\$model" "\$(printf '%s' "\$prompt" | head -c 40 | tr '\n' ' ')" >> "$work/calls"
+printf '%s' "\${CUSTOM_TOKEN:-<unset>}" > "$work/token-seen"
 [ -n "\${FAKE_SAY:-}" ] && echo "\$FAKE_SAY"
 exit "\${FAKE_EXIT:-0}"
 STUB
@@ -110,6 +111,38 @@ CUSTOM_TOKEN='s3cret$value' node "$CLI" init --yes --agent custom --agent-comman
 check "an empty --agent-env keeps the saved credential names" "$(node -p "JSON.stringify(require('./.evolve/config.json').agentEnvVars)")" '["CUSTOM_TOKEN"]'
 status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'MODEL' </dev/null > "$work/init-reserved.log" 2>&1 || status=$?
 check "a name the engine sets itself (MODEL) is rejected" "$status" "1"
+
+# A credential this shell does not set keeps the value the cron .env already holds (#130).
+unset CUSTOM_TOKEN OTHER_TOKEN
+saved_token() { ( . ./.evolve/.env; printf '%s' "${CUSTOM_TOKEN-<absent>}" ); }
+node "$CLI" start --every 6 </dev/null > "$work/start-unset.log" 2>&1
+check "start without the credential set keeps the saved value" "$(saved_token)" 's3cret$value'
+check "and warns that it kept it" "$(grep -c 'CUSTOM_TOKEN is not set in this shell; keeping the value saved in .evolve/.env' "$work/start-unset.log")" "1"
+check "the warning does not print the value" "$(grep -c 's3cret' "$work/start-unset.log")" "0"
+CUSTOM_TOKEN='rotated' node "$CLI" start --every 6 </dev/null > "$work/start-rotated.log" 2>&1
+check "a value set in the shell replaces the saved one" "$(saved_token)" 'rotated'
+check "with no warning" "$(grep -c 'not set in this shell' "$work/start-rotated.log")" "0"
+tricky_token="it's "'"quoted" $HOME `id`'"
+second line with '\\'' in it"
+CUSTOM_TOKEN="$tricky_token" node "$CLI" start --every 6 </dev/null >/dev/null 2>&1
+node "$CLI" start --every 6 </dev/null >/dev/null 2>&1
+check "a saved value with quotes and a newline is kept exactly" "$(saved_token)" "$tricky_token"
+CUSTOM_TOKEN='' node "$CLI" start --every 6 </dev/null > "$work/start-empty.log" 2>&1
+check "a credential set to the empty string clears the saved value" "$(saved_token):$(grep -c 'not set in this shell' "$work/start-empty.log")" '<absent>:0'
+CUSTOM_TOKEN='kept' node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'CUSTOM_TOKEN,OTHER_TOKEN' </dev/null > "$work/init-two.log" 2>&1
+check "init names a credential with no value anywhere" "$(grep -c "OTHER_TOKEN is not set in this shell and no value is saved in .evolve/.env; scheduled cycles won't get it" "$work/init-two.log")" "1"
+node "$CLI" init --yes --agent custom --agent-command 'fakeagent --flag' </dev/null > "$work/init-unset.log" 2>&1
+check "init re-installing the schedule keeps the saved value too" "$(saved_token):$(grep -c 'CUSTOM_TOKEN is not set in this shell; keeping the value saved' "$work/init-unset.log")" 'kept:1'
+node "$CLI" start --every 6 </dev/null > "$work/start-two.log" 2>&1
+check "start warns about a credential with no value anywhere, and still keeps the saved one" \
+    "$(saved_token):$(grep -c "OTHER_TOKEN is not set in this shell and no value is saved" "$work/start-two.log"):$(grep -c 'OTHER_TOKEN' .evolve/.env)" 'kept:1:0'
+printf "export OTHER_TOKEN='planted'\n" >> .evolve/.env
+node "$CLI" init --yes --agent custom --agent-command 'fakeagent --flag' --agent-env 'CUSTOM_TOKEN' </dev/null >/dev/null 2>&1
+check "a name no longer listed is not carried over" "$(saved_token):$(grep -c 'OTHER_TOKEN' .evolve/.env)" 'kept:0'
+git config user.email t@example.com; git config user.name t; git add -A; git commit -qm "fresh install"
+rm -f "$work/token-seen"
+node "$CLI" start --every 6 --run-now </dev/null > "$work/runnow-unset.log" 2>&1 || true
+check "start --run-now hands the kept value to the first cycle" "$(cat "$work/token-seen" 2>/dev/null)" 'kept'
 
 # Validation uses the same grep the adapter runs (GNU grep, ugrep, BSD grep differ), so an
 # unbalanced group, invalid in every grep -E, is the portable case to test.
