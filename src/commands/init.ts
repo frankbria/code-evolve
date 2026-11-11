@@ -25,6 +25,7 @@ import {
   resolveModeSelection,
   getExecutionModes,
   NATIVE_REPLACED_WARNING,
+  newerInstalledEngine,
   isValidMode,
   AuthMode,
   ExecutionMode,
@@ -141,6 +142,16 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Fail fast before prompting: don't ask agent/auth questions only to abort.
     if (isInitialized() && !options.force) {
       console.error(`.evolve/ already exists. Use --force to overwrite.`);
+      process.exit(1);
+    }
+
+    // An out-of-date plugin, skill copy or npx cache re-running init must not put its older engine back.
+    const newerEngine = newerInstalledEngine();
+    if (newerEngine !== undefined) {
+      console.error(
+        `The installed engine (${newerEngine}) is newer than this code-evolve (${packageVersion()}), so nothing was changed. ` +
+          'Run init with a newer code-evolve (npx code-evolve@latest init ...); if a plugin or skill ran this command, update the code-evolve plugin.',
+      );
       process.exit(1);
     }
 
