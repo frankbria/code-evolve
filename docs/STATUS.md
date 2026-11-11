@@ -31,7 +31,7 @@ CLIs, but a billed one-shot per backend hasn't been exercised in CI).
 
 | Area | State |
 |------|-------|
-| **Stack detection** | `detect_stack.sh` emits build/test/lint/format as JSON per stack; supports Rust, JS/TS (npm/pnpm/yarn/bun), Python (uv/poetry/pip), Go, Makefile, and 1-level monorepos. Verifies scripts exist before emitting commands. |
+| **Stack detection** | `detect_stack.sh` emits build/test/lint/format as JSON per stack; supports Rust, JS/TS (npm/pnpm/yarn/bun), Python (uv/poetry/pip), Go, Makefile, and projects one level down (a single nested project or a monorepo), whose commands run in their own directory. Verifies scripts exist before emitting commands. |
 | **Non-destructive install** | Workflows use skip-if-exists; `.gitignore` appended with a marker guard; state files preserved on re-init. Won't clobber an existing repo's files. |
 | **Local execution** | `code-evolve start` installs a real Unix **crontab** entry (survives reboots), writes a 0600 `.env`, gitignored. `stop` removes it cleanly. |
 | **CI execution** | `templates/workflows/evolve.yml` runs the engine on a cron + `workflow_dispatch` (but see P0.1). |

@@ -201,6 +201,14 @@ fi
 
 # Prints how many lines of <file> match <regex>, always as one integer. grep -c already prints
 # "0" on no match but exits 1, so falling back to printing another 0 would print it twice.
+# The commands of every substack, joined: empty when no nested project has anything to run
+# (a static docs/ folder), so such a layout is not treated as having verification.
+substack_commands() {
+    echo "${SUBSTACKS_JSON:-[]}" | python3 -c "
+import sys, json
+print(''.join(s.get(k, '') for s in json.load(sys.stdin) for k in ('build', 'test', 'lint', 'format')))" 2>/dev/null || echo ""
+}
+
 count_lines_matching() {
     [ -f "$2" ] || { echo 0; return; }
     grep -c -- "$1" "$2" || true
@@ -647,12 +655,12 @@ echo ""
 
 # Build verification instructions based on detected stack
 VERIFY_INSTRUCTIONS=""
-if [ "$STACK" = "monorepo" ]; then
+if [ "$STACK" = "monorepo" ] && [ -n "$(substack_commands)" ]; then
     VERIFY_INSTRUCTIONS=$(echo "$SUBSTACKS_JSON" | python3 -c "
 import sys, json
 substacks = json.load(sys.stdin)
 lines = ['## Build Verification Commands (MONOREPO)',
-         'This project has multiple substacks. After making changes, verify EACH affected substack:',
+         'The code lives in subdirectories. After making changes, verify EACH affected substack from its own directory:',
          '']
 pd = '$PROJECT_DIR'
 for s in substacks:
@@ -911,6 +919,10 @@ for s in json.load(sys.stdin):
 " 2>/dev/null | while IFS='|' read -r sdir sbuild stest slint sformat; do
             verify_single_stack "$PROJECT_DIR/$sdir" "$sbuild" "$stest" "$slint" "$sformat" "$sdir"
         done
+        # Root commands are only set here when the session added a project at the root.
+        if [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then
+            verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
+        fi
     else
         # Single-stack verification (original behavior)
         verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
@@ -997,7 +1009,7 @@ merged += [entry for entry in load("DETECTED") if entry.get("dir") not in known]
 print(json.dumps(merged))' 2>/dev/null || echo "$DETECTED_SUBSTACKS_JSON")
 ERRORS=""
 HAS_VERIFICATION=false
-if [ "$STACK" = "monorepo" ] || [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
+if { [ "$STACK" = "monorepo" ] && [ -n "$(substack_commands)" ]; } || [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi
 
 case "$ENGINE_PHASE" in
     cycle)

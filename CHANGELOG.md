@@ -22,6 +22,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   side by side unnoticed. The `evolve-run` skill now checks that the push landed and reports a
   failed push first (#93).
 
+### Fixed
+- A project that lives in one subdirectory (`app/package.json`, nothing at the root) now has its
+  build, test and lint run in that subdirectory, in the baseline check, verification, the cycle
+  prompt and the `evolve-ci.yml` workflow. They ran at the project root before and failed.
+  `detect_stack.sh` reports such a project as `monorepo` with one substack (#94).
+
 ## [0.2.0] — 2026-06-29
 
 The guided-install release: `code-evolve` goes from "happy-path engine" to a
