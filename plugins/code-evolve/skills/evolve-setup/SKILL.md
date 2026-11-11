@@ -53,8 +53,9 @@ npx -y code-evolve@0.2.0 init --yes --agent <your agent>
 `init --yes` never prompts and is safe to re-run: on an existing install it refreshes the engine
 and keeps the user's state and schedule. If `.evolve/` exists but `.evolve/config.json` names a
 different agent, run the same command so the install is set for you. The command installs the
-version this skill was written for. If init refuses because the installed engine is newer, tell the
-user to update the code-evolve plugin (or this skill copy). If npm answers that this version does not exist
+version this skill was written for. If `config.json` already records a newer `engineVersion` than
+the one in the command, or init refuses because the installed engine is newer, do not install: tell
+the user to update the code-evolve plugin (or this skill copy). If npm answers that this version does not exist
 (a 404, `ETARGET` or "No matching version"), the release is not published yet: run the command once
 more with `code-evolve@latest` and tell the user which version was installed. If `npx` cannot reach npm
 (an offline sandbox): with an existing `.evolve/`, say so and continue with it; without one, stop
