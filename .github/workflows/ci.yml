@@ -36,6 +36,12 @@ jobs:
         # tests/test_python_stack.sh runs the detected lint and format commands with the real tool.
         run: pipx install ruff
 
+      - name: Install deno
+        # tests/test_python_stack.sh also runs the detected deno lint and format commands for real.
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Test
         run: npm test
 

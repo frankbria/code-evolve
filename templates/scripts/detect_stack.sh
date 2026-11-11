@@ -12,6 +12,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
+SCRIPTS_DIR="$(CDPATH="" cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Directories the engine and the agent CLIs own. A linter or formatter that scans the whole
 # tree must not judge them: the project cannot fix those files (they are protected).
@@ -31,70 +32,21 @@ python_tool() {
 # Directories that hold no project tests: the engine, agent CLIs, and installed packages.
 PYTHON_SKIPPED_DIRS=(.git .evolve .claude .agents .venv venv node_modules)
 
-# python_test_grep <dir> <grep flags> <pattern> <file glob>... — grep the project's files with
-# one of the names. Run from inside the project: grep would skip a project directory itself
-# named "venv".
-python_test_grep() {
-    local dir="$1" flags="$2" pattern="$3" options=() name
-    shift 3
-    for name in "$@"; do options+=("--include=$name"); done
-    for name in "${PYTHON_SKIPPED_DIRS[@]}"; do options+=("--exclude-dir=$name"); done
-    (cd "$dir" && grep -rE "$flags" "${options[@]}" "$pattern" .) 2>/dev/null
-}
-
-# python_test_files <dir> <pattern> <file glob>... — true when such a file has a matching line.
-python_test_files() {
-    local dir="$1"
-    shift
-    python_test_grep "$dir" -lq "$@"
-}
-
-# unittest_module_count — counts the file paths on stdin that unittest discovery would load:
-# test*.py whose name is a valid module name (it skips the others without a word).
-unittest_module_count() {
-    grep -cE '(^|/)test[A-Za-z0-9_]*\.py$' || true
-}
-
-# A class base list naming TestCase itself (TestCase, unittest.TestCase,
-# IsolatedAsyncioTestCase), not a longer name that merely contains it.
-UNITTEST_BASE='[(,.[:space:]](IsolatedAsyncio)?TestCase[,)[:space:]]'
-
-# python_unittest_command <dir> <python> — prints the unittest command when it runs the whole
-# suite: only TestCase classes, all in files discovery will load. Prints nothing otherwise,
-# because a suite unittest would run in part (or not at all) must not pass as verified.
-python_unittest_command() {
-    local dir="$1" python="$2" start_directory="" prunes=() name all_count seen_count pytest_only
-    python_test_files "$dir" "^[[:space:]]*class[[:space:]].*$UNITTEST_BASE" 'test*.py' || return 0
-    python_test_files "$dir" '' '*_test.py' && return 0
-    # A test function that does not take self, or a Test* class without a TestCase base,
-    # belongs to pytest. Both scans are read to the end: stopping at the first hit
-    # would kill the first grep mid-write and, under pipefail, read as "no hit".
-    pytest_only=$(
-        python_test_grep "$dir" -h '^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+test[A-Za-z0-9_]*\(' 'test*.py' \
-            | grep -vE '\([[:space:]]*self\b' || true
-        python_test_grep "$dir" -h '^[[:space:]]*class[[:space:]]+Test' 'test*.py' \
-            | grep -vE "$UNITTEST_BASE" || true
-    )
-    [ -n "$pytest_only" ] && return 0
-
-    # Discovery only enters packages, so a plain tests/ folder is named as the start instead.
-    if [ ! -f "$dir/tests/__init__.py" ] && compgen -G "$dir/tests/test*.py" >/dev/null; then
-        start_directory="tests"
-    fi
+# python_has_test_files <dir> — true when the project has a file pytest collects by its name.
+python_has_test_files() {
+    local prunes=() name
     for name in "${PYTHON_SKIPPED_DIRS[@]}"; do prunes+=(-name "$name" -o); done
-    all_count=$(cd "$dir" && find . \( "${prunes[@]}" -false \) -prune -o -type f -name 'test*.py' -print | wc -l)
-    # shortcut: counts only the start directory and a tests/ package directly under it; deeper
-    # packages fall back to pytest. Walk __init__.py chains if such a layout needs unittest.
-    if [ -n "$start_directory" ]; then
-        seen_count=$(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)
-    else
-        seen_count=$(cd "$dir" && find . -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)
-        if [ -f "$dir/tests/__init__.py" ]; then
-            seen_count=$((seen_count + $(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)))
-        fi
-    fi
-    [ "$all_count" -eq "$seen_count" ] || return 0
-    echo "$python -m unittest discover${start_directory:+ -s $start_directory}"
+    [ -n "$(cd "$1" && find . \( "${prunes[@]}" -false \) -prune -o -type f \( -name 'test*.py' -o -name '*_test.py' \) -print -quit 2>/dev/null)" ]
+}
+
+# python_unittest_command <dir> <python command> — prints the unittest command when it runs the
+# whole suite, nothing otherwise. unittest_suite.py decides, by parsing the test files; it runs
+# on an interpreter that exists now, which <python command> (`uv run python`) may not yet be.
+python_unittest_command() {
+    local dir="$1" interpreter="python3" arguments
+    [ -x "$dir/.venv/bin/python" ] && interpreter="$dir/.venv/bin/python"
+    arguments=$("$interpreter" -I "$SCRIPTS_DIR/unittest_suite.py" "$dir" "${PYTHON_SKIPPED_DIRS[@]}" 2>/dev/null) || return 0
+    [ -z "$arguments" ] || echo "$2 -m unittest $arguments"
 }
 
 # python_declares_pytest <dir> — true when the project's own files name pytest (a dependency,
@@ -113,40 +65,71 @@ marker = os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")
 sys.exit(1 if sys.prefix == sys.base_prefix and os.path.exists(marker) else 0)' 2>/dev/null
 }
 
+# python_test_command <dir> <pytest command, empty when pytest is not installed>
+#                     <pytest command that reports it as missing> <python command>
+python_test_command() {
+    local dir="$1" installed_pytest="$2" missing_pytest="$3" python="$4" unittest
+    if [ -n "$installed_pytest" ]; then
+        echo "$installed_pytest"
+    elif python_declares_pytest "$dir"; then
+        # Keep the command so the missing tool is reported instead of the tests being skipped.
+        echo "$missing_pytest"
+    else
+        unittest=$(python_unittest_command "$dir" "$python")
+        if [ -n "$unittest" ]; then
+            echo "$unittest"
+        elif python_has_test_files "$dir"; then
+            echo "$missing_pytest"
+        fi
+    fi
+}
+
+# python_ruff_commands <ruff command, empty when ruff is not installed>
+python_ruff_commands() {
+    [ -n "$1" ] || return 0
+    LINT_CMD="$1 check $RUFF_SCOPE"
+    FORMAT_CMD="$1 format --check $RUFF_SCOPE"
+}
+
 # python_commands <dir> <pip install arguments> — for projects without a uv or poetry lock.
 # Sets BUILD_CMD, TEST_CMD, LINT_CMD, FORMAT_CMD to commands whose tools can run here.
 python_commands() {
-    local dir="$1" install_arguments="$2" python="python3" pytest ruff
+    local dir="$1" install_arguments="$2" pytest=""
     if [ -x "$dir/.venv/bin/python" ]; then
-        python=".venv/bin/python"
         if python_can_install "$dir/.venv/bin/python"; then
-            BUILD_CMD="$python -m pip install $install_arguments"
+            BUILD_CMD=".venv/bin/python -m pip install $install_arguments"
         elif command -v uv >/dev/null 2>&1; then
             # A .venv made by uv has no pip of its own.
-            BUILD_CMD="uv pip install --python $python $install_arguments"
+            BUILD_CMD="uv pip install --python .venv/bin/python $install_arguments"
         fi
-    elif python_can_install python3; then
-        BUILD_CMD="python3 -m pip install $install_arguments"
-    fi
-
-    pytest=$(python_tool "$dir" pytest)
-    if [ -n "$pytest" ]; then
-        TEST_CMD="$pytest"
-    elif python_declares_pytest "$dir"; then
-        # Keep the command so the missing tool is reported instead of the tests being skipped.
-        TEST_CMD="pytest"
+        # A pytest on PATH runs on another interpreter and may not see the .venv's packages.
+        [ -x "$dir/.venv/bin/pytest" ] && pytest=".venv/bin/pytest"
+        TEST_CMD=$(python_test_command "$dir" "$pytest" ".venv/bin/python -m pytest" ".venv/bin/python")
     else
-        TEST_CMD=$(python_unittest_command "$dir" "$python")
-        if [ -z "$TEST_CMD" ] && python_test_files "$dir" '' 'test*.py' '*_test.py'; then
-            TEST_CMD="pytest"
+        if python_can_install python3; then
+            BUILD_CMD="python3 -m pip install $install_arguments"
         fi
+        command -v pytest >/dev/null 2>&1 && pytest="pytest"
+        TEST_CMD=$(python_test_command "$dir" "$pytest" "pytest" "python3")
     fi
+    python_ruff_commands "$(python_tool "$dir" ruff)"
+}
 
-    ruff=$(python_tool "$dir" ruff)
-    if [ -n "$ruff" ]; then
-        LINT_CMD="$ruff check $RUFF_SCOPE"
-        FORMAT_CMD="$ruff format --check $RUFF_SCOPE"
+# python_locked_commands <dir> <runner> <lock file> — for uv and poetry projects. The runner
+# only finds a tool the lock file names, so the others are chosen as for any Python project.
+# shortcut: a tool the lock names only for an optional extra or a group that is not installed
+# by default still gets the runner's command, as every tool did before; decide from the lock's
+# dependency groups if such projects need the fallback.
+python_locked_commands() {
+    local dir="$1" runner="$2" lock="$1/$3" pytest="" ruff
+    grep -qx 'name = "pytest"' "$lock" && pytest="$runner pytest"
+    TEST_CMD=$(python_test_command "$dir" "$pytest" "$runner pytest" "$runner python")
+    if grep -qx 'name = "ruff"' "$lock"; then
+        ruff="$runner ruff"
+    else
+        ruff=$(python_tool "$dir" ruff)
     fi
+    python_ruff_commands "$ruff"
 }
 
 # ── detect_single_stack(dir) ──
@@ -222,14 +205,10 @@ detect_single_stack() {
         STACK="python"
         if command -v uv &>/dev/null && [ -f "$dir/uv.lock" ]; then
             BUILD_CMD="uv sync"
-            TEST_CMD="uv run pytest"
-            LINT_CMD="uv run ruff check $RUFF_SCOPE"
-            FORMAT_CMD="uv run ruff format --check $RUFF_SCOPE"
+            python_locked_commands "$dir" "uv run" uv.lock
         elif [ -f "$dir/poetry.lock" ]; then
             BUILD_CMD="poetry install"
-            TEST_CMD="poetry run pytest"
-            LINT_CMD="poetry run ruff check $RUFF_SCOPE"
-            FORMAT_CMD="poetry run ruff format --check $RUFF_SCOPE"
+            python_locked_commands "$dir" "poetry run" poetry.lock
         else
             python_commands "$dir" "-e ."
         fi

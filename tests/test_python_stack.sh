@@ -4,6 +4,8 @@
 #     unittest-style tests fall back to `python3 -m unittest discover`.
 #   - `pip install` is not returned where pip would refuse it or is missing.
 #   - ruff (and deno) leave the engine's own directories alone.
+# (#143): test files are classified by parsing them, nested test packages run through unittest,
+# a project .venv never borrows a pytest from PATH, and uv/poetry only run a tool their lock names.
 # The detected commands are run for real in the fixtures. Ruff is the real one when it is on
 # PATH (CI installs it) next to a stand-in that fails the way ruff does on the engine's files.
 set -euo pipefail
@@ -26,7 +28,7 @@ trap 'rm -rf "$scratch"' EXIT
 # without pip, so "pip cannot install" does not depend on this machine's Python either.
 toolbox="$scratch/toolbox"
 mkdir "$toolbox"
-for tool in bash sh cat grep find wc basename dirname sed env; do
+for tool in bash sh cat grep find basename dirname sed env; do
     ln -s "$(command -v "$tool")" "$toolbox/$tool"
 done
 SYSTEM_PYTHON="$(command -v python3)"
@@ -165,7 +167,55 @@ write_unittest "$nested/tests/test_greeting.py"
 write_unittest "$nested/tests/unit/test_deeper.py"
 J=$(detect_in "$nested")
 check "a test folder discovery would not enter keeps pytest" "$(field "$J" test)" "pytest"
-rm -rf "$nested/tests/unit"
+# With __init__.py all the way down, discovery enters it (#143).
+: > "$nested/tests/unit/__init__.py"
+J=$(detect_in "$nested")
+check "a nested package under a plain tests/ folder runs unittest" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+run_in "$nested" "$(field "$J" test)" && grep -q "Ran 2 tests" "$scratch/run.log" \
+    && ok "nested package under tests/: both tests are found and pass" || bad "nested package under tests/: $(tail -3 "$scratch/run.log")"
+: > "$nested/tests/__init__.py"
+J=$(detect_in "$nested")
+check "nested test packages run unittest from the project root" "$(field "$J" test)" "python3 -m unittest discover"
+run_in "$nested" "$(field "$J" test)" && grep -q "Ran 2 tests" "$scratch/run.log" \
+    && ok "nested test packages: both tests are found and pass" || bad "nested test packages: $(tail -3 "$scratch/run.log")"
+printf 'def load_tests(loader, tests, pattern):\n    return tests\n' > "$nested/tests/unit/__init__.py"
+J=$(detect_in "$nested")
+check "a package whose load_tests hook replaces discovery keeps pytest" "$(field "$J" test)" "pytest"
+rm "$nested/tests/unit/__init__.py"
+J=$(detect_in "$nested")
+check "a package chain with a gap keeps pytest" "$(field "$J" test)" "pytest"
+rm -rf "$nested/tests/unit" "$nested/tests/__init__.py"
+mkdir "$nested/moved"; mv "$nested/tests/test_greeting.py" "$nested/moved/"
+mkdir "$nested/tests/unit"; : > "$nested/tests/unit/__init__.py"; mv "$nested/moved/test_greeting.py" "$nested/tests/unit/"; rmdir "$nested/moved"
+J=$(detect_in "$nested")
+check "a plain tests/ folder holding only test packages is the start" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+run_in "$nested" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "tests/ holding only packages: the test is found and passes" || bad "tests/ holding only packages: $(tail -3 "$scratch/run.log")"
+mv "$nested/tests/unit/test_greeting.py" "$nested/tests/"; rm -rf "$nested/tests/unit"
+# A relative star import is followed to the package it names, however many levels up.
+relative="$(new_fixture relative)"
+printf '[project]\nname = "relative"\nversion = "0.1.0"\n' > "$relative/pyproject.toml"
+mkdir -p "$relative/tests/unit"; : > "$relative/tests/__init__.py"; : > "$relative/tests/unit/__init__.py"
+printf 'def greeting():\n    return "hi"\n' > "$relative/tests/checks.py"
+printf 'import unittest\n\nfrom ..checks import *\n\n\nclass LocalTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(greeting(), "hi")\n' > "$relative/tests/unit/test_local.py"
+J=$(detect_in "$relative")
+check "a star import from a parent package without tests runs unittest" "$(field "$J" test)" "python3 -m unittest discover"
+run_in "$relative" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "star import from a parent package: the test is found and passes" || bad "star import from a parent package: $(tail -3 "$scratch/run.log")"
+printf 'def test_shared():\n    assert False\n' >> "$relative/tests/checks.py"
+J=$(detect_in "$relative")
+check "a star import of a parent package's file that holds a test keeps pytest" "$(field "$J" test)" "pytest"
+in_app="$(new_fixture in_app)"
+printf '[project]\nname = "in_app"\nversion = "0.1.0"\n' > "$in_app/pyproject.toml"
+write_unittest "$in_app/app/tests/test_greeting.py"
+: > "$in_app/app/__init__.py"; : > "$in_app/app/tests/__init__.py"
+J=$(detect_in "$in_app")
+check "tests in a package inside the code's package run unittest" "$(field "$J" test)" "python3 -m unittest discover"
+run_in "$in_app" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "app/tests/: the test is found and passes" || bad "app/tests/: $(tail -3 "$scratch/run.log")"
+mv "$in_app/app" "$in_app/my-app"
+J=$(detect_in "$in_app")
+check "a package directory unittest cannot import keeps pytest" "$(field "$J" test)" "pytest"
 write_unittest "$nested/test_beside.py"
 J=$(detect_in "$nested")
 check "tests both in a plain tests/ folder and beside the code keep pytest" "$(field "$J" test)" "pytest"
@@ -200,6 +250,101 @@ J=$(detect_in "$nested")
 check "an IsolatedAsyncioTestCase suite runs unittest" "$(field "$J" test)" "python3 -m unittest discover -s tests"
 run_in "$nested" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
     && ok "an IsolatedAsyncioTestCase suite: the test is found and passes" || bad "async suite: $(tail -3 "$scratch/run.log")"
+
+# Cases a line pattern gets wrong; the files are parsed instead (#143).
+parsed="$(new_fixture parsed)"
+printf '[project]\nname = "parsed"\nversion = "0.1.0"\n' > "$parsed/pyproject.toml"
+# parsed_as <label> <want> <second test file's content>  → detection with that file next to a TestCase
+parsed_as() {
+    write_unittest "$parsed/tests/test_greeting.py"
+    printf '%b' "$3" > "$parsed/tests/test_other.py"
+    check "$1" "$(field "$(detect_in "$parsed")" test)" "$2"
+}
+UNITTEST="python3 -m unittest discover -s tests"
+parsed_as "a pytest function with a space before its parenthesis keeps pytest" "pytest" \
+    'def test_failure ():\n    assert False\n'
+parsed_as "a pytest function whose signature spans lines keeps pytest" "pytest" \
+    'def test_failure(\n):\n    assert False\n'
+parsed_as "an async pytest function inside try keeps pytest" "pytest" \
+    'try:\n    import fast\nexcept ImportError:\n    async def test_failure():\n        assert False\n'
+parsed_as "a pytest function whose first parameter is named self keeps pytest" "pytest" \
+    'def test_failure(self=None):\n    assert False\n'
+parsed_as "a Test class on a project class named TestCase keeps pytest" "pytest" \
+    'from unittest import TestCase\n\n\nclass TestCase:\n    pass\n\n\nclass TestRegression(TestCase):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a Test class on a TestCase name that was assigned something else keeps pytest" "pytest" \
+    'from unittest import TestCase as Base\n\nBase = object\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a TestCase name bound to something else in another branch keeps pytest" "pytest" \
+    'import sys\n\nif sys.argv:\n    Base = object\nelse:\n    from unittest import TestCase as Base\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a TestCase name rebound by an assignment expression keeps pytest" "pytest" \
+    'import sys\nfrom unittest import TestCase as Base\n\nif sys.argv:\n    (Base := object)\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a function assigned to a test name in a Test class keeps pytest" "pytest" \
+    'def failure(self):\n    assert False\n\n\nclass TestRegression:\n    test_failure = failure\n'
+parsed_as "a load_tests hook in a test file keeps pytest" "pytest" \
+    'import unittest\n\n\nclass SkippedTest(unittest.TestCase):\n    def test_failure(self):\n        self.fail()\n\n\ndef load_tests(loader, tests, pattern):\n    return unittest.TestSuite()\n'
+parsed_as "a pytest class nested in a Test class keeps pytest" "pytest" \
+    'class TestOuter:\n    class TestInner:\n        def test_failure(self):\n            assert False\n'
+parsed_as "a Test class that inherits its test from a plain class keeps pytest" "pytest" \
+    'class Checks:\n    def test_failure(self):\n        assert False\n\n\nclass Shared(Checks):\n    pass\n\n\nclass TestRegression(Shared):\n    pass\n'
+parsed_as "a Test class on a base from another module keeps pytest" "pytest" \
+    'from checks import Checks\n\n\nclass TestRegression(Checks):\n    pass\n'
+parsed_as "a test function imported into a TestCase file keeps pytest" "pytest" \
+    'import unittest\n\nfrom helpers import test_shared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a Test class imported into a TestCase file keeps pytest" "pytest" \
+    'import unittest\n\nfrom checks import TestShared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(TestShared)\n'
+printf 'def test_shared():\n    assert False\n' > "$parsed/tests/checks.py"
+printf 'def greeting():\n    return "hi"\n' > "$parsed/tests/helpers.py"
+parsed_as "a star import of a project file that holds a test function keeps pytest" "pytest" \
+    'import unittest\n\nfrom checks import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a class made by a call and assigned to a Test name keeps pytest" "pytest" \
+    'import unittest\n\nTestGenerated = type("TestGenerated", (), {"test_failure": lambda self: 1 / 0})\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+printf 'from checks import *\n' > "$parsed/tests/relay.py"
+parsed_as "a star import of a file that star-imports another keeps pytest" "pytest" \
+    'import unittest\n\nfrom relay import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+printf 'def load_tests(loader, tests, pattern):\n    return loader.suiteClass()\n' > "$parsed/tests/loader.py"
+parsed_as "a star import of a file that holds a load_tests hook keeps pytest" "pytest" \
+    'import unittest\n\nfrom loader import *\n\n\nclass SkippedTest(unittest.TestCase):\n    def test_failure(self):\n        self.fail()\n'
+mkdir -p "$parsed/src/app"; : > "$parsed/src/app/__init__.py"; printf 'def test_shared():\n    assert False\n' > "$parsed/src/app/checks.py"
+parsed_as "a star import of a file under src/ that holds a test function keeps pytest" "pytest" \
+    'import unittest\n\nfrom app.checks import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a pytest setup_module hook next to a TestCase keeps pytest" "pytest" \
+    'import unittest\n\n\ndef setup_module():\n    raise AssertionError\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a class made by a call and assigned to an annotated Test name keeps pytest" "pytest" \
+    'import unittest\n\nTestGenerated: type = type("TestGenerated", (), {"test_failure": lambda self: 1 / 0})\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a TestCase file that imports pytest keeps pytest" "pytest" \
+    'import unittest\n\nimport pytest\n\n\nclass MarkedTest(unittest.TestCase):\n    @pytest.mark.slow\n    def test_marked(self):\n        pass\n'
+parsed_as "a test file this Python cannot parse keeps pytest" "pytest" \
+    'def test_failure(:\n'
+parsed_as "TestCase imported under another name runs unittest" "$UNITTEST" \
+    'from unittest import TestCase as Base\n\n\nclass TestAliased(Base):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a Test class on a TestCase of the same file runs unittest" "$UNITTEST" \
+    'import unittest as ut\n\n\nclass Shared(ut.TestCase):\n    pass\n\n\nclass TestDerived(Shared):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "TestCase imported from unittest.case runs unittest" "$UNITTEST" \
+    'from unittest.case import TestCase\n\n\nclass TestLong(TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "IsolatedAsyncioTestCase named through unittest.async_case runs unittest" "$UNITTEST" \
+    'import unittest\n\n\nclass TestAsync(unittest.async_case.IsolatedAsyncioTestCase):\n    async def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a TestCase named through unittest.case runs unittest" "$UNITTEST" \
+    'import unittest\n\n\nclass TestLong(unittest.case.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "unittest imported twice, with unittest.mock and in try/except, runs unittest" "$UNITTEST" \
+    'import unittest\nimport unittest.mock\n\ntry:\n    from unittest import IsolatedAsyncioTestCase\nexcept ImportError:\n    from unittest import IsolatedAsyncioTestCase\n\n\nclass TestMocked(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(unittest.mock.Mock())\n\n\nclass TestAsync(IsolatedAsyncioTestCase):\n    async def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "setting an attribute of unittest.TestCase does not rebind unittest" "$UNITTEST" \
+    'import unittest\n\nunittest.TestCase.maxDiff = None\nsettings = {}\nsettings[unittest] = 1\n\n\nclass TestLong(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "star imports of project code and of installed modules run unittest" "$UNITTEST" \
+    'import unittest\n\nfrom helpers import *\nfrom os.path import *\n\n\nclass StarTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(greeting(), "hi")\n'
+parsed_as "a mixin holding the tests of a TestCase runs unittest" "$UNITTEST" \
+    'import unittest\n\n\nclass GreetingChecks:\n    def test_passes(self):\n        self.assertTrue(True)\n\n\nclass MixedTest(GreetingChecks, unittest.TestCase):\n    pass\n'
+parsed_as "a Test-named helper class with no test in it or its bases runs unittest" "$UNITTEST" \
+    'import unittest\n\n\nclass Settings(object):\n    name = "hi"\n\n\nclass TestSettings(Settings):\n    def build(self):\n        return self.name\n\n\nclass SettingsTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(TestSettings().build(), "hi")\n'
+parsed_as "test data and helpers named test* inside functions run unittest" "$UNITTEST" \
+    'import unittest\n\ntest_cases = ["hi"]\n\n\ndef build():\n    def test_inner():\n        return 1\n    return test_inner\n\n\nclass DataTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(build()(), len(test_cases))\n'
+run_in "$parsed" "$UNITTEST" && grep -q "Ran 2 tests" "$scratch/run.log" \
+    && ok "parsed suite: the detected command runs both files and passes" || bad "parsed suite: $(tail -3 "$scratch/run.log")"
+rm "$parsed/tests/test_other.py"
+mkdir -p "$parsed/tests/unit"; : > "$parsed/tests/unit/__init__.py"; : > "$parsed/tests/unit/conftest.py"
+check "a conftest.py in a nested test package keeps pytest" "$(field "$(detect_in "$parsed")" test)" "pytest"
+rm -rf "$parsed/tests/unit"
+write_unittest "$parsed/tests/test_greeting_test.py"
+check "a file discovery loads, though named *_test.py too, runs unittest" "$(field "$(detect_in "$parsed")" test)" "$UNITTEST"
+
 dashed="$(new_fixture dashed)"
 printf '[project]\nname = "dashed"\nversion = "0.1.0"\n' > "$dashed/pyproject.toml"
 write_unittest "$dashed/tests/test-regression.py"
@@ -216,6 +361,15 @@ check ".venv without pytest: unittest runs on its python" "$(field "$J" test)" "
 check ".venv without pip: no build" "$(field "$J" build)" ""
 run_in "$venv" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
     && ok ".venv: the test command runs on the .venv python" || bad ".venv: $(tail -3 "$scratch/run.log")"
+# A pytest on PATH runs on another interpreter, so a .venv without pytest does not use it (#143).
+J=$(detect_in "$venv" "$tools")
+check ".venv without pytest, pytest on PATH: unittest still runs on the .venv python" "$(field "$J" test)" ".venv/bin/python -m unittest discover -s tests"
+printf 'def test_greeting():\n    assert "hi" == "hi"\n' > "$venv/tests/test_function.py"
+J=$(detect_in "$venv" "$tools")
+check ".venv without pytest, pytest-style tests: pytest is asked of the .venv python" "$(field "$J" test)" ".venv/bin/python -m pytest"
+run_in "$venv" "$(field "$J" test)" "$tools" && bad ".venv without pytest: the PATH pytest ran instead" \
+    || { grep -q "No module named pytest" "$scratch/run.log" && ok ".venv without pytest: the run reports the missing module" || bad ".venv without pytest: $(tail -3 "$scratch/run.log")"; }
+rm "$venv/tests/test_function.py"
 executable "$tools/uv"
 J=$(detect_in "$venv" "$tools")
 check ".venv without pip, uv installed: uv installs into it" "$(field "$J" build)" "uv pip install --python .venv/bin/python -e ."
@@ -266,18 +420,26 @@ fi
 executable "$tools/ruff" 'case "$*" in *"--extend-exclude '"$ENGINE_EXCLUDES"' ."*) exit 0 ;; esac
 [ -d .evolve/scripts ] && { echo "would reformat: .evolve/scripts/format_issues.py" >&2; exit 1; }
 exit 0'
-linted="$(new_fixture linted)"
 # init looks for the agent CLI; a stand-in keeps the test independent of an installed one.
 executable "$scratch/agent/claude" '[ "${1:-}" = "--version" ] && echo "claude 0.0.0-stub"; exit 0'
-(
-    cd "$linted"
-    PATH="$scratch/agent:$PATH"
-    git init -q
-    git config user.email test@example.com
-    git config user.name test
-    node "$CLI" init --agent claude </dev/null > "$scratch/init.log" 2>&1
-) || bad "init failed in the ruff fixture: $(tail -3 "$scratch/init.log")"
+# install_engine <dir>  → a fresh `code-evolve init` in that project directory
+install_engine() {
+    (
+        cd "$1"
+        PATH="$scratch/agent:$PATH"
+        git init -q
+        git config user.email test@example.com
+        git config user.name test
+        node "$CLI" init --agent claude </dev/null > "$scratch/init.log" 2>&1
+    ) || bad "init failed in $(basename "$1"): $(tail -3 "$scratch/init.log")"
+}
+linted="$(new_fixture linted)"
+install_engine "$linted"
 [ -f "$linted/.evolve/scripts/format_issues.py" ] && ok "ruff fixture: init installed the engine's Python scripts" || bad "ruff fixture: no engine scripts"
+# deno fmt wraps Markdown at 80 columns and reads the project's AGENTS.md (checked here too,
+# because the real-deno checks below only run where deno is installed).
+[ -s "$linted/AGENTS.md" ] && [ -z "$(awk 'length > 80' "$linted/AGENTS.md")" ] \
+    && ok "the section init writes into AGENTS.md stays within 80 columns" || bad "AGENTS.md has a line over 80 columns"
 printf '[project]\nname = "linted"\nversion = "0.1.0"\n' > "$linted/pyproject.toml"
 printf 'def greeting() -> str:\n    return "hi"\n' > "$linted/greeting.py"
 J=$(detect_in "$linted" "$tools")
@@ -299,18 +461,44 @@ else
     echo "  (ruff is not installed: the real-ruff checks were not run)"
 fi
 
-# uv and poetry projects resolve tools themselves; their ruff commands get the same excludes.
+# uv and poetry projects run the tools their lock file names; ruff gets the same excludes.
 executable "$tools/uv"
 locked="$(new_fixture locked)"
-: > "$locked/pyproject.toml"; : > "$locked/uv.lock"
+: > "$locked/pyproject.toml"; printf '[[package]]\nname = "%s"\nversion = "1.0.0"\n\n' pytest ruff > "$locked/uv.lock"
 J=$(detect_in "$locked" "$tools")
 check "uv: lint"   "$(field "$J" lint)"   "uv run ruff check --extend-exclude $ENGINE_EXCLUDES ."
 check "uv: format" "$(field "$J" format)" "uv run ruff format --check --extend-exclude $ENGINE_EXCLUDES ."
 check "uv: test"   "$(field "$J" test)"   "uv run pytest"
-rm "$locked/uv.lock"; : > "$locked/poetry.lock"
+mv "$locked/uv.lock" "$locked/poetry.lock"
 J=$(detect_in "$locked" "$tools")
 check "poetry: lint"   "$(field "$J" lint)"   "poetry run ruff check --extend-exclude $ENGINE_EXCLUDES ."
 check "poetry: format" "$(field "$J" format)" "poetry run ruff format --check --extend-exclude $ENGINE_EXCLUDES ."
+check "poetry: test"   "$(field "$J" test)"   "poetry run pytest"
+
+# A tool the lock does not name is not in the project's environment (#143): the runner would
+# borrow one from PATH or fail. Tests fall back as for any Python project; ruff comes from PATH.
+printf '[[package]]\nname = "%s"\nversion = "1.0.0"\n\n' pytest-cov ruff-lsp > "$locked/poetry.lock"
+uv_only="$scratch/uv-only"
+executable "$uv_only/uv"
+J=$(detect_in "$locked" "$uv_only")
+check "poetry, lock without pytest, no tests: no test command" "$(field "$J" test)" ""
+check "poetry, lock without ruff, none installed: no lint"     "$(field "$J" lint)" ""
+check "poetry, lock without ruff, none installed: no format"   "$(field "$J" format)" ""
+J=$(detect_in "$locked" "$tools")
+check "poetry, lock without ruff, ruff on PATH: lint" "$(field "$J" lint)" "ruff check --extend-exclude $ENGINE_EXCLUDES ."
+write_unittest "$locked/tests/test_greeting.py"
+J=$(detect_in "$locked" "$tools")
+check "poetry, lock without pytest, unittest suite" "$(field "$J" test)" "poetry run python -m unittest discover -s tests"
+mv "$locked/poetry.lock" "$locked/uv.lock"
+J=$(detect_in "$locked" "$tools")
+check "uv, lock without pytest, unittest suite: not the pytest on PATH" "$(field "$J" test)" "uv run python -m unittest discover -s tests"
+check "uv, lock without pytest: build is unchanged" "$(field "$J" build)" "uv sync"
+printf 'def test_greeting():\n    assert "hi" == "hi"\n' > "$locked/tests/test_function.py"
+J=$(detect_in "$locked" "$tools")
+check "uv, lock without pytest, pytest-style tests: the command stays" "$(field "$J" test)" "uv run pytest"
+printf '[tool.pytest.ini_options]\n' > "$locked/pyproject.toml"; rm "$locked/tests/test_function.py"
+J=$(detect_in "$locked" "$tools")
+check "uv, lock without pytest, pytest configured: the command stays" "$(field "$J" test)" "uv run pytest"
 
 # ── Deno also scans the tree (deno fmt covers Markdown and JSON, which the engine ships) ──
 deno_dir="$(new_fixture deno)"
@@ -318,6 +506,25 @@ echo '{}' > "$deno_dir/deno.json"
 J=$(detect_in "$deno_dir")
 check "deno: lint"   "$(field "$J" lint)"   "deno lint --ignore=$ENGINE_EXCLUDES"
 check "deno: format" "$(field "$J" format)" "deno fmt --check --ignore=$ENGINE_EXCLUDES"
+# The same commands with the real deno next to a fresh .evolve/ (#143; CI installs deno).
+REAL_DENO="$(command -v deno || true)"
+if [ -n "$REAL_DENO" ]; then
+    real_deno_dir="$(dirname "$REAL_DENO")"
+    denoed="$(new_fixture denoed)"
+    install_engine "$denoed"
+    echo '{}' > "$denoed/deno.json"
+    printf 'export function greeting(): string {\n  return "hi";\n}\n' > "$denoed/greeting.ts"
+    J=$(detect_in "$denoed")
+    run_in "$denoed" "$(field "$J" lint)" "$real_deno_dir"   && ok "real deno: lint passes next to a fresh .evolve/"   || bad "real deno lint: $(tail -8 "$scratch/run.log")"
+    run_in "$denoed" "$(field "$J" format)" "$real_deno_dir" && ok "real deno: format passes next to a fresh .evolve/" || bad "real deno format: $(tail -8 "$scratch/run.log")"
+    printf 'var unused=1\n' > "$denoed/unformatted.ts"
+    run_in "$denoed" "$(field "$J" lint)" "$real_deno_dir"   && bad "real deno: lint missed the project's own file"   || ok "real deno: the project's own files are still linted"
+    run_in "$denoed" "$(field "$J" format)" "$real_deno_dir" && bad "real deno: format missed the project's own file" || ok "real deno: the project's own files are still format-checked"
+elif [ -n "${CI:-}" ]; then
+    bad "deno is not installed in CI: the real-deno checks did not run"
+else
+    echo "  (deno is not installed: the real-deno checks were not run)"
+fi
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

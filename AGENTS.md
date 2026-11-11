@@ -56,7 +56,7 @@ code-evolve/                  # npm package source
 │   ├── hooks/                # hooks.json (Claude Code; Codex via plugin.json): PreToolUse protected-files guard, SessionStart setup/upgrade nudge
 │   └── skills/               # Operator skills (evolve-setup/-run/-status); init copies them into .claude/skills + .agents/skills
 ├── templates/                # Files installed by `init` into a target project
-│   ├── scripts/              # evolve.sh, detect_stack.sh, format_issues.py, hold_lock.py, agents/ (per-backend adapters)
+│   ├── scripts/              # evolve.sh, detect_stack.sh, unittest_suite.py, format_issues.py, hold_lock.py, agents/ (per-backend adapters)
 │   ├── skills/               # Runtime skills (6 dirs, Agent Skills SKILL.md format; indexed into the cycle prompt)
 │   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, REQUIREMENTS.md, DAY_COUNT, vision.md, spec.md
 │   └── workflows/            # GitHub Actions (evolve.yml, ci.yml)

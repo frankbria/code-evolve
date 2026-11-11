@@ -26,14 +26,21 @@ export const MANAGED_GITIGNORE_LINES = [
   `${EVOLVE_DIR_NAME}/evidence/`,
 ];
 
-const AGENTS_SECTION = `## code-evolve
+// Wrapped at 80 columns with blank lines around the markers, the way \`deno fmt\` writes
+// Markdown: a Deno project's format check reads this file.
+const AGENTS_SECTION = `
+## code-evolve
 
-This project evolves autonomously with code-evolve. Its engine and state live in \`${EVOLVE_DIR_NAME}/\`.
+This project evolves autonomously with code-evolve. Its engine and state live in
+\`${EVOLVE_DIR_NAME}/\`.
 
-- Run a cycle from inside your session with the \`evolve-run\` skill, or \`npx code-evolve run\` headless.
-- Don't edit the paths listed in \`${EVOLVE_DIR_NAME}/scripts/protected-paths.txt\` (IDENTITY.md, scripts/,
-  skills/, the evolve workflows): the engine restores them after every agent call.
-- \`${EVOLVE_DIR_NAME}/vision.md\` and \`${EVOLVE_DIR_NAME}/spec.md\` describe what is being built.`;
+- Run a cycle with the \`evolve-run\` skill from inside your session, or headless
+  with \`npx code-evolve run\`.
+- Don't edit the paths listed in \`${EVOLVE_DIR_NAME}/scripts/protected-paths.txt\`
+  (IDENTITY.md, scripts/, skills/, the evolve workflows): the engine restores
+  them after every agent call.
+- \`${EVOLVE_DIR_NAME}/vision.md\` and \`${EVOLVE_DIR_NAME}/spec.md\` describe what is being built.
+`;
 
 const sectionPattern = new RegExp(
   `\\n?${escapeRegExp(MANAGED_SECTION_BEGIN)}[\\s\\S]*?${escapeRegExp(MANAGED_SECTION_END)}\\n?`
