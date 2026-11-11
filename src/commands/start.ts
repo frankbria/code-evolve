@@ -251,7 +251,7 @@ export function credentialsKeptFromEnvFile(names: string[], envFile: string): { 
   const savedFile = `${EVOLVE_DIR_NAME}/.env`;
   const kept: Record<string, string> = {};
   const warnings = unsetNames.map((name) => {
-    if (saved[name] === undefined) {
+    if (!saved[name]) {
       return `${name} is not set in this shell and no value is saved in ${savedFile}; scheduled cycles won't get it until you set it and run code-evolve start`;
     }
     kept[name] = saved[name];

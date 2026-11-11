@@ -113,6 +113,7 @@ status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --ag
 check "a name the engine sets itself (MODEL) is rejected" "$status" "1"
 
 # A credential this shell does not set keeps the value the cron .env already holds (#130).
+unset CUSTOM_TOKEN OTHER_TOKEN
 saved_token() { ( . ./.evolve/.env; printf '%s' "${CUSTOM_TOKEN-<absent>}" ); }
 node "$CLI" start --every 6 </dev/null > "$work/start-unset.log" 2>&1
 check "start without the credential set keeps the saved value" "$(saved_token)" 's3cret$value'

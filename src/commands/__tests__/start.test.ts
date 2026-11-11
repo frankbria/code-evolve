@@ -33,10 +33,12 @@ describe('credentialsKeptFromEnvFile', () => {
     expect(credentialsKeptFromEnvFile(['CODE_EVOLVE_TEST_TOKEN'], envFile)).toEqual({ kept: {}, warnings: [] });
   });
 
-  it('warns when no value is saved: no file, no line for the name, or a line in another format', () => {
+  it('warns when no value is saved: no file, no line for the name, a line in another format, or an empty value', () => {
     const missing = "CODE_EVOLVE_TEST_TOKEN is not set in this shell and no value is saved in .evolve/.env; scheduled cycles won't get it until you set it and run code-evolve start";
     expect(credentialsKeptFromEnvFile(['CODE_EVOLVE_TEST_TOKEN'], envFile)).toEqual({ kept: {}, warnings: [missing] });
     fs.writeFileSync(envFile, "export MODEL='m'\nCODE_EVOLVE_TEST_TOKEN=bare\nexport CODE_EVOLVE_TEST_TOKEN=\"double\"\n");
+    expect(credentialsKeptFromEnvFile(['CODE_EVOLVE_TEST_TOKEN'], envFile)).toEqual({ kept: {}, warnings: [missing] });
+    fs.writeFileSync(envFile, "export CODE_EVOLVE_TEST_TOKEN=''\n");
     expect(credentialsKeptFromEnvFile(['CODE_EVOLVE_TEST_TOKEN'], envFile)).toEqual({ kept: {}, warnings: [missing] });
   });
 
