@@ -1349,6 +1349,11 @@ sync_with_upstream() {
     merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
     # "." is git's name for this repository itself: a branch tracking a local branch has nothing to fetch.
     [ "$remote" != "." ] || return 0
+    # Only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping, rebasing
+    # onto the upstream would rewrite commits the push destination already has, and it would refuse them.
+    # Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
+    [ "$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null || true)" \
+        = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || return 0
     # A destination ref makes the fetch bring the tags on the fetched commits too (`git fetch <remote> <ref>`
     # alone does not), so the tag name below does not collide with one the other scheduler already pushed.
     if ! output=$(git fetch -q "$remote" "+$merge_ref:$SYNC_REF" 2>&1); then
@@ -1362,7 +1367,7 @@ sync_with_upstream() {
     fi
     write_sync_attributes "$RUN_TMP/sync-attributes"
     if output=$(git -c core.attributesFile="$RUN_TMP/sync-attributes" -c merge.code-evolve-session.driver='cp %B %A' \
-        rebase "$SYNC_REF" 2>&1); then
+        rebase --rebase-merges "$SYNC_REF" 2>&1); then
         git update-ref -d "$SYNC_REF"
         echo "  Rebased the session onto $new_commits new commit(s) from $remote."
         return 0
@@ -1384,7 +1389,8 @@ sync_with_upstream() {
 push_or_report() { # <label> <git push arguments...>
     local label="$1" output
     shift
-    if output=$(git push "$@" 2>&1); then
+    # push.followTags would send the session tag along with a branch the remote may refuse.
+    if output=$(git -c push.followTags=false push "$@" 2>&1); then
         [ -z "$output" ] || printf '%s\n' "$output"
         return 0
     fi
@@ -1460,6 +1466,12 @@ git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null || true
 echo "  Tagged: $TAG_NAME"
 
 if [ "$SESSION_PUSHED" = true ] && ! push_session; then SESSION_PUSHED=false; fi
+if [ "$SESSION_PUSHED" != true ]; then
+    # The commits may still be rebased before they reach the remote; a tag kept here would later be
+    # pushed pointing at a commit that is on no branch. The cycle that pushes them tags them.
+    git tag -d "$TAG_NAME" >/dev/null 2>&1 || true
+    echo "  Removed tag $TAG_NAME: the session was not pushed."
+fi
 
 echo ""
 # The session is over; a later cycle or prepare starts fresh.

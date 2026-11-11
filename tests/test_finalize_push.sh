@@ -104,7 +104,8 @@ grep -q "Push failed: .*rejected" "$finalize_log" \
 tail -1 "$finalize_log" | grep -q "NOT pushed" && ! grep -q "=== Day 0 complete ===" "$finalize_log" \
     && ok "the closing line says the cycle was not pushed" || bad "closing line: $(tail -1 "$finalize_log")"
 [ "$(remote_tag_count origin)" -eq "$tags_on_origin_before" ] && ! grep -q "Tag push" "$finalize_log" \
-    && ok "no tag is pushed for a branch that was refused" || bad "tags on origin: $(remote_tag_count origin), log: $(grep "Tag" "$finalize_log")"
+    && [ "$(git tag --points-at HEAD | wc -l)" -eq 0 ] \
+    && ok "no tag is pushed or kept for a branch that was refused" || bad "tags on origin: $(remote_tag_count origin), log: $(grep "Tag" "$finalize_log")"
 [ "$(remote_branch_sha origin)" = "$sha_on_origin_before" ] && [ -f fourth.txt ] && [ -z "$(git status --porcelain)" ] && [ ! -e .evolve/run ] \
     && ok "the session stays committed locally and is closed" || bad "after a refused push: $(git status --porcelain)"
 # A headless cycle ends the same way, and `code-evolve run` passes the status on.
@@ -185,7 +186,8 @@ grep -q "Sync failed: .*shared-start.txt" "$finalize_log" && ok "the conflicting
     && [ -n "$(git log --format=%s --grep="Day 0: rewrite shared-start.txt")" ] \
     && ok "the session's commits are kept on the local branch, with no rebase left open" || bad "after the conflict: $(git status -sb | head -5)"
 [ "$(remote_branch_sha origin)" = "$origin_before" ] && ! grep -q "Push failed\|Tag push" "$finalize_log" \
-    && ok "nothing is pushed after a failed sync" || bad "origin moved, or a push was tried: $(grep -i "push" "$finalize_log")"
+    && [ "$(git tag --points-at HEAD | wc -l)" -eq 0 ] \
+    && ok "nothing is pushed after a failed sync, and no tag is kept" || bad "origin moved, or a push was tried: $(grep -i "push" "$finalize_log")"
 
 # ── A branch whose upstream has another name: git refuses the plain push, and the cycle says so (#137) ──
 new_project upstream-with-another-name
@@ -215,6 +217,32 @@ run_session only.txt
 [ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && grep -q "Tag push failed: " "$finalize_log" \
     && grep -q "=== Day 0 complete ===" "$finalize_log" \
     && ok "a refused tag alone is reported and the cycle still counts as pushed" || bad "exit $finalize_status: $(tail -5 "$finalize_log")"
+
+# ── push.followTags must not send the tag along with a branch the remote refuses (#137) ──
+new_project follow-tags
+new_bare_remote origin
+git push -q -u origin "$branch"
+git config push.followTags true
+printf '#!/bin/sh\ncase "$1" in refs/heads/*) echo "no branches here" >&2; exit 1 ;; esac\n' > "$PWD-origin.git/hooks/update"
+chmod +x "$PWD-origin.git/hooks/update"
+run_session only.txt
+[ "$finalize_status" -eq 4 ] && [ "$(remote_tag_count origin)" -eq 0 ] \
+    && ok "push.followTags does not publish the tag of a refused branch" || bad "exit $finalize_status, tags: $(git ls-remote --tags origin)"
+
+# ── A fork setup with an upstream: the session is not rebased onto the upstream, the fork would refuse it (#137) ──
+new_project fork-with-upstream
+new_bare_remote upstream
+new_bare_remote origin
+git push -q -u upstream "$branch"
+git config "branch.$branch.pushRemote" origin
+git config push.default current
+run_session first.txt
+git clone -q "$PWD-upstream.git" "$work_dir/upstream-clone"
+git -C "$work_dir/upstream-clone" -c user.email=other@example.com -c user.name=other commit -q --allow-empty -m "upstream moves on"
+git -C "$work_dir/upstream-clone" push -q origin "HEAD:$branch"
+run_session second.txt
+[ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && ! grep -q "Rebased" "$finalize_log" \
+    && ok "a branch pushed to a fork is not rebased onto its upstream" || bad "fork: exit $finalize_status, $(tail -4 "$finalize_log")"
 
 # ── No remote at all ──
 new_project no-remote
