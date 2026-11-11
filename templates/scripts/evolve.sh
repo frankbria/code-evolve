@@ -20,7 +20,9 @@
 #               commit, rebase onto the upstream's new commits, tag, push, issue responses.
 #               --no-agent uses only the bash fallbacks, so an in-session caller never starts
 #               a nested headless agent.
-#   cycle and finalize exit with status 4 when the session is committed but could not be pushed.
+#   cycle and finalize exit with status 4 when the session is committed but could not be pushed,
+#   and with status 5 when protected files behind a symlink could not be checked (see
+#   restore_protected_paths).
 #
 # Environment:
 #   ANTHROPIC_API_KEY  — required (used by claude CLI)
@@ -50,6 +52,9 @@ case "$EVOLVE_DIR" in
                 EVOLVE_DIR="${EVOLVE_DIR#/}" ;;
         esac ;;
 esac
+absolute_path() {
+    case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$PWD/$1" ;; esac
+}
 PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
 # Each agent's default model. Keep in sync with AGENT_DEFAULT_MODELS in src/utils/config.ts
@@ -87,7 +92,7 @@ RUN_DIR="$EVOLVE_DIR/run"
 # (portable to Linux and macOS, unlike flock(1)) and holds it until this script exits, so
 # acquisition is atomic and a crashed cycle never leaves a stale lock. The lock file lives in
 # the git dir so `git add -A` never commits it.
-LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$PWD/$EVOLVE_DIR")/code-evolve.lock"
+LOCK_FILE="$(git rev-parse --absolute-git-dir 2>/dev/null || absolute_path "$EVOLVE_DIR")/code-evolve.lock"
 # Every cycle commits, so it needs to write the git directory (some agent sandboxes make it read-only).
 # A linked worktree commits into the shared (common) git dir, which also holds its own git dir.
 # cd+pwd, not --path-format=absolute: that needs git 2.31, and older git echoes it back as output.
@@ -130,7 +135,22 @@ esac
 # users, and a planted sponsor list there could grant sponsor priority to any issue author.
 # The trap goes first so the lock holder is released even if mktemp fails.
 RUN_TMP=""
-trap 'kill "$LOCK_HOLDER_PID" 2>/dev/null || true; [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"' EXIT
+# Set once a restore pass had to leave a swapped link alone (see restore_protected_paths).
+PROTECTED_PATHS_UNCHECKED=false
+# However the run ends after that (an agent error and an aborted step included), its status is
+# 5: any other failure status would have the workflow retry with a new session, which would take
+# the swapped directory for the user's layout.
+end_of_run() {
+    kill "$LOCK_HOLDER_PID" 2>/dev/null || true
+    # Reaped here, so bash does not print a "Terminated" job notice into the cycle's output.
+    wait "$LOCK_HOLDER_PID" 2>/dev/null || true
+    [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"
+    if [ "$PROTECTED_PATHS_UNCHECKED" = true ]; then
+        echo "=== Ended with protected files NOT checked (exit status 5): see the WARNING above ==="
+        exit 5
+    fi
+}
+trap end_of_run EXIT
 RUN_TMP=$(mktemp -d)
 
 # ── Session state (shared by prepare, verify and finalize) ──
@@ -297,6 +317,38 @@ physical_directory() {
     (cd -P "$1" 2>/dev/null && pwd -P) || true
 }
 
+TAB=$'\t'
+NEWLINE=$'\n'
+
+# The exact text of symlink <path> with an "x" after it; nothing if <path> is not a symlink.
+# $(readlink) drops trailing newlines, so a link repointed from "store" to "store<newline>" would
+# compare equal. python3 and not readlink plus a sentinel: on macOS that still compared equal
+# (the guard-macos CI run of the trailing-newline test).
+link_text_x() {
+    python3 -c 'import os, sys; sys.stdout.buffer.write(os.readlink(os.fsencode(sys.argv[1])) + b"x")' "$1" 2>/dev/null || true
+}
+
+# True if symlink <path> holds exactly <text>.
+link_holds() {
+    [ "$(link_text_x "$1")" = "$2x" ]
+}
+
+# The snapshot's record for a directory symlink: its path, the link's text and the directory it
+# leads to, tab-separated on one line. A name that format cannot hold fails instead of being
+# recorded wrongly; the session then stops before the agent runs.
+link_record() {
+    local target physical
+    target=$(link_text_x "$1")
+    target="${target%x}"
+    physical=$(physical_directory "$1"; printf x)
+    physical="${physical%"$NEWLINE"x}"
+    if [[ "$1$target$physical" == *["$TAB$NEWLINE"]* ]]; then
+        printf 'Error: the protected-path guard cannot record the symlink %q -> %q (leading to %q): a tab or newline in its name, its target or the path it leads to is not supported. Rename it and run again.\n' "$1" "$target" "$physical" >&2
+        return 1
+    fi
+    printf '%s\t%s\t%s\n' "$1" "$target" "$physical"
+}
+
 # True if <path> is, or lies behind, a session-start symlink that no longer leads to the
 # directory it led to (see restore_protected_paths).
 behind_untrusted_link() {
@@ -322,26 +374,42 @@ list_protected_directory_links() {
             */) directory="${directory%/}" ;;
             *) [ -L "$directory" ] && protected_path_matches "$directory/" || continue ;;
         esac
-        printf '%s\t%s\t%s\n' "$directory" "$(readlink "$directory")" "$(physical_directory "$directory")"
+        link_record "$directory" || exit 1
     done | sort -u
 }
 
-# Every file or symlink on disk that matches the protected list. Walks the filesystem rather
-# than asking git, so gitignored protected files (and planted files hidden by a new ignore
-# rule) are still covered. Only directory symlinks recorded at session start are followed (a
-# user may symlink .evolve or a directory inside it); one made since is listed as a file.
-list_protected_files() {
-    local search_root candidate
+# find, with the given tests, over everything under the protected search roots. Walks the
+# filesystem rather than asking git, so gitignored protected files (and planted files hidden by
+# a new ignore rule) are still covered. Only directory symlinks recorded at session start are
+# followed (a user may symlink .evolve or a directory inside it); one made since is not.
+find_under_protected_roots() {
+    local search_root
     { protected_search_roots; cut -f1 "$PROTECTED_SNAPSHOT/directory_links" 2>/dev/null || true; } | sort -u | while IFS= read -r search_root; do
         behind_untrusted_link "$search_root" && continue
         if [ -L "$search_root" ] && ! session_start_link "$search_root"; then
-            printf '%s\n' "$search_root"
+            find "$search_root" "$@" 2>/dev/null || true
         else
-            find -H "$search_root" \( -type f -o -type l \) 2>/dev/null || true
+            find -H "$search_root" "$@" 2>/dev/null || true
         fi
-    done | sort -u | while IFS= read -r candidate; do
+    done
+}
+
+# Every file or symlink on disk that matches the protected list, one per line. A name with a
+# newline cannot be on such a list: see list_unlistable_protected_paths.
+list_protected_files() {
+    local candidate
+    find_under_protected_roots \( -type f -o -type l \) ! -path "*$NEWLINE*" | sort -u | while IFS= read -r candidate; do
         session_start_link "$candidate" && continue
         if protected_path_matches "$candidate"; then printf '%s\n' "$candidate"; fi
+    done
+}
+
+# Protected paths (files, links and directories) with a newline in their name, NUL-terminated.
+# A session does not start while one exists, so any found later was made by the agent.
+list_unlistable_protected_paths() {
+    local candidate
+    find_under_protected_roots -path "*$NEWLINE*" -print0 | while IFS= read -r -d '' candidate; do
+        if protected_path_matches "$candidate"; then printf '%s\0' "$candidate"; fi
     done
 }
 
@@ -364,10 +432,7 @@ snapshot_protected_paths() {
     local protected_file
     # prepare must leave the snapshot for the later phases; a full cycle keeps it private.
     if [ "$ENGINE_PHASE" = "prepare" ]; then
-        case "$RUN_DIR" in
-            /*) PROTECTED_SNAPSHOT="$RUN_DIR/protected" ;;
-            *)  PROTECTED_SNAPSHOT="$PWD/$RUN_DIR/protected" ;;
-        esac
+        PROTECTED_SNAPSHOT="$(absolute_path "$RUN_DIR")/protected"
         rm -rf "$PROTECTED_SNAPSHOT"
     else
         PROTECTED_SNAPSHOT="$RUN_TMP/protected"
@@ -382,14 +447,18 @@ snapshot_protected_paths() {
         printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
             .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
     fi
-    list_protected_directory_links > "$PROTECTED_SNAPSHOT/directory_links"
+    list_protected_directory_links > "$PROTECTED_SNAPSHOT/directory_links" || exit 1
+    while IFS= read -r -d '' protected_file; do
+        printf 'Error: the protected-path guard cannot record %q: a newline in a protected path is not supported. Rename it and run again.\n' "$protected_file" >&2
+        exit 1
+    done < <(list_unlistable_protected_paths)
     cp "$PROTECTED_SNAPSHOT/directory_links" "$PROTECTED_SNAPSHOT/ancestor_links"
     list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
     while IFS= read -r protected_file; do
         mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
         cp -P -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
         while IFS= read -r ancestor; do
-            [ -L "$ancestor" ] && printf '%s\t%s\t%s\n' "$ancestor" "$(readlink "$ancestor")" "$(physical_directory "$ancestor")"
+            if [ -L "$ancestor" ]; then link_record "$ancestor" || exit 1; fi
         done < <(path_ancestors "$protected_file") >> "$PROTECTED_SNAPSHOT/ancestor_links"
     done < "$PROTECTED_SNAPSHOT/manifest"
     sort -u -o "$PROTECTED_SNAPSHOT/ancestor_links" "$PROTECTED_SNAPSHOT/ancestor_links"
@@ -408,7 +477,7 @@ repair_protected_ancestors() {
     while IFS= read -r ancestor; do
         original_target=$(awk -F '\t' -v path="$ancestor" '$1 == path { print $2; exit }' "$PROTECTED_SNAPSHOT/ancestor_links")
         if [ -n "$original_target" ]; then
-            [ -L "$ancestor" ] && [ "$(readlink "$ancestor")" = "$original_target" ] && continue
+            link_holds "$ancestor" "$original_target" && continue
             rm -rf -- "$ancestor" 2>/dev/null || true
             mkdir -p "$(dirname "$ancestor")" 2>/dev/null || true
             ln -s "$original_target" "$ancestor" 2>/dev/null || true
@@ -425,7 +494,7 @@ repair_protected_ancestors() {
 protected_file_changed() {
     local saved="$PROTECTED_SNAPSHOT/files/$1"
     if [ -L "$saved" ]; then
-        [ ! -L "$1" ] || [ "$(readlink "$saved")" != "$(readlink "$1")" ]
+        [ "$(link_text_x "$saved")" != "$(link_text_x "$1")" ]
         return
     fi
     [ -L "$1" ] || [ ! -f "$1" ] || ! cmp -s "$saved" "$1" || { [ -x "$saved" ] && [ ! -x "$1" ]; } || { [ ! -x "$saved" ] && [ -x "$1" ]; }
@@ -441,16 +510,30 @@ restore_protected_paths() {
     # The user's directory symlinks go back on their targets before anything is walked, so the
     # walk below never follows a link the agent repointed. A link whose text is intact can still
     # lead somewhere else (its target directory, outside the protected paths, was swapped for
-    # another link): restoring or deleting behind it would touch unrelated files, so it is left.
+    # another link): restoring or deleting behind it would touch unrelated files, so it is left,
+    # and the cycle ends with status 5. A different real directory moved to the target's path is
+    # not such a case: the agent could already write there, so it is handled as planted files.
     : > "$PROTECTED_SNAPSHOT/untrusted_links"
     while IFS=$'\t' read -r session_link _ session_physical; do
         behind_untrusted_link "$session_link" && continue
         restored="$restored$(repair_protected_ancestors "$session_link/.")"
-        if [ -n "$session_physical" ] && [ "$(physical_directory "$session_link")" != "$session_physical" ]; then
+        if [ -n "$session_physical" ] && [ "$(physical_directory "$session_link"; printf x)" != "$session_physical${NEWLINE}x" ]; then
             printf '%s\n' "$session_link" >> "$PROTECTED_SNAPSHOT/untrusted_links"
+            PROTECTED_PATHS_UNCHECKED=true
             echo "  WARNING: $session_link no longer leads to $session_physical; protected files behind it were NOT checked or restored. Put that directory back before the next cycle."
         fi
     done < "$PROTECTED_SNAPSHOT/ancestor_links"
+    # The walk for names with a newline starts at the search roots: a directory above one that
+    # the agent turned into a symlink goes first, or the walk would pass through it.
+    while IFS= read -r protected_file; do
+        behind_untrusted_link "$protected_file" && continue
+        restored="$restored$(repair_protected_ancestors "$protected_file")"
+    done < <(protected_search_roots)
+    while IFS= read -r -d '' protected_file; do
+        git rm -rqf --cached --ignore-unmatch -- "$protected_file" >/dev/null 2>&1 || true
+        rm -rf -- "$protected_file" 2>/dev/null || true
+        restored="$restored $(printf '%q' "$protected_file") (added)"
+    done < <(list_unlistable_protected_paths)
     while IFS= read -r protected_file; do
         behind_untrusted_link "$protected_file" && continue
         restored="$restored$(repair_protected_ancestors "$protected_file")"
@@ -1753,6 +1836,11 @@ fi
 echo ""
 # The session is over; a later cycle or prepare starts fresh.
 if [ "$ENGINE_PHASE" = "finalize" ]; then rm -rf "$RUN_DIR"; fi
+
+if [ "$PROTECTED_PATHS_UNCHECKED" = true ]; then
+    [ "$SESSION_PUSHED" = true ] || echo "=== Day $DAY is committed locally but NOT pushed ==="
+    exit 5   # end_of_run says why
+fi
 
 if [ "$SESSION_PUSHED" != true ]; then
     # Its own status, so `code-evolve run`, the workflow and the skills can tell "done, but only here" from a broken cycle.

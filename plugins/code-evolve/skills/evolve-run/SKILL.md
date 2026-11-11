@@ -85,6 +85,12 @@ with this session's, "Push failed" when the remote refused the push or the push 
 branch out). Issue comments are posted only for a cycle whose branch reached a remote. The session is closed
 either way, so do not run finalize again.
 
+Exit status 5 means finalize printed `WARNING: <link> no longer leads to <directory>`: a protected
+directory the user keeps as a symlink now leads somewhere else, and the files behind it were not
+checked. The cycle is committed, and pushed unless finalize also printed "NOT pushed" (status 5
+takes the place of status 4). Do not try to repair the link yourself: report it first, with the
+warning line, so the user can put the directory back before the next cycle.
+
 ## 5. Report
 
 Tell the user what happened in a few sentences: what you built or fixed, whether verification
