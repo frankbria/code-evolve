@@ -13,6 +13,70 @@ set -euo pipefail
 
 PROJECT_DIR="${1:-.}"
 
+# Directories the engine and the agent CLIs own. A linter or formatter that scans the whole
+# tree must not judge them: the project cannot fix those files (they are protected).
+ENGINE_DIRS=".evolve,.claude,.agents"
+RUFF_SCOPE="--extend-exclude $ENGINE_DIRS ."
+
+# python_tool <dir> <tool> — the project's .venv copy when there is one (so a scheduled run
+# uses what an in-session run used), else the one on PATH, else nothing.
+python_tool() {
+    if [ -x "$1/.venv/bin/$2" ]; then
+        echo ".venv/bin/$2"
+    elif command -v "$2" >/dev/null 2>&1; then
+        echo "$2"
+    fi
+}
+
+# python_test_files <dir> [pattern] — true when the project has a test file (matching pattern).
+# Searched from inside the project: grep would skip a project directory itself named "venv".
+python_test_files() {
+    (cd "$1" && grep -rlqE --include='test*.py' --include='*_test.py' \
+        --exclude-dir=.git --exclude-dir=.evolve --exclude-dir=.claude --exclude-dir=.agents \
+        --exclude-dir=.venv --exclude-dir=venv --exclude-dir=node_modules \
+        "${2:-}" .) 2>/dev/null
+}
+
+# PEP 668: outside a virtual environment, a distribution-owned Python refuses pip installs.
+# shortcut: asks python3, not the interpreter behind `pip`; resolve pip's own interpreter if the two are seen to differ.
+python_externally_managed() {
+    python3 -c 'import os, sys, sysconfig
+marker = os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")
+sys.exit(0 if sys.prefix == sys.base_prefix and os.path.exists(marker) else 1)' 2>/dev/null
+}
+
+# python_commands <dir> <pip install arguments> — for projects without a uv or poetry lock.
+# Sets BUILD_CMD, TEST_CMD, LINT_CMD, FORMAT_CMD to commands whose tools can run here.
+python_commands() {
+    local dir="$1" install_arguments="$2" python="python3" pytest ruff
+    if [ -x "$dir/.venv/bin/python" ]; then
+        python=".venv/bin/python"
+        [ -x "$dir/.venv/bin/pip" ] && BUILD_CMD=".venv/bin/pip install $install_arguments"
+    elif command -v pip >/dev/null 2>&1 && ! python_externally_managed; then
+        BUILD_CMD="pip install $install_arguments"
+    fi
+
+    pytest=$(python_tool "$dir" pytest)
+    if [ -n "$pytest" ]; then
+        TEST_CMD="$pytest"
+    elif python_test_files "$dir" '^[[:space:]]*(import|from)[[:space:]]+unittest'; then
+        TEST_CMD="$python -m unittest discover"
+        # Discovery from the root only enters packages; a plain tests/ folder is named instead.
+        if [ -d "$dir/tests" ] && [ ! -f "$dir/tests/__init__.py" ]; then
+            TEST_CMD="$TEST_CMD -s tests"
+        fi
+    elif python_test_files "$dir"; then
+        # Tests that need pytest: keep the command so its absence is reported, not skipped.
+        TEST_CMD="pytest"
+    fi
+
+    ruff=$(python_tool "$dir" ruff)
+    if [ -n "$ruff" ]; then
+        LINT_CMD="$ruff check $RUFF_SCOPE"
+        FORMAT_CMD="$ruff format --check $RUFF_SCOPE"
+    fi
+}
+
 # ── detect_single_stack(dir) ──
 # Sets: STACK, BUILD_CMD, TEST_CMD, LINT_CMD, FORMAT_CMD
 detect_single_stack() {
@@ -35,8 +99,9 @@ detect_single_stack() {
         STACK="deno"
         BUILD_CMD=""
         TEST_CMD="deno test"
-        LINT_CMD="deno lint"
-        FORMAT_CMD="deno fmt --check"
+        # deno fmt also covers Markdown and JSON, which the engine ships.
+        LINT_CMD="deno lint --ignore=$ENGINE_DIRS"
+        FORMAT_CMD="deno fmt --check --ignore=$ENGINE_DIRS"
 
     elif [ -f "$dir/package.json" ]; then
         # Detect package manager
@@ -86,25 +151,20 @@ detect_single_stack() {
         if command -v uv &>/dev/null && [ -f "$dir/uv.lock" ]; then
             BUILD_CMD="uv sync"
             TEST_CMD="uv run pytest"
-            LINT_CMD="uv run ruff check ."
-            FORMAT_CMD="uv run ruff format --check ."
+            LINT_CMD="uv run ruff check $RUFF_SCOPE"
+            FORMAT_CMD="uv run ruff format --check $RUFF_SCOPE"
         elif [ -f "$dir/poetry.lock" ]; then
             BUILD_CMD="poetry install"
             TEST_CMD="poetry run pytest"
-            LINT_CMD="poetry run ruff check ."
-            FORMAT_CMD="poetry run ruff format --check ."
+            LINT_CMD="poetry run ruff check $RUFF_SCOPE"
+            FORMAT_CMD="poetry run ruff format --check $RUFF_SCOPE"
         else
-            BUILD_CMD="pip install -e ."
-            TEST_CMD="pytest"
-            LINT_CMD="ruff check ."
-            FORMAT_CMD="ruff format --check ."
+            python_commands "$dir" "-e ."
         fi
 
     elif [ -f "$dir/requirements.txt" ]; then
         STACK="python"
-        BUILD_CMD="pip install -r requirements.txt"
-        TEST_CMD="pytest"
-        LINT_CMD="ruff check ."
+        python_commands "$dir" "-r requirements.txt"
         FORMAT_CMD=""
 
     elif [ -f "$dir/go.mod" ]; then
