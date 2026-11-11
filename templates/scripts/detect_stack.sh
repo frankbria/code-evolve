@@ -5,8 +5,9 @@
 # Usage: ./scripts/detect_stack.sh [project_dir]
 # Output: JSON with build, test, lint, format commands (or empty strings if not applicable)
 #
-# Supports monorepos: if no stack marker at root, scans immediate subdirectories.
-# When 2+ substacks found, outputs {"stack":"monorepo","substacks":[...]}.
+# Supports nested layouts: if no stack marker at root, scans immediate subdirectories.
+# When any are found, outputs {"stack":"monorepo","substacks":[...]}; each substack's
+# commands run in its "dir".
 
 set -euo pipefail
 
@@ -201,17 +202,21 @@ if [ "$STACK" = "unknown" ]; then
 
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
+        SUBDIR_NAME=$(basename "$subdir")
+        # The name goes into the JSON unescaped; one that would break it is not worth losing
+        # the whole detection over.
+        case "$SUBDIR_NAME" in *'"'*|*'\'*|*[[:cntrl:]]*) continue ;; esac
         detect_single_stack "$subdir"
         if [ "$STACK" != "unknown" ]; then
-            SUBDIR_NAME=$(basename "$subdir")
             [ "$SUBSTACK_COUNT" -gt 0 ] && SUBSTACKS="$SUBSTACKS,"
             SUBSTACKS="$SUBSTACKS{\"name\":\"$SUBDIR_NAME\",\"dir\":\"$SUBDIR_NAME\",\"stack\":\"$STACK\",\"build\":\"$BUILD_CMD\",\"test\":\"$TEST_CMD\",\"lint\":\"$LINT_CMD\",\"format\":\"$FORMAT_CMD\"}"
             SUBSTACK_COUNT=$((SUBSTACK_COUNT + 1))
         fi
     done
 
-    if [ "$SUBSTACK_COUNT" -gt 1 ]; then
-        # Monorepo: multiple substacks detected
+    if [ "$SUBSTACK_COUNT" -ge 1 ]; then
+        # One nested project is reported the same way as several: only a substack entry
+        # carries the directory its commands must run in.
         cat <<EOF
 {
   "stack": "monorepo",
@@ -223,15 +228,6 @@ if [ "$STACK" = "unknown" ]; then
 }
 EOF
         exit 0
-    elif [ "$SUBSTACK_COUNT" -eq 1 ]; then
-        # Single substack found in subdir — re-detect to set variables
-        for subdir in "$PROJECT_DIR"/*/; do
-            [ -d "$subdir" ] || continue
-            detect_single_stack "$subdir"
-            if [ "$STACK" != "unknown" ]; then
-                break
-            fi
-        done
     fi
     # If 0 substacks, STACK remains "unknown" — fall through to single output
 fi

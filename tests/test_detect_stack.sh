@@ -109,6 +109,28 @@ check "monorepo: substack stacks" \
   "deno,java"
 rm -rf "$MONO"
 
+# ── One nested project (#94): its commands carry the directory they run in ──
+NESTED=$(mktemp -d)
+mkdir -p "$NESTED/app" "$NESTED/docs"
+echo '{"scripts":{"build":"x","test":"y"}}' > "$NESTED/app/package.json"
+JN=$(bash "$SCRIPT" "$NESTED")
+substack_field() { echo "$JN" | python3 -c "import sys,json; s=json.load(sys.stdin).get('substacks',[]); print(s[0].get('$1','') if len(s)==1 else 'substacks: %d' % len(s))"; }
+check "nested: stack"          "$(field "$JN" stack)"     "monorepo"
+check "nested: no root build"  "$(field "$JN" build)"     ""
+check "nested: substack dir"   "$(substack_field dir)"    "app"
+check "nested: substack stack" "$(substack_field stack)"  "javascript"
+check "nested: substack build" "$(substack_field build)"  "npm run build"
+check "nested: substack test"  "$(substack_field test)"   "npm run test"
+mkdir "$NESTED/we\"ird"
+echo '<project/>' > "$NESTED/we\"ird/pom.xml"
+mkdir "$NESTED/back\\slash"
+echo '<project/>' > "$NESTED/back\\slash/pom.xml"
+mkdir "$NESTED/tab"$'\t'"name"
+echo '<project/>' > "$NESTED/tab"$'\t'"name/pom.xml"
+JN=$(bash "$SCRIPT" "$NESTED")
+check "nested: a name that would break the JSON is skipped" "$(substack_field dir)" "app"
+rm -rf "$NESTED"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]
