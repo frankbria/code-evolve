@@ -230,13 +230,16 @@ executable "$tools/ruff" 'case "$*" in *"--extend-exclude '"$ENGINE_EXCLUDES"' .
 [ -d .evolve/scripts ] && { echo "would reformat: .evolve/scripts/format_issues.py" >&2; exit 1; }
 exit 0'
 linted="$(new_fixture linted)"
+# init looks for the agent CLI; a stand-in keeps the test independent of an installed one.
+executable "$scratch/agent/claude" '[ "${1:-}" = "--version" ] && echo "claude 0.0.0-stub"; exit 0'
 (
     cd "$linted"
+    PATH="$scratch/agent:$PATH"
     git init -q
     git config user.email test@example.com
     git config user.name test
-    node "$CLI" init --agent claude </dev/null >/dev/null 2>&1
-) || bad "init failed in the ruff fixture"
+    node "$CLI" init --agent claude </dev/null > "$scratch/init.log" 2>&1
+) || bad "init failed in the ruff fixture: $(tail -3 "$scratch/init.log")"
 [ -f "$linted/.evolve/scripts/format_issues.py" ] && ok "ruff fixture: init installed the engine's Python scripts" || bad "ruff fixture: no engine scripts"
 printf '[project]\nname = "linted"\nversion = "0.1.0"\n' > "$linted/pyproject.toml"
 printf 'def greeting() -> str:\n    return "hi"\n' > "$linted/greeting.py"
