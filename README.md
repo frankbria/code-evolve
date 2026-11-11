@@ -494,7 +494,7 @@ The agent is powerful but constrained:
 
 - **Protected files** — `IDENTITY.md`, `scripts/`, `workflows/` cannot be modified by the agent
 - **Build verification** — every change must pass build + tests or it gets reverted
-- **Automatic rollback** — 3 failed fix attempts = full revert to pre-session state
+- **Automatic rollback** — 3 failed fix attempts = full revert to pre-session state (the lessons the session wrote to `LEARNINGS.md` are kept)
 - **Prompt injection defense** — random boundary markers, HTML comment stripping, body truncation on all issue content
 - **Honest journaling** — the agent can't hide failures; the journal is append-only
 

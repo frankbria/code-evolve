@@ -53,19 +53,20 @@ export function evidenceDir(reqId?: string): string {
   return reqId ? path.join(base, reqId) : base;
 }
 
+/** The evolution day as the engine counts it: whole days since the birth date, 0 on the first. */
 export function currentDay(): number {
   try {
     const dayCountPath = evolveFile('DAY_COUNT');
     if (fs.existsSync(dayCountPath)) {
       const n = parseInt(fs.readFileSync(dayCountPath, 'utf8').trim(), 10);
-      if (!isNaN(n) && n > 0) return n;
+      if (n >= 0) return n;
     }
     // Fallback: derive from birth date if DAY_COUNT is absent or corrupt
     const birthPath = evolveFile('.birth_date');
     if (fs.existsSync(birthPath)) {
       const birth = new Date(fs.readFileSync(birthPath, 'utf8').trim());
       const elapsed = Math.floor((Date.now() - birth.getTime()) / 86_400_000);
-      return Math.max(1, elapsed);
+      return Math.max(0, elapsed);
     }
   } catch { /* ignore */ }
   return 0;
