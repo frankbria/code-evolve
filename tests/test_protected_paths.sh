@@ -555,6 +555,34 @@ STUB_MARKER="$thirteenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve P
     || bad "file outside the project deleted through a planted .evolve link: $(ls ../victim/scripts 2>&1 | tr '\n' '?')"
 cd / && rm -rf "$thirteenth_root"
 
+# The engine directory sits behind a directory symlink of the user's (conf -> ../shared-conf).
+# The agent swaps that directory for a symlink to a victim directory with its own .evolve link.
+# Everything behind the swapped link is left alone, the victim's .evolve link included.
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+[ -e "$STUB_MARKER" ] && exit 0
+touch "$STUB_MARKER"
+mv ../shared-conf ../moved-conf && mkdir ../victim && ln -s ../moved-conf/.evolve ../victim/.evolve && ln -s victim ../shared-conf
+STUB
+thirteenth_root="$(mktemp -d)"
+mkdir -p "$thirteenth_root/project" "$thirteenth_root/shared-conf"
+cd "$thirteenth_root/project"
+git init -q
+git config user.email test@example.com
+git config user.name test
+node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "thirteenth (conf link) init failed"
+mv .evolve ../shared-conf/.evolve && ln -s ../shared-conf conf
+git add -A && git commit -qm "baseline, engine directory behind a symlinked conf directory"
+thirteenth_status=0
+STUB_MARKER="$thirteenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=conf/.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash conf/.evolve/scripts/evolve.sh > "$stub_dir/engine13c.log" 2>&1 || thirteenth_status=$?
+[ -e "$thirteenth_root/stub-ran" ] && [ -L ../victim/.evolve ] && [ "$thirteenth_status" -eq 5 ] \
+    && ok "nothing behind a swapped link is repaired away, and the cycle ends with status 5" \
+    || bad "behind a swapped conf link: exit $thirteenth_status, victim holds '$(ls -A ../victim 2>&1)', $(tail -2 "$stub_dir/engine13c.log")"
+cd / && rm -rf "$thirteenth_root"
+
 # Fourteenth project (#150): not a git repository, engine directory named by an absolute path
 # outside the project. The run lock's fallback location is that directory, not $PWD joined to it.
 fourteenth_root="$(mktemp -d)"

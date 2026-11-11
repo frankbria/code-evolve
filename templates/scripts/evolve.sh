@@ -517,6 +517,7 @@ restore_protected_paths() {
     # The walk for names with a newline starts at the search roots: a directory above one that
     # the agent turned into a symlink goes first, or the walk would pass through it.
     while IFS= read -r protected_file; do
+        behind_untrusted_link "$protected_file" && continue
         restored="$restored$(repair_protected_ancestors "$protected_file")"
     done < <(protected_search_roots)
     while IFS= read -r -d '' protected_file; do
