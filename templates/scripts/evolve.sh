@@ -1324,16 +1324,17 @@ push_or_report() { # <label> <git push arguments...>
 # to push to (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote), else origin, else the only remote.
 push_session() {
     local remotes branch remote
-    remotes=$(git remote)
-    if [ -z "$remotes" ]; then
-        echo "  No remote configured; nothing pushed."
-        return 0
-    fi
     branch=$(git symbolic-ref -q --short HEAD || true)
+    # Checked before the list of remotes: an upstream can name a URL or a path instead of a remote.
     if [ -n "$branch" ] && git config --get "branch.$branch.remote" >/dev/null \
         && git config --get "branch.$branch.merge" >/dev/null; then
         push_or_report "Push"
         push_or_report "Tag push" --tags
+        return 0
+    fi
+    remotes=$(git remote)
+    if [ -z "$remotes" ]; then
+        echo "  No remote configured; nothing pushed."
         return 0
     fi
     remote=""

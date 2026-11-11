@@ -92,6 +92,16 @@ run_session only.txt
     && ok "no remote is reported quietly, not as a failure" || bad "log: $(grep -i "push\|remote" "$finalize_log")"
 git tag --list 'day0-*' | grep -q . && ok "the session is still tagged locally" || bad "no local tag"
 
+# ── An upstream given as a path, with no named remote, is still pushed to ──
+new_project upstream-by-path
+git init -q --bare "$PWD-target.git"
+git config "branch.$branch.remote" "$PWD-target.git"
+git config "branch.$branch.merge" "refs/heads/$branch"
+git config push.default current
+run_session only.txt
+[ "$(git ls-remote "$PWD-target.git" "refs/heads/$branch" | cut -f1)" = "$(git rev-parse HEAD)" ] && ! grep -q "No remote" "$finalize_log" \
+    && ok "an upstream that is a path rather than a named remote is pushed to" || bad "upstream by path: $(tail -4 "$finalize_log")"
+
 # ── One remote that is not called origin ──
 new_project single-remote
 new_bare_remote backup
