@@ -399,7 +399,7 @@ for a project with a `.venv`: it would run on another Python):
 |-------|---------|------|
 | Build | `python3 -m pip install -e .` (or `-r requirements.txt`) | pip can install here: a `.venv` with pip, an active virtual environment, or a Python that is not externally managed. A `.venv` without pip is installed into with `uv pip install` when uv is available |
 | Test | `pytest` | pytest is installed |
-| Test | `python3 -m unittest discover` | pytest is not installed, the project does not name pytest (dependency, configuration, `conftest.py` or an `import pytest` in a test file), and the whole suite is `unittest.TestCase` classes in `test*.py` files that discovery reaches: next to the code, in `tests/`, or in packages below either (`tests/unit/`, `app/tests/`, with an `__init__.py` at each level) |
+| Test | `python3 -m unittest discover` | pytest is not installed, the project does not name pytest (dependency, configuration, `conftest.py` or an `import pytest` in a test file), and the whole suite is `unittest.TestCase` classes, with no `load_tests` hook, in `test*.py` files that discovery reaches: next to the code, in `tests/`, or in packages below either (`tests/unit/`, `app/tests/`, with an `__init__.py` at each level) |
 | Lint / format | `ruff check`, `ruff format --check` | ruff is installed |
 
 The test files are parsed, not imported, to tell the two kinds of suite apart (a file the

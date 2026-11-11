@@ -178,6 +178,9 @@ J=$(detect_in "$nested")
 check "nested test packages run unittest from the project root" "$(field "$J" test)" "python3 -m unittest discover"
 run_in "$nested" "$(field "$J" test)" && grep -q "Ran 2 tests" "$scratch/run.log" \
     && ok "nested test packages: both tests are found and pass" || bad "nested test packages: $(tail -3 "$scratch/run.log")"
+printf 'def load_tests(loader, tests, pattern):\n    return tests\n' > "$nested/tests/unit/__init__.py"
+J=$(detect_in "$nested")
+check "a package whose load_tests hook replaces discovery keeps pytest" "$(field "$J" test)" "pytest"
 rm "$nested/tests/unit/__init__.py"
 J=$(detect_in "$nested")
 check "a package chain with a gap keeps pytest" "$(field "$J" test)" "pytest"
@@ -255,6 +258,10 @@ parsed_as "a pytest function whose first parameter is named self keeps pytest" "
     'def test_failure(self=None):\n    assert False\n'
 parsed_as "a Test class on a project class named TestCase keeps pytest" "pytest" \
     'from unittest import TestCase\n\n\nclass TestCase:\n    pass\n\n\nclass TestRegression(TestCase):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a Test class on a TestCase name that was assigned something else keeps pytest" "pytest" \
+    'from unittest import TestCase as Base\n\nBase = object\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a load_tests hook in a test file keeps pytest" "pytest" \
+    'import unittest\n\n\nclass SkippedTest(unittest.TestCase):\n    def test_failure(self):\n        self.fail()\n\n\ndef load_tests(loader, tests, pattern):\n    return unittest.TestSuite()\n'
 parsed_as "a pytest class nested in a Test class keeps pytest" "pytest" \
     'class TestOuter:\n    class TestInner:\n        def test_failure(self):\n            assert False\n'
 parsed_as "a Test class that inherits its test from a plain class keeps pytest" "pytest" \

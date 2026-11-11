@@ -40,7 +40,8 @@ def project_test_files(project, skipped):
 
 
 def discovered_files(directory):
-    """The test files unittest discovery loads from a start directory: it only enters packages."""
+    """The files unittest discovery loads from a start directory: its test files and, as it
+    only enters packages, the __init__.py of each one it enters."""
     with os.scandir(directory) as entries:
         for entry in entries:
             if entry.is_file():
@@ -51,6 +52,7 @@ def discovered_files(directory):
                 and entry.name.isidentifier()
                 and os.path.isfile(os.path.join(entry.path, "__init__.py"))
             ):
+                yield os.path.join(entry.path, "__init__.py")
                 yield from discovered_files(entry.path)
 
 
@@ -95,6 +97,25 @@ def imports_pytest(tree):
     return False
 
 
+def bound_names(statement):
+    """The names a module-level statement binds: by def, class, import or assignment."""
+    if isinstance(statement, FUNCTIONS + (ast.ClassDef,)):
+        return {statement.name}
+    if isinstance(statement, (ast.Import, ast.ImportFrom)):
+        return {alias.asname or alias.name.split(".")[0] for alias in statement.names}
+    if isinstance(statement, ast.Assign):
+        targets = statement.targets
+    elif isinstance(statement, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor)):
+        targets = [statement.target]
+    elif isinstance(statement, (ast.With, ast.AsyncWith)):
+        targets = [item.optional_vars for item in statement.items if item.optional_vars]
+    else:
+        return set()
+    return {
+        node.id for target in targets for node in ast.walk(target) if isinstance(node, ast.Name)
+    }
+
+
 def unittest_module(node):
     """The name a base's module is reached through: `ut` for ut.TestCase and ut.case.TestCase."""
     if isinstance(node, ast.Attribute) and node.attr == "case":
@@ -115,6 +136,14 @@ def classify(tree):
     # imported from the project's own module keeps pytest, TestCase or not. Resolve imports
     # across files if such suites need the unittest fallback.
     for statement in scope_statements(tree.body):
+        names = bound_names(statement)
+        # A load_tests hook decides itself what unittest loads from the module or package.
+        if "load_tests" in names:
+            return "pytest"
+        # Whatever a name stood for, it now stands for what this statement binds.
+        unittest_modules -= names
+        test_cases -= names
+        test_free -= names
         if isinstance(statement, ast.Import):
             for alias in statement.names:
                 if alias.name == "unittest":
@@ -143,9 +172,6 @@ def classify(tree):
                 )
                 for base in statement.bases
             )
-            # A class of the project's own may reuse a name an earlier one had.
-            test_cases.discard(statement.name)
-            test_free.discard(statement.name)
             if derives:
                 test_cases.add(statement.name)
                 kind = "unittest"
@@ -172,11 +198,12 @@ def unittest_arguments(project, skipped):
     ):
         start = tests_directory
         arguments = "discover -s tests"
-    if not test_files <= set(discovered_files(start)):
+    loaded = set(discovered_files(start))
+    if not test_files <= loaded:
         return ""
 
     kinds = set()
-    for path in test_files:
+    for path in loaded:
         try:
             with open(path, "rb") as source:
                 kinds.add(classify(ast.parse(source.read(), filename=path)))
