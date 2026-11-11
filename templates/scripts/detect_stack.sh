@@ -7,7 +7,8 @@
 #
 # Supports nested layouts: if no stack marker at root, scans immediate subdirectories.
 # When any are found, outputs {"stack":"monorepo","substacks":[...]}; each substack's
-# commands run in its "dir".
+# commands run in its "dir". Next to a root project, the folders listed in
+# ../nested-projects.txt are its "substacks" and other folders with a stack marker are "unverified".
 
 set -euo pipefail
 
@@ -303,32 +304,76 @@ detect_single_stack() {
 
 # ── Main detection ──
 
-# Try root directory first
+# Nested projects the user wants verified next to a root project: one directory per line,
+# relative to the project root. Without a root project every folder one level down counts
+# already, and the list adds deeper ones.
+NESTED_LIST="$SCRIPTS_DIR/../nested-projects.txt"
+# DETECT_STACK_NESTED=0: <project_dir> is itself a nested project (the CI workflow reads one
+# again after installing its dependencies). The list belongs to the project root, so it must
+# not be read against this directory, and nothing below it is named.
+SCAN_NESTED="${DETECT_STACK_NESTED:-1}"
+
+# listed_nested_dirs — the list's directories, one per line: no comments, no surrounding
+# blanks, no leading ./ or trailing /, and no absolute path or .. component (a symlink the
+# user lists is followed wherever it leads).
+listed_nested_dirs() {
+    local line
+    [ "$SCAN_NESTED" != "0" ] && [ -f "$NESTED_LIST" ] || return 0
+    # Read byte by byte: in a UTF-8 locale, a line ending in a byte that is not UTF-8 would
+    # take the newline and the next line with it.
+    while IFS= LC_ALL=C read -r line || [ -n "$line" ]; do
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s|^\(\./\)*||; s|/*$||')
+        case "/$line/" in //|/'#'*|//*|*/../*|*/./*) continue ;; esac
+        printf '%s\n' "$line"
+    done < "$NESTED_LIST"
+}
+
+# json_safe_name <name> — a name goes into the JSON unescaped; one that would break it is not
+# worth losing the whole detection over. Bytes that are not UTF-8 break it too: every reader
+# of the output would fail and the project would be left with no checks at all.
+json_safe_name() {
+    case "$1" in *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;; esac
+    printable_ascii_name "$1" || printf '%s' "$1" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null
+}
+# printable_ascii_name <name> — the common case, decided without starting python.
+printable_ascii_name() {
+    local LC_ALL=C
+    case "$1" in *[!\ -~]*) return 1 ;; esac
+}
+
+SUBSTACKS=""
+SUBSTACK_DIRS=$'\n'
+UNVERIFIED=""
+
+# add_substack <dir relative to the project> — records the project found there, once.
+add_substack() {
+    json_safe_name "$1" || return 0
+    case "$SUBSTACK_DIRS" in *$'\n'"$1"$'\n'*) return 0 ;; esac
+    [ -d "$PROJECT_DIR/$1" ] || return 0
+    detect_single_stack "$PROJECT_DIR/$1"
+    [ "$STACK" != "unknown" ] || return 0
+    SUBSTACKS="${SUBSTACKS:+$SUBSTACKS,}{\"name\":\"$1\",\"dir\":\"$1\",\"stack\":\"$STACK\",\"build\":\"$BUILD_CMD\",\"test\":\"$TEST_CMD\",\"lint\":\"$LINT_CMD\",\"format\":\"$FORMAT_CMD\"}"
+    SUBSTACK_DIRS="$SUBSTACK_DIRS$1"$'\n'
+}
+
 detect_single_stack "$PROJECT_DIR"
+ROOT_STACK="$STACK"; ROOT_BUILD_CMD="$BUILD_CMD"; ROOT_TEST_CMD="$TEST_CMD"
+ROOT_LINT_CMD="$LINT_CMD"; ROOT_FORMAT_CMD="$FORMAT_CMD"
 
-# If unknown, scan immediate subdirectories for monorepo layout
-if [ "$STACK" = "unknown" ]; then
-    SUBSTACKS=""
-    SUBSTACK_COUNT=0
-
+if [ "$ROOT_STACK" = "unknown" ]; then
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
-        SUBDIR_NAME=$(basename "$subdir")
-        # The name goes into the JSON unescaped; one that would break it is not worth losing
-        # the whole detection over.
-        case "$SUBDIR_NAME" in *'"'*|*'\'*|*[[:cntrl:]]*) continue ;; esac
-        detect_single_stack "$subdir"
-        if [ "$STACK" != "unknown" ]; then
-            [ "$SUBSTACK_COUNT" -gt 0 ] && SUBSTACKS="$SUBSTACKS,"
-            SUBSTACKS="$SUBSTACKS{\"name\":\"$SUBDIR_NAME\",\"dir\":\"$SUBDIR_NAME\",\"stack\":\"$STACK\",\"build\":\"$BUILD_CMD\",\"test\":\"$TEST_CMD\",\"lint\":\"$LINT_CMD\",\"format\":\"$FORMAT_CMD\"}"
-            SUBSTACK_COUNT=$((SUBSTACK_COUNT + 1))
-        fi
+        add_substack "$(basename "$subdir")"
     done
+fi
+while IFS= LC_ALL=C read -r listed_dir; do
+    add_substack "$listed_dir"
+done < <(listed_nested_dirs)
 
-    if [ "$SUBSTACK_COUNT" -ge 1 ]; then
-        # One nested project is reported the same way as several: only a substack entry
-        # carries the directory its commands must run in.
-        cat <<EOF
+if [ "$ROOT_STACK" = "unknown" ] && [ -n "$SUBSTACKS" ]; then
+    # One nested project is reported the same way as several: only a substack entry
+    # carries the directory its commands must run in.
+    cat <<EOF
 {
   "stack": "monorepo",
   "substacks": [$SUBSTACKS],
@@ -338,18 +383,44 @@ if [ "$STACK" = "unknown" ]; then
   "format": ""
 }
 EOF
-        exit 0
-    fi
-    # If 0 substacks, STACK remains "unknown" — fall through to single output
+    exit 0
 fi
 
-# Single-stack output (or unknown)
+# Next to a root project, a folder that looks like a project and is not on the list is not
+# verified. It is reported so that the engine can say so; folders git ignores (build output)
+# are left out. Only marker files are looked at: full detection runs the folder's own
+# interpreter (.venv/bin/python), and nobody offered these folders for that.
+has_project_marker() {
+    local marker
+    for marker in Cargo.toml deno.json deno.jsonc package.json pyproject.toml requirements.txt go.mod \
+        pom.xml build.gradle build.gradle.kts settings.gradle settings.gradle.kts Gemfile composer.json \
+        CMakeLists.txt Makefile; do
+        [ ! -f "$1/$marker" ] || return 0
+    done
+    compgen -G "$1/*.sln" >/dev/null || compgen -G "$1/*.csproj" >/dev/null
+}
+if [ "$ROOT_STACK" != "unknown" ] && [ "$SCAN_NESTED" != "0" ]; then
+    for subdir in "$PROJECT_DIR"/*/; do
+        [ -d "$subdir" ] || continue
+        SUBDIR_NAME=$(basename "$subdir")
+        json_safe_name "$SUBDIR_NAME" || continue
+        case "$SUBSTACK_DIRS" in *$'\n'"$SUBDIR_NAME"$'\n'*) continue ;; esac
+        ! git -C "$PROJECT_DIR" check-ignore -q -- "$SUBDIR_NAME" 2>/dev/null || continue
+        has_project_marker "$subdir" || continue
+        UNVERIFIED="${UNVERIFIED:+$UNVERIFIED,}\"$SUBDIR_NAME\""
+    done
+fi
+
+# Single-stack output (or unknown). The two lists appear only when they have entries.
+NESTED_LISTS=""
+[ -z "$SUBSTACKS" ] || NESTED_LISTS="$NESTED_LISTS"$'\n'"  \"substacks\": [$SUBSTACKS],"
+[ -z "$UNVERIFIED" ] || NESTED_LISTS="$NESTED_LISTS"$'\n'"  \"unverified\": [$UNVERIFIED],"
 cat <<EOF
 {
-  "stack": "$STACK",
-  "build": "$BUILD_CMD",
-  "test": "$TEST_CMD",
-  "lint": "$LINT_CMD",
-  "format": "$FORMAT_CMD"
+  "stack": "$ROOT_STACK",$NESTED_LISTS
+  "build": "$ROOT_BUILD_CMD",
+  "test": "$ROOT_TEST_CMD",
+  "lint": "$ROOT_LINT_CMD",
+  "format": "$ROOT_FORMAT_CMD"
 }
 EOF

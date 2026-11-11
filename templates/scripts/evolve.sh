@@ -247,6 +247,31 @@ import sys, json
 print(''.join(s.get(k, '') for s in json.load(sys.stdin) for k in ('build', 'test', 'lint', 'format')))" 2>/dev/null || echo ""
 }
 
+# The substacks as one line each, "dir build test lint format" joined by the unit separator:
+# a directory name or a command may contain "|", neither can contain a control character.
+SUBSTACK_FIELD_SEPARATOR=$'\x1f'
+substack_lines() {
+    echo "${SUBSTACKS_JSON:-[]}" | python3 -c "
+import sys, json
+for s in json.load(sys.stdin):
+    print('\x1f'.join(s.get(k, '') for k in ('dir', 'build', 'test', 'lint', 'format')))" 2>/dev/null || true
+}
+
+# Says which nested projects of <detect_stack JSON> are not verified, and how to change that.
+# Next to a root project only the listed folders are: scanning them all would run commands in
+# folders nobody offered for verification (examples, a frontend without its dependencies).
+# A folder the session started with is still verified, whatever detection says now.
+report_unverified_projects() {
+    local unverified
+    unverified=$(echo "$1" | VERIFIED="${SUBSTACKS_JSON:-[]}" python3 -c "
+import sys, json, os
+verified = {entry.get('dir') for entry in json.loads(os.environ['VERIFIED'])}
+print(', '.join(name + '/' for name in json.load(sys.stdin).get('unverified', []) if name not in verified))" 2>/dev/null || echo "")
+    [ -n "$unverified" ] || return 0
+    echo "  Not verified: $unverified. To verify a nested project next to the root project,"
+    echo "  add its directory to $EVOLVE_DIR/nested-projects.txt (one per line)."
+}
+
 count_lines_matching() {
     [ -f "$2" ] || { echo 0; return; }
     grep -c -- "$1" "$2" || true
@@ -819,31 +844,29 @@ TEST_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys
 LINT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['lint'])" 2>/dev/null || echo "")
 FORMAT_CMD=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['format'])" 2>/dev/null || echo "")
 
-SUBSTACKS_JSON=""
+# A root project can have substacks too: the folders listed in nested-projects.txt.
+SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
+SUBSTACK_COUNT=$(echo "$SUBSTACKS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
 if [ "$STACK" = "monorepo" ]; then
-    SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
-    SUBSTACK_COUNT=$(echo "$SUBSTACKS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
     echo "  Stack: monorepo ($SUBSTACK_COUNT substacks)"
-    echo "$SUBSTACKS_JSON" | python3 -c "
-import sys,json
-for s in json.load(sys.stdin):
-    print(f\"    - {s['name']}: {s['stack']} (build: {s['build']})\")
-" 2>/dev/null || true
 else
     echo "  Stack: $STACK"
     [ -n "$BUILD_CMD" ] && echo "  Build: $BUILD_CMD"
     [ -n "$TEST_CMD" ] && echo "  Test: $TEST_CMD"
+    [ "$SUBSTACK_COUNT" -eq 0 ] || echo "  Nested projects: $SUBSTACK_COUNT"
 fi
+echo "$SUBSTACKS_JSON" | python3 -c "
+import sys,json
+for s in json.load(sys.stdin):
+    print(f\"    - {s['name']}: {s['stack']} (build: {s['build']})\")
+" 2>/dev/null || true
+report_unverified_projects "$STACK_JSON"
 echo ""
 
 # ── Step 1b: Verify starting state (if project exists) ──
-if [ "$STACK" = "monorepo" ]; then
-    echo "-> Checking existing builds (monorepo)..."
-    echo "$SUBSTACKS_JSON" | python3 -c "
-import sys,json
-for s in json.load(sys.stdin):
-    print(s['dir'] + '|' + s.get('build','') + '|' + s.get('test',''))
-" 2>/dev/null | while IFS='|' read -r sdir sbuild stest; do
+if [ "$SUBSTACK_COUNT" -gt 0 ]; then
+    echo "-> Checking existing builds (nested projects)..."
+    substack_lines | while IFS="$SUBSTACK_FIELD_SEPARATOR" read -r sdir sbuild stest _; do
         SUBPATH="$PROJECT_DIR/$sdir"
         if [ -n "$sbuild" ]; then
             (cd "$SUBPATH" && eval "$sbuild" >/dev/null 2>&1) && echo "  $sdir build OK." || echo "  $sdir build has issues (agent will address)."
@@ -853,7 +876,8 @@ for s in json.load(sys.stdin):
         fi
     done
     echo ""
-elif [ -n "$BUILD_CMD" ] && [ "$STACK" != "unknown" ]; then
+fi
+if [ -n "$BUILD_CMD" ] && [ "$STACK" != "unknown" ]; then
     echo "-> Checking existing build..."
     cd "$PROJECT_DIR" 2>/dev/null || true
     eval "$BUILD_CMD" >/dev/null 2>&1 && echo "  Build OK." || echo "  Build has issues (agent will address)."
@@ -1048,36 +1072,53 @@ echo "-> Starting evolution session..."
 echo ""
 
 # Build verification instructions based on detected stack
-VERIFY_INSTRUCTIONS=""
-if [ "$STACK" = "monorepo" ] && [ -n "$(substack_commands)" ]; then
-    VERIFY_INSTRUCTIONS=$(echo "$SUBSTACKS_JSON" | python3 -c "
-import sys, json
-substacks = json.load(sys.stdin)
-lines = ['## Build Verification Commands (MONOREPO)',
-         'The code lives in subdirectories. After making changes, verify EACH affected substack from its own directory:',
-         '']
-pd = '$PROJECT_DIR'
-for s in substacks:
-    d = s['dir']
-    lines.append(f\"### {s['name']} (in {pd}/{d}/)\")
-    if s['build']: lines.append(f\"- Build: \`cd {pd}/{d} && {s['build']}\`\")
-    if s['test']:  lines.append(f\"- Test:  \`cd {pd}/{d} && {s['test']}\`\")
-    if s['lint']:  lines.append(f\"- Lint:  \`cd {pd}/{d} && {s['lint']}\`\")
-    lines.append('')
-lines.append('IMPORTANT: ALL substacks must pass. Do not skip any.')
-print('\n'.join(lines))
-" 2>/dev/null)
-elif [ -n "$BUILD_CMD" ] || [ -n "$TEST_CMD" ]; then
-    VERIFY_INSTRUCTIONS="## Build Verification Commands
+# The prompt's commands for every substack, each with the directory it runs in.
+substack_verify_lines() {
+    echo "$SUBSTACKS_JSON" | PROJECT_DIR="$PROJECT_DIR" python3 -c "
+import sys, json, os, shlex
+pd = os.environ['PROJECT_DIR']
+for s in json.load(sys.stdin):
+    # Quoted for the shell: the agent runs these lines as they are, and a name may hold | or a space.
+    d = shlex.quote(pd + '/' + s['dir'])
+    print(f\"### {s['name']} (in {pd}/{s['dir']}/)\")
+    if s['build']: print(f\"- Build: \`cd {d} && {s['build']}\`\")
+    if s['test']:  print(f\"- Test:  \`cd {d} && {s['test']}\`\")
+    if s['lint']:  print(f\"- Lint:  \`cd {d} && {s['lint']}\`\")
+    print()
+" 2>/dev/null
+}
+ROOT_VERIFY_INSTRUCTIONS=""
+if [ -n "$BUILD_CMD" ] || [ -n "$TEST_CMD" ]; then
+    ROOT_VERIFY_INSTRUCTIONS="## Build Verification Commands
 After making changes, run these commands to verify:"
-    [ -n "$BUILD_CMD" ] && VERIFY_INSTRUCTIONS="$VERIFY_INSTRUCTIONS
+    [ -n "$BUILD_CMD" ] && ROOT_VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS
 - Build: \`$BUILD_CMD\`"
-    [ -n "$TEST_CMD" ] && VERIFY_INSTRUCTIONS="$VERIFY_INSTRUCTIONS
+    [ -n "$TEST_CMD" ] && ROOT_VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS
 - Test: \`$TEST_CMD\`"
-    [ -n "$LINT_CMD" ] && VERIFY_INSTRUCTIONS="$VERIFY_INSTRUCTIONS
+    [ -n "$LINT_CMD" ] && ROOT_VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS
 - Lint: \`$LINT_CMD\`"
-    [ -n "$FORMAT_CMD" ] && VERIFY_INSTRUCTIONS="$VERIFY_INSTRUCTIONS
+    [ -n "$FORMAT_CMD" ] && ROOT_VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS
 - Format: \`$FORMAT_CMD\`"
+fi
+VERIFY_INSTRUCTIONS=""
+if [ -n "$(substack_commands)" ] && [ -n "$ROOT_VERIFY_INSTRUCTIONS" ]; then
+    VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS
+
+## Nested Projects
+These folders hold projects of their own. After changing one, verify it from its own directory:
+
+$(substack_verify_lines)
+
+IMPORTANT: the root project and every nested project must pass. Do not skip any."
+elif [ -n "$(substack_commands)" ]; then
+    VERIFY_INSTRUCTIONS="## Build Verification Commands (MONOREPO)
+The code lives in subdirectories. After making changes, verify EACH affected substack from its own directory:
+
+$(substack_verify_lines)
+
+IMPORTANT: ALL substacks must pass. Do not skip any."
+elif [ -n "$ROOT_VERIFY_INSTRUCTIONS" ]; then
+    VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS"
 else
     VERIFY_INSTRUCTIONS="## Build Verification
 No build system detected yet. If this is the bootstrap session, set up the project
@@ -1307,11 +1348,7 @@ run_verification_round() {
 
     # Every nested project and the root, whatever the stack is called: a session can add a
     # root project next to nested ones, or replace a root that had no commands with a nested one.
-    echo "$SUBSTACKS_JSON" | python3 -c "
-import sys,json
-for s in json.load(sys.stdin):
-    print(s['dir'] + '|' + s.get('build','') + '|' + s.get('test','') + '|' + s.get('lint','') + '|' + s.get('format',''))
-" 2>/dev/null | while IFS='|' read -r sdir sbuild stest slint sformat; do
+    substack_lines | while IFS="$SUBSTACK_FIELD_SEPARATOR" read -r sdir sbuild stest slint sformat; do
         verify_single_stack "$PROJECT_DIR/$sdir" "$sbuild" "$stest" "$slint" "$sformat" "$sdir"
     done
     verify_single_stack "$PROJECT_DIR" "$BUILD_CMD" "$TEST_CMD" "$LINT_CMD" "$FORMAT_CMD" "project"
@@ -1416,6 +1453,7 @@ for entry in merged:
 known = {entry.get("dir") for entry in merged}
 merged += [entry for entry in detected.values() if entry.get("dir") not in known]
 print(json.dumps(merged))' 2>/dev/null || echo "$DETECTED_SUBSTACKS_JSON")
+report_unverified_projects "$STACK_JSON"
 ERRORS=""
 HAS_VERIFICATION=false
 if [ -n "$(substack_commands)$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi

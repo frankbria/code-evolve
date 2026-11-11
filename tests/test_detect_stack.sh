@@ -131,6 +131,115 @@ JN=$(bash "$SCRIPT" "$NESTED")
 check "nested: a name that would break the JSON is skipped" "$(substack_field dir)" "app"
 rm -rf "$NESTED"
 
+# ── Nested projects next to a root project (#152) ──
+# The list lives in the engine's directory, so these fixtures get the scripts installed.
+install_engine() { mkdir -p "$1/.evolve"; cp -R "$ROOT/templates/scripts" "$1/.evolve/scripts"; }
+installed_detect() { bash "$1/.evolve/scripts/detect_stack.sh" "$1"; }
+# listing <json> <key> <field>  → that field of every entry (or the entry itself), comma-joined
+listing() { echo "$1" | python3 -c "import sys,json; print(','.join(e if isinstance(e, str) else e['$3'] for e in json.load(sys.stdin).get('$2', [])))"; }
+
+MIXED=$(mktemp -d)
+install_engine "$MIXED"
+echo '{"scripts":{"build":"x","test":"y"}}' > "$MIXED/package.json"
+mkdir -p "$MIXED/api" "$MIXED/examples/.venv/bin" "$MIXED/site" "$MIXED/services/worker" "$MIXED/plain"
+# A folder nobody listed must not have its own interpreter run just to be named.
+printf '[project]\nname = "examples"\n' > "$MIXED/examples/pyproject.toml"
+printf '#!/bin/sh\ntouch "%s/interpreter-ran"\n' "$MIXED" > "$MIXED/examples/.venv/bin/python"
+chmod +x "$MIXED/examples/.venv/bin/python"
+echo '<project/>' > "$MIXED/api/pom.xml"
+printf 'all:\n' > "$MIXED/examples/Makefile"
+echo '<html></html>' > "$MIXED/site/index.html"
+echo '{}' > "$MIXED/services/worker/deno.json"
+JR=$(installed_detect "$MIXED")
+check "root + nested, no list: the root project is reported as before" "$(field "$JR" stack)|$(field "$JR" build)" "javascript|npm run build"
+check "root + nested, no list: no nested project is verified" "$(listing "$JR" substacks dir)" ""
+check "root + nested, no list: folders with a stack marker are named as unverified" "$(listing "$JR" unverified dir)" "api,examples"
+check "root + nested, no list: naming a folder does not run its interpreter" "$([ -e "$MIXED/interpreter-ran" ] && echo ran || echo "not run")" "not run"
+
+printf '# verified next to the root project\n\napi/\n  services/worker  \r\n./examples\nplain\nmissing\n' > "$MIXED/.evolve/nested-projects.txt"
+JR=$(installed_detect "$MIXED")
+check "listed: the root project keeps its own commands" "$(field "$JR" stack)|$(field "$JR" test)" "javascript|npm run test"
+check "listed: listed folders are substacks, deeper paths too" "$(listing "$JR" substacks dir)" "api,services/worker,examples"
+check "listed: a substack carries its own commands" \
+  "$(echo "$JR" | python3 -c "import sys,json; s=json.load(sys.stdin)['substacks'][0]; print(s['stack'], s['build'], s['test'], sep='|')")" "java|mvn compile|mvn test"
+check "listed: nothing listed is left unverified" "$(listing "$JR" unverified dir)" ""
+
+# Real projects at each place an entry could escape to, so only the filter keeps them out.
+OUTSIDE="$(dirname "$MIXED")/outside-$(basename "$MIXED")"
+mkdir "$OUTSIDE"
+echo '<project/>' > "$OUTSIDE/pom.xml"
+printf 'api\napi/\n%s\n../%s\napi/../../%s\n.\n' "$OUTSIDE" "$(basename "$OUTSIDE")" "$(basename "$OUTSIDE")" > "$MIXED/.evolve/nested-projects.txt"
+JR=$(installed_detect "$MIXED")
+check "listed: duplicates count once; paths outside the project are ignored" "$(listing "$JR" substacks dir)" "api"
+check "listed: the rest is still named as unverified" "$(listing "$JR" unverified dir)" "examples"
+
+# Read as a nested project itself (the CI workflow does, after installing dependencies), a
+# folder is not searched with the root's list: api/api was never listed.
+mkdir -p "$MIXED/api/api/.venv/bin" "$MIXED/a|b"
+printf '[project]\nname = "inner"\n' > "$MIXED/api/api/pyproject.toml"
+cp "$MIXED/examples/.venv/bin/python" "$MIXED/api/api/.venv/bin/python"
+printf 'all:\n' > "$MIXED/a|b/Makefile"
+rm -f "$MIXED/interpreter-ran"
+JA=$(DETECT_STACK_NESTED=0 bash "$MIXED/.evolve/scripts/detect_stack.sh" "$MIXED/api")
+check "a nested project read on its own: its commands, no list, nothing named" \
+  "$(field "$JA" stack)|$(listing "$JA" substacks dir)|$(listing "$JA" unverified dir)|$([ -e "$MIXED/interpreter-ran" ] && echo ran || echo "not run")" "java|||not run"
+JR=$(installed_detect "$MIXED")
+check "unverified: a name with | is named too" "$(listing "$JR" unverified dir)" "a|b,examples"
+rm -rf "$MIXED/a|b"
+
+# A folder named like an option of echo is a name like any other.
+mkdir "$MIXED/-e" "$MIXED/-n"
+echo '<project/>' > "$MIXED/-e/pom.xml"
+echo '<project/>' > "$MIXED/-n/pom.xml"
+printf 'api\n-e\n-n\n' > "$MIXED/.evolve/nested-projects.txt"
+JR=$(installed_detect "$MIXED")
+check "listed: names that look like echo options are projects too" "$(listing "$JR" substacks dir)" "api,-e,-n"
+rm -rf "$MIXED/-e" "$MIXED/-n"
+printf 'api\n' > "$MIXED/.evolve/nested-projects.txt"
+
+# A name that is not valid UTF-8 would make every reader of the JSON fail, and the root
+# project would lose its checks with it: such a folder is skipped, listed or not.
+LATIN1_NAME="caf"$'\xe9'
+if mkdir "$MIXED/$LATIN1_NAME" "$MIXED/also-$LATIN1_NAME" 2>/dev/null; then
+    mkdir "$MIXED/café" "$MIXED/señor"
+    for name in "$LATIN1_NAME" "also-$LATIN1_NAME" café señor; do echo '<project/>' > "$MIXED/$name/pom.xml"; done
+    printf 'api\n%s\ncafé\n' "$LATIN1_NAME" > "$MIXED/.evolve/nested-projects.txt"
+    JR=$(installed_detect "$MIXED")
+    check "a name that is not UTF-8: the output still parses and the root keeps its commands" "$(field "$JR" stack)|$(field "$JR" test)" "javascript|npm run test"
+    check "a name that is not UTF-8: skipped when listed; a UTF-8 name is verified" "$(listing "$JR" substacks dir)" "api,café"
+    check "a name that is not UTF-8: not named either; a UTF-8 name is" "$(listing "$JR" unverified dir)" "examples,señor"
+    rm -rf "$MIXED/$LATIN1_NAME" "$MIXED/also-$LATIN1_NAME" "$MIXED/café" "$MIXED/señor"
+    printf 'api\n' > "$MIXED/.evolve/nested-projects.txt"
+else
+    echo "  skip: this file system refuses names that are not UTF-8"
+fi
+
+git -C "$MIXED" init -q
+echo 'examples/' > "$MIXED/.gitignore"
+JR=$(installed_detect "$MIXED")
+check "unverified: a folder git ignores is not named" "$(listing "$JR" unverified dir)" ""
+rm -rf "$MIXED" "$OUTSIDE"
+
+# Without a root project every folder one level down counts, and the list adds deeper ones.
+DEEP=$(mktemp -d)
+install_engine "$DEEP"
+mkdir -p "$DEEP/web" "$DEEP/services/worker"
+echo '{}' > "$DEEP/web/deno.json"
+echo '<project/>' > "$DEEP/services/worker/pom.xml"
+printf 'services/worker\nweb\n' > "$DEEP/.evolve/nested-projects.txt"
+JD=$(installed_detect "$DEEP")
+check "no root project: still a monorepo" "$(field "$JD" stack)" "monorepo"
+check "no root project: scanned folders once, listed deeper ones added" "$(listing "$JD" substacks dir)" "web,services/worker"
+rm -rf "$DEEP"
+
+# A name with | is a project like any other (the engine does not split on it).
+PIPE=$(mktemp -d)
+mkdir "$PIPE/a|b"
+echo '<project/>' > "$PIPE/a|b/pom.xml"
+JP=$(bash "$SCRIPT" "$PIPE")
+check "a directory name with | is detected" "$(listing "$JP" substacks dir)" "a|b"
+rm -rf "$PIPE"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]
