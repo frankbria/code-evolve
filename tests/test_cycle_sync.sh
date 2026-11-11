@@ -206,9 +206,25 @@ fork_head="$(git rev-parse HEAD)"
 push_from_elsewhere "$PWD-upstream.git" more-of-theirs.txt
 start_session
 [ "$prepare_status" -eq 0 ] && [ "$(git rev-parse HEAD)" = "$fork_head" ] && [ ! -f more-of-theirs.txt ] && [ -z "$(git for-each-ref refs/code-evolve)" ] \
-    && grep -q "Could not bring $branch up to date with upstream: it has commits of its own and is pushed somewhere else" "$prepare_log" \
+    && grep -q "Could not bring $branch up to date with upstream: it has commits of its own and is not pushed to that upstream" "$prepare_log" \
     && ok "with commits of its own it is not rebased, and prepare says why" || bad "fork, diverged: $(grep -i "could not\|up to date" "$prepare_log")"
 rm -rf .evolve/run
+
+# ── A branch that tracks a local branch is fast-forwarded to it when it is only behind ──
+new_project local-upstream
+git checkout -q -b feature --track "$branch"
+git checkout -q "$branch"
+echo base > on-base.txt; git add on-base.txt; git commit -qm "the base branch moves on"
+base_sha="$(git rev-parse HEAD)"
+git checkout -q feature
+start_session
+[ "$prepare_status" -eq 0 ] && [ "$(git rev-parse HEAD)" = "$base_sha" ] && [ "$(git symbolic-ref --short HEAD)" = feature ] \
+    && grep -q "Brought feature up to date with 1 new commit(s) from \." "$prepare_log" && [ -z "$(git for-each-ref refs/code-evolve)" ] \
+    && ok "a branch behind the local branch it tracks is fast-forwarded" || bad "local upstream: $(grep -i "up to date\|could not" "$prepare_log")"
+finish_session ours.txt
+# git's default push refuses a branch whose upstream is a local branch, so only the sync is checked here.
+! grep -q "Rebased\|Sync failed\|Could not fetch" "$finalize_log" \
+    && ok "finalize does not sync a branch with a local upstream" || bad "local upstream finalize: exit $finalize_status, $(tail -4 "$finalize_log")"
 
 # ── A repository with no commits and an upstream (a clone of an empty repository) ──
 git init -q --bare "$work_dir/empty-origin.git"

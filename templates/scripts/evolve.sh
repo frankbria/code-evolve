@@ -553,14 +553,14 @@ sync_with_upstream() { # <start|finalize>
     local moment="$1" remote merge_ref fetch_from push_urls output conflicts new_commits synced=true pushes_to_upstream=true
     remote=$(git config --get "branch.$SESSION_BRANCH.remote")
     merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
-    # "." is git's name for this repository itself: a branch tracking a local branch has nothing to fetch.
-    [ "$remote" != "." ] || return 0
     # A rebase only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping,
     # rebasing onto the upstream would rewrite commits the push destination already has, and it would refuse
     # them. Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
     # Such a branch can still be fast-forwarded at the start of a cycle: that rewrites nothing.
     [ "$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null || true)" \
         = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || pushes_to_upstream=false
+    # "." is git's name for this repository itself: a branch tracking a local branch is pushed elsewhere, if at all.
+    [ "$remote" != "." ] || pushes_to_upstream=false
     [ "$pushes_to_upstream" = true ] || [ "$moment" = start ] || return 0
     # A remote whose push URL is written differently from its fetch URL may push to another repository,
     # and that one decides whether the push is a fast-forward. The branch is read through the push URL
@@ -594,7 +594,7 @@ sync_with_upstream() { # <start|finalize>
         output=$(git -c merge.autoStash=false merge -q --ff-only "$SYNC_REF" 2>&1) || synced=false
     elif [ "$pushes_to_upstream" = false ]; then
         git update-ref -d "$SYNC_REF" || true
-        echo "  Could not bring $SESSION_BRANCH up to date with $remote: it has commits of its own and is pushed somewhere else, so a rebase would rewrite commits that destination already has."
+        echo "  Could not bring $SESSION_BRANCH up to date with $remote: it has commits of its own and is not pushed to that upstream, so a rebase would rewrite commits its push destination may already have."
         echo "  This cycle starts from the local branch."
         return 1
     else
