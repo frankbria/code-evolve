@@ -1321,7 +1321,7 @@ push_or_report() { # <label> <git push arguments...>
 
 # A branch that was never pushed has no upstream, and a bare `git push` refuses it while the tag
 # push goes through. Such a branch is pushed with its upstream set: to the remote git is configured
-# to push to (branch.<name>.pushRemote, remote.pushDefault), else origin, else the only remote.
+# to push to (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote), else origin, else the only remote.
 push_session() {
     local remotes branch remote
     remotes=$(git remote)
@@ -1339,6 +1339,9 @@ push_session() {
     remote=""
     [ -z "$branch" ] || remote=$(git config --get "branch.$branch.pushRemote" || true)
     [ -n "$remote" ] || remote=$(git config --get remote.pushDefault || true)
+    [ -n "$remote" ] || [ -z "$branch" ] || remote=$(git config --get "branch.$branch.remote" || true)
+    # "." is git's name for this repository itself (a branch tracking a local branch), not a remote.
+    [ "$remote" != "." ] || remote=""
     if [ -z "$remote" ]; then
         if printf '%s\n' "$remotes" | grep -qx origin; then
             remote=origin
@@ -1349,6 +1352,11 @@ push_session() {
             echo "  Choose one with: git push -u <remote> ${branch:-<branch>} && git push <remote> --tags"
             return 0
         fi
+    fi
+    if [ "$(git config --type=bool --get "remote.$remote.mirror" || true)" = "true" ]; then
+        # A mirror takes every ref, tags included, and git refuses a refspec for it.
+        push_or_report "Push" "$remote"
+        return 0
     fi
     if [ -z "$branch" ]; then
         echo "  HEAD is detached: no branch to push."

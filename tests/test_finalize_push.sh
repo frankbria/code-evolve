@@ -150,10 +150,20 @@ run_session only.txt
 # ── A remote recorded for the branch without a merge ref is not an upstream ──
 new_project remote-without-merge
 new_bare_remote origin
-git config "branch.$branch.remote" origin
+new_bare_remote fork
+git config "branch.$branch.remote" fork
 run_session only.txt
-[ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && ! grep -q "Push failed" "$finalize_log" \
-    && ok "a branch with a remote but no merge ref is pushed with its upstream set" || bad "remote without merge: $(tail -4 "$finalize_log")"
+[ "$(remote_branch_sha fork)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha origin)" ] && ! grep -q "Push failed" "$finalize_log" \
+    && [ "$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" = "fork/$branch" ] \
+    && ok "a branch with a remote but no merge ref is pushed to that remote with its upstream set" || bad "remote without merge: $(tail -4 "$finalize_log")"
+
+# ── A mirror remote takes everything in one push; git refuses a refspec for it ──
+new_project mirror
+new_bare_remote origin
+git config remote.origin.mirror true
+run_session only.txt
+[ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && [ "$(remote_tag_count origin)" -eq 1 ] && ! grep -q "failed" "$finalize_log" \
+    && ok "a mirror remote receives the branch and the tag" || bad "mirror: $(tail -4 "$finalize_log")"
 
 # ── Detached HEAD: there is no branch to push ──
 new_project detached
