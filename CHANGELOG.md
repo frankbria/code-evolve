@@ -43,7 +43,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     store, or one skill directory inside it) is now followed when the session starts. Files
     behind the link are restored after an agent call, files planted there are removed, and a
     link the agent repoints or deletes goes back on its original target. A directory symlink
-    the agent adds is removed without being followed.
+    the agent adds is removed without being followed. If the directory a link leads to has itself
+    been swapped for another (the link's own text is unchanged), the engine prints a warning and
+    leaves everything behind that link alone rather than write into an unrelated directory.
   - An engine run by hand with an absolute `EVOLVE_DIR` is guarded. A path inside the project is
     reduced to its relative form (so `prepare` also writes its state under `.evolve/run/` rather
     than a stray nested directory); a path outside the project is guarded in place. Nothing was

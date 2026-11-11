@@ -283,21 +283,44 @@ protected_search_roots() {
     done < "$PROTECTED_SNAPSHOT/patterns" | sort -u
 }
 
-# True if <path> was a directory symlink at session start (the user's own layout).
+# True if <path> was a directory symlink under a protected path at session start (the user's
+# own layout). A snapshot taken by an older engine has no such list.
 session_start_link() {
-    awk -F '\t' -v path="$1" '$1 == path { found = 1 } END { exit !found }' "$PROTECTED_SNAPSHOT/ancestor_links"
+    awk -F '\t' -v path="$1" '$1 == path { found = 1 } END { exit !found }' "$PROTECTED_SNAPSHOT/directory_links" 2>/dev/null
+}
+
+# Where a directory really is once every symlink on the way is resolved; empty if it is gone.
+physical_directory() {
+    (cd -P "$1" 2>/dev/null && pwd -P) || true
+}
+
+# True if <path> is, or lies behind, a session-start symlink that no longer leads to the
+# directory it led to (see restore_protected_paths).
+behind_untrusted_link() {
+    local untrusted_link
+    [ -f "$PROTECTED_SNAPSHOT/untrusted_links" ] || return 1
+    while IFS= read -r untrusted_link; do
+        case "$1" in "$untrusted_link"|"$untrusted_link"/*) return 0 ;; esac
+    done < "$PROTECTED_SNAPSHOT/untrusted_links"
+    return 1
 }
 
 # Directory symlinks under the protected paths, with their targets. Run once, at session start,
-# when every link on disk is the user's. find -L stops at a link that loops back on itself.
+# when every link on disk is the user's. find -L does not descend a link that loops back on
+# itself and exits non-zero for it; such a link is kept as a plain protected symlink.
 list_protected_directory_links() {
     local search_root directory
     while IFS= read -r search_root; do
-        find -L "$search_root" -type d 2>/dev/null
+        # A search root is recorded even when no pattern matches the directory itself.
+        if [ -L "$search_root" ] && [ -d "$search_root" ]; then printf '%s\n' "$search_root/"; fi
+        find -L "$search_root" -type d 2>/dev/null || true
     done < <(protected_search_roots) | sort -u | while IFS= read -r directory; do
-        [ -L "$directory" ] || continue
-        if protected_path_matches "$directory/"; then printf '%s\t%s\n' "$directory" "$(readlink "$directory")"; fi
-    done
+        case "$directory" in
+            */) directory="${directory%/}" ;;
+            *) [ -L "$directory" ] && protected_path_matches "$directory/" || continue ;;
+        esac
+        printf '%s\t%s\t%s\n' "$directory" "$(readlink "$directory")" "$(physical_directory "$directory")"
+    done | sort -u
 }
 
 # Every file or symlink on disk that matches the protected list. Walks the filesystem rather
@@ -306,11 +329,12 @@ list_protected_directory_links() {
 # user may symlink .evolve or a directory inside it); one made since is listed as a file.
 list_protected_files() {
     local search_root candidate
-    { protected_search_roots; cut -f1 "$PROTECTED_SNAPSHOT/ancestor_links"; } | sort -u | while IFS= read -r search_root; do
+    { protected_search_roots; cut -f1 "$PROTECTED_SNAPSHOT/directory_links" 2>/dev/null || true; } | sort -u | while IFS= read -r search_root; do
+        behind_untrusted_link "$search_root" && continue
         if [ -L "$search_root" ] && ! session_start_link "$search_root"; then
             printf '%s\n' "$search_root"
         else
-            find -H "$search_root" \( -type f -o -type l \) 2>/dev/null
+            find -H "$search_root" \( -type f -o -type l \) 2>/dev/null || true
         fi
     done | sort -u | while IFS= read -r candidate; do
         session_start_link "$candidate" && continue
@@ -337,7 +361,10 @@ snapshot_protected_paths() {
     local protected_file
     # prepare must leave the snapshot for the later phases; a full cycle keeps it private.
     if [ "$ENGINE_PHASE" = "prepare" ]; then
-        PROTECTED_SNAPSHOT="$PWD/$RUN_DIR/protected"
+        case "$RUN_DIR" in
+            /*) PROTECTED_SNAPSHOT="$RUN_DIR/protected" ;;
+            *)  PROTECTED_SNAPSHOT="$PWD/$RUN_DIR/protected" ;;
+        esac
         rm -rf "$PROTECTED_SNAPSHOT"
     else
         PROTECTED_SNAPSHOT="$RUN_TMP/protected"
@@ -352,15 +379,14 @@ snapshot_protected_paths() {
         printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
             .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
     fi
-    : > "$PROTECTED_SNAPSHOT/ancestor_links"
     list_protected_directory_links > "$PROTECTED_SNAPSHOT/directory_links"
-    mv "$PROTECTED_SNAPSHOT/directory_links" "$PROTECTED_SNAPSHOT/ancestor_links"
+    cp "$PROTECTED_SNAPSHOT/directory_links" "$PROTECTED_SNAPSHOT/ancestor_links"
     list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
     while IFS= read -r protected_file; do
         mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
         cp -P -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
         while IFS= read -r ancestor; do
-            [ -L "$ancestor" ] && printf '%s\t%s\n' "$ancestor" "$(readlink "$ancestor")"
+            [ -L "$ancestor" ] && printf '%s\t%s\t%s\n' "$ancestor" "$(readlink "$ancestor")" "$(physical_directory "$ancestor")"
         done < <(path_ancestors "$protected_file") >> "$PROTECTED_SNAPSHOT/ancestor_links"
     done < "$PROTECTED_SNAPSHOT/manifest"
     sort -u -o "$PROTECTED_SNAPSHOT/ancestor_links" "$PROTECTED_SNAPSHOT/ancestor_links"
@@ -407,14 +433,23 @@ protected_file_changed() {
 # into a symlink is replaced by a real one first (writes would otherwise land wherever the link
 # points). Restores go through a temp file and mv, so a running evolve.sh keeps its old inode.
 restore_protected_paths() {
-    local protected_file restore_dir session_link restored=""
+    local protected_file restore_dir session_link session_physical restored=""
     [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
     # The user's directory symlinks go back on their targets before anything is walked, so the
-    # walk below never follows a link the agent repointed.
-    while IFS=$'\t' read -r session_link _; do
+    # walk below never follows a link the agent repointed. A link whose text is intact can still
+    # lead somewhere else (its target directory, outside the protected paths, was swapped for
+    # another link): restoring or deleting behind it would touch unrelated files, so it is left.
+    : > "$PROTECTED_SNAPSHOT/untrusted_links"
+    while IFS=$'\t' read -r session_link _ session_physical; do
+        behind_untrusted_link "$session_link" && continue
         restored="$restored$(repair_protected_ancestors "$session_link/.")"
+        if [ -n "$session_physical" ] && [ "$(physical_directory "$session_link")" != "$session_physical" ]; then
+            printf '%s\n' "$session_link" >> "$PROTECTED_SNAPSHOT/untrusted_links"
+            echo "  WARNING: $session_link no longer leads to $session_physical; protected files behind it were NOT checked or restored. Put that directory back before the next cycle."
+        fi
     done < "$PROTECTED_SNAPSHOT/ancestor_links"
     while IFS= read -r protected_file; do
+        behind_untrusted_link "$protected_file" && continue
         restored="$restored$(repair_protected_ancestors "$protected_file")"
         if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
             protected_file_changed "$protected_file" || continue
