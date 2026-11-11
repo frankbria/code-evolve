@@ -60,11 +60,11 @@ unittest_module_count() {
 # because a suite unittest would run in part (or not at all) must not pass as verified.
 python_unittest_command() {
     local dir="$1" python="$2" start_directory="" prunes=() name all_count seen_count
-    python_test_files "$dir" '^[[:space:]]*class[[:space:]].*TestCase' 'test*.py' || return 0
+    python_test_files "$dir" '^[[:space:]]*class[[:space:]].*\(.*TestCase' 'test*.py' || return 0
     python_test_files "$dir" '^(async[[:space:]]+)?def[[:space:]]+test' 'test*.py' '*_test.py' && return 0
     python_test_files "$dir" '' '*_test.py' && return 0
-    # A Test* class that is not a TestCase is a pytest class.
-    python_test_grep "$dir" -h '^[[:space:]]*class[[:space:]]+Test' 'test*.py' | grep -qv 'TestCase' && return 0
+    # A Test* class with no TestCase among its bases is a pytest class.
+    python_test_grep "$dir" -h '^[[:space:]]*class[[:space:]]+Test' 'test*.py' | grep -qvE '\(.*TestCase' && return 0
 
     # Discovery only enters packages, so a plain tests/ folder is named as the start instead.
     if [ ! -f "$dir/tests/__init__.py" ] && compgen -G "$dir/tests/test*.py" >/dev/null; then

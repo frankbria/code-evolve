@@ -159,6 +159,10 @@ check "the same project with every test in tests/ runs unittest" "$(field "$J" t
 printf 'class TestRegression:\n    def test_failure(self):\n        assert False\n' >> "$nested/tests/test_greeting.py"
 J=$(detect_in "$nested")
 check "a pytest class next to a TestCase keeps pytest" "$(field "$J" test)" "pytest"
+write_unittest "$nested/tests/test_greeting.py"
+printf 'class TestCaseRegression:\n    def test_failure(self):\n        assert False\n' >> "$nested/tests/test_greeting.py"
+J=$(detect_in "$nested")
+check "a pytest class named like a TestCase keeps pytest" "$(field "$J" test)" "pytest"
 dashed="$(new_fixture dashed)"
 printf '[project]\nname = "dashed"\nversion = "0.1.0"\n' > "$dashed/pyproject.toml"
 write_unittest "$dashed/tests/test-regression.py"
