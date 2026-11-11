@@ -472,7 +472,9 @@ The Claude prompts name the skill file rather than `/evolve-run` because `evolve
 | Shortest interval | 1 hour | 1 hour | Cloud and Desktop tasks: 1 hour |
 | Stop it with | `code-evolve stop` | Disabling the `evolve.yml` workflow | Pausing or deleting the task where you made it |
 
-All of them run the same engine. Prefer one scheduler per repository: the engine does not pull before it pushes, so when two schedulers work from separate clones (a cloud task or Actions next to anything else), the one that pushes second is rejected and its cycle is lost. `init` warns when a switch of mode leaves an earlier cron job or Actions schedule installed.
+All of them run the same engine. Prefer one scheduler per repository. Two schedulers that work from separate clones (a cloud task or Actions next to anything else) no longer lose a cycle: before it pushes, the engine fetches the branch's upstream and rebases the session onto whatever the other scheduler pushed meanwhile, keeping both journal entries. Two things remain: the combined result is pushed without a second build and test run (the next cycle's baseline check covers it), and when both cycles changed the same lines of your code the later one cannot be rebased. `init` warns when a switch of mode leaves an earlier cron job or Actions schedule installed.
+
+**When a cycle cannot be pushed.** The cycle stays committed on the local branch, the engine prints the reason (`Sync failed: ...` for a conflict with the remote's new commits, `Push failed: ...` with git's own message when the remote refuses the push) and exits with status 4, which `code-evolve run` passes on. The `evolve.yml` workflow fails the run instead of retrying with a new session. After a refused or unreachable push, the next cycle on the same machine pushes both. After a conflict, every later cycle on that machine stays unpushed until you run `git pull --rebase`, resolve it and `git push`. In an Actions or cloud clone the unpushed cycle is gone when the run ends. A repository with no remote, or with several remotes and none chosen, is not a failure.
 
 ## Community Issues
 

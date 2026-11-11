@@ -95,11 +95,15 @@ jobs:
           # code-evolve:secrets-end
         run: |
           chmod +x .evolve/scripts/evolve.sh
-          .evolve/scripts/evolve.sh
+          status=0; .evolve/scripts/evolve.sh || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
+      # Status 4 means the cycle is committed in this runner's clone but could not be pushed. A retry
+      # would run a whole new agent session, so the retries are skipped and the last step fails the run.
       - name: Retry after 15min
         id: attempt2
-        if: steps.attempt1.outcome == 'failure'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt1.outputs.status != '4'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -110,10 +114,12 @@ jobs:
         run: |
           echo "Waiting 15 minutes before retry..."
           sleep 900
-          .evolve/scripts/evolve.sh
+          status=0; .evolve/scripts/evolve.sh || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Retry after 45min
-        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure'
+        if: steps.attempt1.outcome == 'failure' && steps.attempt2.outcome == 'failure' && steps.attempt2.outputs.status != '4'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # code-evolve:secrets — agent backend secrets (templated by init)
@@ -124,3 +130,9 @@ jobs:
           echo "Waiting 45 minutes before retry..."
           sleep 2700
           .evolve/scripts/evolve.sh
+
+      - name: Fail when a cycle was not pushed
+        if: steps.attempt1.outputs.status == '4' || steps.attempt2.outputs.status == '4'
+        run: |
+          echo "::error::The cycle ran but its commits could not be pushed. See the lines after 'Pushing...' in the session step."
+          exit 1

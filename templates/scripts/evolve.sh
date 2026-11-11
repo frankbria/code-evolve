@@ -16,8 +16,10 @@
 #     verify    after the work: format-fix, build, test, lint; writes .evolve/run/ERRORS.md
 #               and exits non-zero on failure (no agent call)
 #     finalize  restore protected paths, revert if the last verify failed, journal and issue
-#               responses, wrap-up commit, tag, push. --no-agent uses only the bash
-#               fallbacks, so an in-session caller never starts a nested headless agent.
+#               responses, wrap-up commit, rebase onto the upstream's new commits, tag, push.
+#               --no-agent uses only the bash fallbacks, so an in-session caller never starts
+#               a nested headless agent.
+#   cycle and finalize exit with status 4 when the session is committed but could not be pushed.
 #
 # Environment:
 #   ANTHROPIC_API_KEY  — required (used by claude CLI)
@@ -1286,7 +1288,7 @@ if [ -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then
     rm -f "$EVOLVE_DIR/ISSUE_RESPONSE.md"
 fi
 
-# ── Step 8: Final commit and tag ──
+# ── Step 8: Final commit ──
 # Build and test steps ran agent-authored code after the last restore; re-check before committing.
 restore_protected_paths
 git add -A
@@ -1297,41 +1299,118 @@ else
     echo "  No uncommitted changes remaining."
 fi
 
-TAG_NAME="day${DAY}-$(echo "$SESSION_TIME" | tr ':' '-')"
-git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null || true
-echo "  Tagged: $TAG_NAME"
-
-# ── Step 9: Push ──
+# ── Step 9: Sync with the remote, tag, push ──
 echo ""
 echo "-> Pushing..."
 
+# Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
+SESSION_BRANCH=$(git symbolic-ref -q HEAD || true)
+SESSION_BRANCH="${SESSION_BRANCH#refs/heads/}"
+# Per run: linked worktrees share one ref store, and two of them can finalize at the same time.
+SYNC_REF="refs/code-evolve/upstream-$$"
+
+branch_has_upstream() {
+    [ -n "$SESSION_BRANCH" ] && git config --get "branch.$SESSION_BRANCH.remote" >/dev/null \
+        && git config --get "branch.$SESSION_BRANCH.merge" >/dev/null
+}
+
+# Prints the line of git's output that carries its reason.
+git_failure_reason() { # <git output>
+    local reason
+    reason=$(printf '%s\n' "$1" | grep -m1 -E '^(fatal:|error:| ! )' || printf '%s\n' "$1" | grep -m1 . || true)
+    reason="${reason# }"
+    printf '%s' "${reason:-git gave no reason}"
+}
+
+# Two cycles always change the same lines of the engine's own state files, so a plain rebase would
+# stop on them every time. For the rebase only: the journal and learnings keep both cycles'
+# entries, and the files each cycle rewrites take this session's version (%B is the commit being
+# replayed). Passed as a throwaway attributes file so the repository's configuration is untouched.
+write_sync_attributes() { # <file>
+    local name path
+    for name in JOURNAL.md LEARNINGS.md LAST_VERIFY.md DAY_COUNT; do
+        path=$(git ls-files --full-name -- "$EVOLVE_DIR/$name")
+        [ -n "$path" ] || continue
+        case "$name" in
+            JOURNAL.md|LEARNINGS.md) printf '"%s" merge=union\n' "$path" ;;
+            *) printf '"%s" merge=code-evolve-session\n' "$path" ;;
+        esac
+    done > "$1"
+}
+
+# Another scheduler working from its own clone may have pushed since this session started; git
+# would refuse this session's push and, in a cloud or Actions clone, the cycle would be discarded.
+# The session is rebased onto what the upstream gained. On a conflict the rebase is undone, so the
+# session's commits stay on the local branch. Fails only when the session cannot be pushed as it is.
+# shortcut: a push that lands between this fetch and the push below is not retried, it fails the cycle
+# (status 4) and the next cycle pushes both; add a retry if schedulers finishing in the same second become common.
+sync_with_upstream() {
+    local remote merge_ref output conflicts new_commits
+    remote=$(git config --get "branch.$SESSION_BRANCH.remote")
+    merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
+    # "." is git's name for this repository itself: a branch tracking a local branch has nothing to fetch.
+    [ "$remote" != "." ] || return 0
+    # Only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping, rebasing
+    # onto the upstream would rewrite commits the push destination already has, and it would refuse them.
+    # Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
+    [ "$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null || true)" \
+        = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || return 0
+    # A destination ref makes the fetch bring the tags on the fetched commits too (`git fetch <remote> <ref>`
+    # alone does not), so the tag name below does not collide with one the other scheduler already pushed.
+    if ! output=$(git fetch -q "$remote" "+$merge_ref:$SYNC_REF" 2>&1); then
+        echo "  Could not fetch $merge_ref from $remote ($(git_failure_reason "$output")); pushing without syncing."
+        return 0
+    fi
+    new_commits=$(git rev-list --count "HEAD..$SYNC_REF")
+    if [ "$new_commits" -eq 0 ]; then
+        git update-ref -d "$SYNC_REF"
+        return 0
+    fi
+    write_sync_attributes "$RUN_TMP/sync-attributes"
+    if output=$(git -c core.attributesFile="$RUN_TMP/sync-attributes" -c merge.code-evolve-session.driver='cp %B %A' \
+        rebase --rebase-merges "$SYNC_REF" 2>&1); then
+        git update-ref -d "$SYNC_REF"
+        echo "  Rebased the session onto $new_commits new commit(s) from $remote."
+        return 0
+    fi
+    conflicts=$(git diff --name-only --diff-filter=U | paste -sd ' ' - || true)
+    git rebase --abort 2>/dev/null || true
+    git update-ref -d "$SYNC_REF"
+    if [ -n "$conflicts" ]; then
+        echo "  Sync failed: this session and $new_commits new commit(s) on $remote change the same lines in: $conflicts"
+    else
+        printf '%s\n' "$output"
+        echo "  Sync failed: $(git_failure_reason "$output")"
+    fi
+    echo "  The session's commits are kept on $SESSION_BRANCH. Resolve with: git pull --rebase && git push"
+    return 1
+}
+
 # Runs `git push <args>`, shows git's output, and on failure repeats the line that carries git's reason.
 push_or_report() { # <label> <git push arguments...>
-    local label="$1" output reason
+    local label="$1" output
     shift
-    if output=$(git push "$@" 2>&1); then
+    # push.followTags would send the session tag along with a branch the remote may refuse.
+    if output=$(git -c push.followTags=false push "$@" 2>&1); then
         [ -z "$output" ] || printf '%s\n' "$output"
         return 0
     fi
     printf '%s\n' "$output"
-    reason=$(printf '%s\n' "$output" | grep -m1 -E '^(fatal:|error:| ! )' || printf '%s\n' "$output" | grep -m1 . || true)
-    reason="${reason# }"
-    echo "  $label failed: ${reason:-git gave no reason}"
+    echo "  $label failed: $(git_failure_reason "$output")"
+    return 1
 }
 
 # A branch that was never pushed has no upstream, and a bare `git push` refuses it while the tag
 # push goes through. Such a branch is pushed with its upstream set: to the remote git is configured
 # to push to (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote), else origin, else the only remote.
+# Fails when the branch push fails. Tags go out only after the branch did, so the remote never holds
+# a tag whose commit is on none of its branches; a failed tag push alone is reported, not a failure.
 push_session() {
-    local remotes branch remote
-    # Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
-    branch=$(git symbolic-ref -q HEAD || true)
-    branch="${branch#refs/heads/}"
+    local remotes remote branch="$SESSION_BRANCH"
     # Checked before the list of remotes: an upstream can name a URL or a path instead of a remote.
-    if [ -n "$branch" ] && git config --get "branch.$branch.remote" >/dev/null \
-        && git config --get "branch.$branch.merge" >/dev/null; then
-        push_or_report "Push"
-        push_or_report "Tag push" --tags
+    if branch_has_upstream; then
+        push_or_report "Push" || return 1
+        push_or_report "Tag push" --tags || true
         return 0
     fi
     remote=""
@@ -1358,23 +1437,58 @@ push_session() {
     fi
     if [ "$(git config --type=bool --get "remote.$remote.mirror" || true)" = "true" ]; then
         # A mirror takes every ref, tags included, and git refuses a refspec for it.
-        push_or_report "Push" "$remote"
-        return 0
+        # Atomic, so a refused branch does not leave the session's tag on the remote.
+        push_or_report "Push" --atomic "$remote"
+        return
     fi
     if [ -z "$branch" ]; then
         echo "  HEAD is detached: no branch to push."
     elif git config --get-all "remote.$remote.push" >/dev/null; then
         # A refspec on the command line would override the mapping the user configured for this remote.
-        push_or_report "Push" "$remote"
+        push_or_report "Push" "$remote" || return 1
     else
-        push_or_report "Push" -u "$remote" HEAD
+        push_or_report "Push" -u "$remote" HEAD || return 1
     fi
-    push_or_report "Tag push" "$remote" --tags
+    push_or_report "Tag push" "$remote" --tags || true
 }
-push_session
+
+SESSION_PUSHED=true
+if branch_has_upstream && ! sync_with_upstream; then SESSION_PUSHED=false; fi
+
+# Tagged after the sync so the tag names the commit that is pushed. Two schedulers that start in the
+# same minute ask for the same name; the later one takes a numbered name instead of the other's tag.
+TAG_BASE="day${DAY}-$(echo "$SESSION_TIME" | tr ':' '-')"
+TAG_NAME="$TAG_BASE"
+TAG_SERIAL=1
+while git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; do
+    TAG_SERIAL=$((TAG_SERIAL + 1))
+    TAG_NAME="$TAG_BASE-$TAG_SERIAL"
+done
+# Another worktree of this repository can take the name between the check and here; its tag is not this session's to remove.
+TAG_CREATED=false
+if git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null; then
+    TAG_CREATED=true
+    echo "  Tagged: $TAG_NAME"
+else
+    echo "  Could not create tag $TAG_NAME; the session is not tagged."
+fi
+
+if [ "$SESSION_PUSHED" = true ] && ! push_session; then SESSION_PUSHED=false; fi
+if [ "$SESSION_PUSHED" != true ] && [ "$TAG_CREATED" = true ]; then
+    # The commits may still be rebased before they reach the remote; a tag kept here would later be
+    # pushed pointing at a commit that is on no branch. The cycle that pushes them tags them.
+    git tag -d "$TAG_NAME" >/dev/null 2>&1 || true
+    echo "  Removed tag $TAG_NAME: the session was not pushed."
+fi
 
 echo ""
 # The session is over; a later cycle or prepare starts fresh.
 if [ "$ENGINE_PHASE" = "finalize" ]; then rm -rf "$RUN_DIR"; fi
+
+if [ "$SESSION_PUSHED" != true ]; then
+    # Its own status, so `code-evolve run`, the workflow and the skills can tell "done, but only here" from a broken cycle.
+    echo "=== Day $DAY is committed locally but NOT pushed (exit status 4) ==="
+    exit 4
+fi
 
 echo "=== Day $DAY complete ==="

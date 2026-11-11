@@ -67,7 +67,12 @@ bash .evolve/scripts/evolve.sh finalize --no-agent
 Always finalize, even after failures: an unfinished session makes scheduled cycles skip for hours.
 `--no-agent` keeps the engine from starting a second agent. Finalize re-verifies if the code changed
 since your last verify, reverts if it fails, writes a fallback journal entry if you skipped yours,
-then commits, tags and pushes.
+then commits, rebases the session onto anything the remote gained meanwhile, tags and pushes.
+
+Exit status 4 means the cycle is committed here but was not pushed: finalize ends with
+"NOT pushed" and names the reason above it ("Sync failed" when the remote's new commits conflict
+with this session's, "Push failed" when the remote refused the push). The session is closed
+either way, so do not run finalize again.
 
 ## 5. Report
 
@@ -75,6 +80,7 @@ Tell the user what happened in a few sentences: what you built or fixed, whether
 passed or the session was reverted, the tag (`git describe --tags --abbrev=0`), and anything you
 could not finish.
 
-Check that the push landed: `git status -sb` must not show the branch ahead of its remote. If it
-does (finalize prints "Push failed" or "Push skipped" with the reason and carries on), say so first. In a cloud session or any other
+Check that the push landed: finalize must not have exited with status 4, and `git status -sb` must
+not show the branch ahead of its remote ("Push skipped" leaves it ahead with exit status 0). If
+the cycle was not pushed, say so first and give finalize's reason. In a cloud session or any other
 throwaway clone, a cycle that was not pushed is lost when the session ends.

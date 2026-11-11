@@ -81,7 +81,7 @@ for phase in prepare verify "finalize --no-agent"; do
 done
 grep -qF 'cycle|prepare|verify|finalize [--no-agent]' "$engine" \
     && ok "evolve.sh still offers the phases evolve-run uses" || bad "evolve.sh usage no longer lists the phases"
-for message in "Prepared Day" "already running" "a prepared session is still pending"; do
+for message in "Prepared Day" "already running" "a prepared session is still pending" "NOT pushed" "Sync failed" "Push skipped"; do
     grep -qF "$message" "$run_skill/SKILL.md" && grep -qF "$message" "$engine" \
         || bad "evolve-run reacts to '$message' but evolve.sh no longer prints it"
 done
