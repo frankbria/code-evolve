@@ -9,7 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - **Live acceptance record** for the one-command install and first cycle
   ([docs/demos/first-cycle-acceptance.md](docs/demos/first-cycle-acceptance.md)): both fixtures
-  and both install paths on Claude Code, a cron-triggered cycle, and the Codex run from
+  and both install paths on Claude Code (headless sessions), a cron-triggered cycle, and the Codex run from
   2026-11-08, with the defects they turned up (#85).
 
 ## [0.2.0] — 2026-06-29

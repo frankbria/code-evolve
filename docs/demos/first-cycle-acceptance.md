@@ -3,19 +3,21 @@
 This is the live record for [#85](https://github.com/frankbria/code-evolve/issues/85), the
 end-to-end proof for the cross-agent plugin epic ([#99](https://github.com/frankbria/code-evolve/issues/99)).
 Every command below was run against real agents; nothing here is inferred from the test suite.
+Long outputs are shortened to the lines that matter.
 
 **Where it stands (2026-11-11):** on Claude Code, both fixtures went from install to a verified,
 committed first cycle through both install paths, and a cron-triggered cycle committed and pushed
-on its own. On Codex, the plugin route passed on one fixture on 2026-11-08. Still open: the rest
-of the Codex matrix, and one pass through each agent's interactive terminal UI
-(see [What is still open](#what-is-still-open)).
+on its own. Those sessions were headless (`claude -p`): the `npx code-evolve` path was run as the
+commands the bootstrap prints, not through Claude's terminal UI. On Codex, the plugin route passed
+on one fixture on 2026-11-08. Still open: the rest of the Codex matrix, and one pass through each
+agent's interactive terminal UI (see [What is still open](#what-is-still-open)).
 
 | Agent | Fixture | Install path | Setup | First cycle | Result |
 |---|---|---|---|---|---|
 | Claude Code | mature | B: plugin | drafted 4 features | 7 commits, 13/13 tests | passed, tag and branch pushed |
 | Claude Code | empty | B: plugin | drafted 10 features | 10 commits, 41/41 tests | passed, but only the tag was pushed ([#132](https://github.com/frankbria/code-evolve/issues/132)) |
-| Claude Code | empty | A: `npx code-evolve` | drafted 11 features | 10 commits, 42/42 tests | passed, but only the tag was pushed ([#132](https://github.com/frankbria/code-evolve/issues/132)) |
-| Claude Code | mature | A: `npx code-evolve` | drafted 5 features | 7 commits, 23/23 tests | passed, tag and branch pushed |
+| Claude Code | empty | A: `npx code-evolve`, headless | drafted 11 features | 10 commits, 42/42 tests | passed, but only the tag was pushed ([#132](https://github.com/frankbria/code-evolve/issues/132)) |
+| Claude Code | mature | A: `npx code-evolve`, headless | drafted 5 features | 7 commits, 23/23 tests | passed, tag and branch pushed |
 | Claude Code | mature | cron, `start --every 1` | drafted 5 features | 8 commits, 15/15 tests | passed unattended at 02:00 UTC, tag and branch pushed |
 | Codex | mature | B: plugin, after `init` in a terminal | done | `tasklite done <id>`, 7/7 tests | passed on 2026-11-08, tag and branch pushed |
 | Codex | empty | A and B | | | not run |
@@ -57,11 +59,11 @@ on a subscription).
 
 | Session | Turns | Time | Cost |
 |---|---|---|---|
-| mature, plugin: setup / cycle | 8 / 7 | 40 s / 62 s | $0.60 / $0.85 |
-| empty, plugin: setup / cycle | 6 / 27 | 42 s / 305 s | $0.58 / $2.75 |
+| mature, plugin: setup / cycle | 8 / 7 | 40 s / 63 s | $0.60 / $0.85 |
+| empty, plugin: setup / cycle | 6 / 27 | 42 s / 306 s | $0.58 / $2.75 |
 | empty, npx: setup / cycle | 4 / 22 | 35 s / 236 s | $0.55 / $2.03 |
-| mature, npx: setup / cycle | 6 / 10 | 47 s / 98 s | $0.63 / $1.06 |
-| mature, cron: setup | 6 | 41 s | $0.60 |
+| mature, npx: setup / cycle | 6 / 10 | 48 s / 99 s | $0.63 / $1.06 |
+| mature, cron: setup | 6 | 42 s | $0.60 |
 
 ## Path B: the Claude Code plugin
 
@@ -136,10 +138,12 @@ Two defects showed up here and again in the other empty-repo run:
   `main`, and the engine's plain `git push` fails on that while the tag push succeeds
   ([#132](https://github.com/frankbria/code-evolve/issues/132)).
 - **The first `verify` failed on tooling, not code.** For a `pyproject.toml` the engine runs
-  `pip install -e .`, `pytest` and `ruff`, none of which the stock Python had, and ruff is also
-  pointed at the engine's own scripts under `.evolve/`. The agent added a `uv.lock` and a dev
-  dependency group to get verification running, and recorded that as REQ-0001
-  ([#133](https://github.com/frankbria/code-evolve/issues/133)).
+  `pip install -e .`, `pytest` and `ruff`. The stock Python is externally managed, so pip refuses
+  the install, and pytest and ruff are not installed. Ruff is also pointed at the engine's own
+  scripts under `.evolve/`: the agent's `ruff format .` rewrote two of them, the plugin's guard
+  hook blocked it from editing them back, and `finalize` restored them. The agent added a
+  `uv.lock` and a dev dependency group to get verification running, and recorded that as
+  REQ-0001 ([#133](https://github.com/frankbria/code-evolve/issues/133)).
 
 ## Path A: `npx code-evolve`
 
@@ -227,10 +231,16 @@ $ npm test        # tests 23, pass 23, fail 0
 
 ### The interactive hand-off
 
-Bare `npx code-evolve` was also started once in a pseudo-terminal on the mature fixture. It asked
-which agent to use, ran `init`, printed `Handing off to claude to finish setup...`, and Claude
-Code's terminal UI opened in the project and showed its folder-trust dialog. The run ended
-there: the script driving the terminal pressed Enter, and that dialog's default is "No, exit".
+Bare `npx code-evolve` was also started once in a pseudo-terminal on the mature fixture, driven by
+a script. This attempt went wrong on the script's side and proves only the hand-off itself:
+
+- The bootstrap asked which agent to use (claude, codex and opencode were all on `PATH`). The
+  script typed a sentence meant for a later prompt, which the menu treated as its default, claude.
+- It ran `init`, printed `Handing off to claude to finish setup...`, and Claude Code's terminal
+  UI opened in the project and showed its folder-trust dialog.
+- The script's next line ended with Enter, and that dialog's default is "No, exit", so Claude
+  exited. The attempt was not repeated.
+
 What happens after a person accepts the dialog (the `/evolve-setup` prompt running inside the
 terminal UI) has not been watched for either agent.
 
@@ -312,17 +322,18 @@ $ crontab -l        # (empty)
 All five spec items were ticked, and the working tree was clean. The cycle finished three and a
 half minutes after cron started it.
 
-## Codex (2026-11-08)
+## Codex (2026-11-08, owner's local date)
 
 These runs were made by the repository owner with codex-cli 0.167 and are recorded in
 [#85](https://github.com/frankbria/code-evolve/issues/85); they were not repeated for this
 document.
 
-- **First attempt:** setup through the Codex plugin worked, but the cycle was reverted. The
-  agent's new test called `spawnSync`, which Codex's sandbox blocks. The engine reverted the
+- **First attempt:** setup went through the Codex plugin, with the caveats that became #125, and
+  the cycle was reverted. The agent's new test called `spawnSync`, which Codex's sandbox blocks,
+  and the test prompt told it to stop on any failure, which cut off the fix-and-reverify loop. The engine reverted the
   session, recorded REQ-0001, committed, tagged and pushed. This became
   [#125](https://github.com/frankbria/code-evolve/issues/125).
-- **After #125 was fixed:** on a fresh copy of the mature fixture,
+- **After #125 was fixed:** on a fresh tasklite fixture,
   `npx code-evolve init --yes --agent codex` in a terminal (Codex's sandbox has no network for
   `npx`), then `$code-evolve:evolve-setup` in `codex exec -s workspace-write`, then
   `$code-evolve:evolve-run` with
