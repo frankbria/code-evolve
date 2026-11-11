@@ -181,6 +181,17 @@ write_unittest "$nested/tests/test_greeting.py"
 printf 'class TestCaseRegression:\n    def test_failure(self):\n        assert False\n' >> "$nested/tests/test_greeting.py"
 J=$(detect_in "$nested")
 check "a pytest class named like a TestCase keeps pytest" "$(field "$J" test)" "pytest"
+write_unittest "$nested/tests/test_greeting.py"
+printf '\nif True:\n    def test_conditional():\n        assert False\n' >> "$nested/tests/test_greeting.py"
+J=$(detect_in "$nested")
+check "a pytest function defined under a condition keeps pytest" "$(field "$J" test)" "pytest"
+# Enough classes after the pytest one to fill a pipe: the scan must not lose the hit.
+printf 'class TestRegression:\n    def test_failure(self):\n        assert False\n' > "$nested/tests/test_greeting.py"
+for number in $(seq 1 3000); do
+    printf 'class Generated%sTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n' "$number"
+done >> "$nested/tests/test_greeting.py"
+J=$(detect_in "$nested")
+check "a pytest class ahead of thousands of TestCase classes keeps pytest" "$(field "$J" test)" "pytest"
 dashed="$(new_fixture dashed)"
 printf '[project]\nname = "dashed"\nversion = "0.1.0"\n' > "$dashed/pyproject.toml"
 write_unittest "$dashed/tests/test-regression.py"
