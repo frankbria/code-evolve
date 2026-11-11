@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { currentDay } from '../paths';
+import { currentDay, localCalendarDate } from '../paths';
 
 describe('currentDay', () => {
   const originalDirectory = process.cwd();
@@ -65,5 +65,27 @@ describe('currentDay', () => {
     expect(currentDay()).toBe(0);
     fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), daysAgo(-3));
     expect(currentDay()).toBe(0);
+  });
+});
+
+describe('localCalendarDate', () => {
+  it('is the date on the local calendar, zero-padded, at either end of the day', () => {
+    expect(localCalendarDate(new Date(2026, 0, 5, 0, 10))).toBe('2026-01-05');
+    expect(localCalendarDate(new Date(2026, 0, 5, 23, 50))).toBe('2026-01-05');
+    expect(localCalendarDate(new Date(2026, 10, 30, 12, 0))).toBe('2026-11-30');
+  });
+
+  it('is a birth date that currentDay counts as Day 0 right now', () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'local-date-'));
+    const originalDirectory = process.cwd();
+    fs.mkdirSync(path.join(project, '.evolve'));
+    fs.writeFileSync(path.join(project, '.evolve', '.birth_date'), localCalendarDate() + '\n');
+    process.chdir(project);
+    try {
+      expect(currentDay()).toBe(0);
+    } finally {
+      process.chdir(originalDirectory);
+      fs.rmSync(project, { recursive: true, force: true });
+    }
   });
 });

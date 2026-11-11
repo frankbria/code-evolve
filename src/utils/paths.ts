@@ -53,6 +53,12 @@ export function evidenceDir(reqId?: string): string {
   return reqId ? path.join(base, reqId) : base;
 }
 
+/** YYYY-MM-DD on the local calendar, which is how the engine reads a birth date (toISOString gives the UTC date). */
+export function localCalendarDate(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** The evolution day as the engine counts it: whole days since the birth date, 0 on the first. */
 export function currentDay(): number {
   try {

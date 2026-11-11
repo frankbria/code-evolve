@@ -33,13 +33,8 @@ export const statusCommand = new Command('status')
       process.exit(1);
     }
 
-    // Read day count
-    let dayCount = 0;
-    try {
-      dayCount = parseInt(fs.readFileSync(evolveFile('DAY_COUNT'), 'utf8').trim(), 10) || 0;
-    } catch {
-      // DAY_COUNT doesn't exist yet
-    }
+    // The day `proof` and the waiver check use; DAY_COUNT alone is 0 until the first cycle.
+    const day = currentDay();
 
     // Read birth date
     let birthDate = 'unknown';
@@ -104,7 +99,7 @@ export const statusCommand = new Command('status')
     try {
       // The template's format example lives in an HTML comment; it is not a REQ.
       const ledger = fs.readFileSync(evolveFile('REQUIREMENTS.md'), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
-      for (const req of reinstateLapsedWaivers(parseRequirements(ledger), currentDay())) requirements[req.status]++;
+      for (const req of reinstateLapsedWaivers(parseRequirements(ledger), day)) requirements[req.status]++;
     } catch {
       // no ledger yet
     }
@@ -126,7 +121,7 @@ export const statusCommand = new Command('status')
     }
 
     const data = {
-      day: dayCount,
+      day,
       started: birthDate,
       mode,
       features: { total, done, partial, remaining: total - done - partial },
@@ -146,7 +141,7 @@ export const statusCommand = new Command('status')
 
     const humanReadable = [
       `code-evolve status`,
-      `  Day:      ${dayCount}`,
+      `  Day:      ${day}`,
       `  Started:  ${birthDate}`,
       `  Mode:     ${mode ?? 'not set'}`,
       `  Progress: ${progressLine}`,

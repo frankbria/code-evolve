@@ -24,7 +24,7 @@ echo "session work" > feature.js
 echo "- LESSON-FROM-THE-FAILED-SESSION" >> .evolve/LEARNINGS.md
 echo "- [x] SPEC-BOX-TICKED-BY-THE-SESSION" >> .evolve/spec.md
 echo "AGENT-JOURNAL-ENTRY-FOR-REVERTED-WORK" >> .evolve/JOURNAL.md
-git add -A && git commit -qm "session work"
+[ -e "$work/leave-uncommitted" ] || { git add -A && git commit -qm "session work"; }
 STUB
 printf '#!/bin/bash\nexit 1\n' > "$stub_dir/gh"
 chmod +x "$stub_dir"/*
@@ -78,6 +78,22 @@ touch "$work/agent-ran"
 learnings_before=$(git hash-object .evolve/LEARNINGS.md)
 engine > "$work/quiet.log" 2>&1 || true
 check "no lesson written: LEARNINGS.md is unchanged" "$(git hash-object .evolve/LEARNINGS.md)" "$learnings_before"
+
+# (#147) LEARNINGS.md did not exist when the session started (someone had deleted it) and the
+# session left its work uncommitted. The revert stashes the session's untracked files; the lesson
+# file is kept in the tree and the revert commit, so it must not be in the stash as well.
+new_project
+git rm -q .evolve/LEARNINGS.md && git commit -qm "no learnings file"
+touch "$work/leave-uncommitted"
+engine > "$work/created.log" 2>&1 || true
+rm "$work/leave-uncommitted"
+check "learnings created by the session: the session was reverted" "$(grep -c 'verification failed' .evolve/LAST_VERIFY.md)" "1"
+check "learnings created by the session: the lesson is in HEAD" "$(git show HEAD:.evolve/LEARNINGS.md | grep -c 'LESSON-FROM-THE-FAILED-SESSION')" "1"
+stashed=$(git show --name-only --format= 'stash@{0}^3' 2>/dev/null || true)
+check "the session's other untracked work is stashed" "$(printf '%s\n' "$stashed" | grep -cx 'feature.js')" "1"
+check "the lesson file is not stashed too" "$(printf '%s\n' "$stashed" | grep -c 'LEARNINGS.md' || true)" "0"
+check "the stash can be restored" "$(git stash pop >/dev/null 2>&1 && echo restored || echo refused)" "restored"
+check "and brings the session's work back" "$(cat feature.js 2>/dev/null)" "session work"
 
 echo "---"
 echo "passed: $pass  failed: $fail"

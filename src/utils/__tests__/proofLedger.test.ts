@@ -58,6 +58,110 @@ describe('writeLedger', () => {
     expect(fs.readFileSync(ledgerPath, 'utf8')).toMatch(/^# Requirements Ledger\n/);
   });
 
+  it("keeps the text a user wrote under a requirement, with its own fields and headings", () => {
+    const ledger = [
+      '# Requirements Ledger',
+      '',
+      '## REQ-0001: first',
+      '- **Source**: manual',
+      '- **Status**: open',
+      '- **Owner**: the payments team',
+      '',
+      'Reproduce with `npm run slow-test`; see the 2026-10 incident notes.',
+      '',
+      '## REQ-0002: second',
+      '- **Status**: open',
+      '',
+      '### Follow-up',
+      'Ask before waiving this one.',
+      '',
+    ].join('\n');
+    fs.writeFileSync(ledgerPath, ledger);
+    const requirements = readLedger();
+    expect(requirements[0].notes).toBe('- **Owner**: the payments team\n\nReproduce with `npm run slow-test`; see the 2026-10 incident notes.');
+    writeLedger(requirements.map((requirement) => ({ ...requirement, status: 'satisfied' as const })));
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written).toContain(
+      '- **Status**: satisfied\n\n- **Owner**: the payments team\n\nReproduce with `npm run slow-test`; see the 2026-10 incident notes.\n\n## REQ-0002: second\n',
+    );
+    expect(written.endsWith('- **Status**: satisfied\n\n### Follow-up\nAsk before waiving this one.\n')).toBe(true);
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
+  });
+
+  it('moves a note written between two fields below them, and keeps a requirement without notes as it was', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Source**: manual\nflaky on Windows only\n- **Status**: regressed\n\n## REQ-0002: second\n- **Status**: open\n');
+    const requirements = readLedger();
+    expect(requirements[1].notes).toBeUndefined();
+    writeLedger(requirements);
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written).toContain('- **Status**: regressed\n\nflaky on Windows only\n\n## REQ-0002: second\n');
+    expect(written.endsWith('## REQ-0002: second\n- **Source**: \n- **Severity**: high\n- **Scope**: *\n- **Obligations**: []\n- **Evidence**: (none yet)\n- **Status**: open\n')).toBe(true);
+    // An empty field used to be read back as the line below it.
+    expect(readLedger()[1].source).toBe('');
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
+  });
+
+  it('reads the fields and notes of a ledger saved with Windows line endings', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\r\n- **Severity**: low\r\n- **Status**: regressed\r\n\r\nseen on the build server\r\n');
+    expect(readLedger()).toEqual([
+      { ...firstRequirement, source: '', severity: 'low', scope: [], obligations: [], evidence: '', status: 'regressed', notes: 'seen on the build server' },
+    ]);
+  });
+
+  it('takes the first value of a field that is written twice and keeps the other line', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Status**: satisfied\n- **Status**: open\n');
+    expect(readLedger()[0].status).toBe('satisfied');
+    expect(readLedger()[0].notes).toBe('- **Status**: open');
+    writeLedger(readLedger());
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written.endsWith('- **Status**: satisfied\n\n- **Status**: open\n')).toBe(true);
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
+  });
+
+  it('leaves a fenced example alone, even one that looks like a field the requirement lacks', () => {
+    const example = '```\n- **Waiver reason**: an example, not a waiver\n- **Status**: satisfied\n```';
+    fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n`);
+    const [requirement] = readLedger();
+    expect(requirement).toMatchObject({ status: 'open', notes: example });
+    expect(requirement.waiverReason).toBeUndefined();
+    writeLedger([requirement]);
+    expect(fs.readFileSync(ledgerPath, 'utf8').endsWith(`- **Status**: open\n\n${example}\n`)).toBe(true);
+  });
+
+  it('ends a fenced example only at a bare fence of the same kind that is at least as long', () => {
+    const example = '````text\n```\n- **Waiver expires**: Day 9999\n~~~~\n- **Waiver reason**: example\n````javascript\n- **Satisfied by**: example\n````';
+    fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n- **Evidence**: after the example\n`);
+    const [requirement] = readLedger();
+    expect(requirement).toMatchObject({ notes: example, evidence: 'after the example' });
+    expect(requirement.waiverExpires).toBeUndefined();
+    expect(requirement.waiverReason).toBeUndefined();
+    expect(requirement.satisfiedBy).toBeUndefined();
+  });
+
+  it('does not take a line that starts with inline code in triple backticks for a fence', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Source**: manual\n\n```code-evolve proof run``` checks the gates.\n- **Status**: satisfied\n');
+    expect(readLedger()[0]).toMatchObject({ status: 'satisfied', notes: '```code-evolve proof run``` checks the gates.' });
+  });
+
+  it('reads a field the same way before and after a rewrite when its first line is empty', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Status**: waived\n- **Waiver expires**:\n- **Waiver expires**: Day 12\n');
+    const before = readLedger();
+    expect(before[0].waiverExpires).toBe('Day 12');
+    expect(before[0].notes).toBeUndefined();
+    writeLedger(before);
+    expect(readLedger()[0]).toMatchObject({ status: 'waived', waiverExpires: 'Day 12' });
+    expect(readLedger()[0].notes).toBeUndefined();
+  });
+
+  it('reads fields written as a numbered, plus-bulleted or quoted list, as it did before', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n1. **Severity**: low\n+ **Status**: satisfied\n> **Source**: manual\n**Evidence**: e1\n');
+    expect(readLedger()[0]).toMatchObject({ severity: 'low', status: 'satisfied', source: 'manual', evidence: 'e1' });
+    expect(readLedger()[0].notes).toBeUndefined();
+  });
+
   it('leaves the header in place when the last requirement is removed', () => {
     fs.writeFileSync(ledgerPath, template());
     writeLedger([]);

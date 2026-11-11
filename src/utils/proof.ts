@@ -21,9 +21,45 @@ export interface Req {
   satisfiedBy?: string;
   waiverReason?: string;
   waiverExpires?: string;
+  /** Whatever else the block holds (a user's own text or extra fields), kept across rewrites. */
+  notes?: string;
 }
 
 // ── Ledger parse/serialize ─────────────────────────────────────────────────────
+
+const LEDGER_FIELD_LINE =
+  /^\s*(?:(?:[-*+]|\d+[.)])\s+|>\s*)?\*\*(Source|Severity|Scope|Obligations|Evidence|Status|Satisfied by|Waiver reason|Waiver expires)\*\*:(.*)$/;
+
+/** The code fence still open after `line` ('' for none). A fence is closed by a line of the same character, at least as many times, and nothing else. */
+function openFenceAfter(openFence: string, line: string): string {
+  const [, fence = '', rest = ''] = line.match(/^\s*(`{3,}|~{3,})(.*)$/) ?? [];
+  // CommonMark: the text after a backtick fence cannot contain a backtick, so such a line is prose.
+  if (fence.startsWith('`') && rest.includes('`')) return openFence;
+  if (!openFence) return fence;
+  return fence.startsWith(openFence) && !rest.trim() ? '' : openFence;
+}
+
+/**
+ * The first line that gives a field a value is that field. Every other line is the user's and is
+ * kept as notes: free text, a repeated field, anything inside a fenced code block.
+ */
+function splitRequirementBody(body: string): { fields: Map<string, string>; notes: string } {
+  const fields = new Map<string, string>();
+  const noteLines: string[] = [];
+  let openFence = '';
+  for (const line of body.split(/\r?\n/)) {
+    const insideFence = openFence !== '';
+    openFence = openFenceAfter(openFence, line);
+    const field = insideFence || openFence ? null : line.match(LEDGER_FIELD_LINE);
+    const value = field?.[2].trim();
+    // A field line without a value says nothing; skipping it keeps a later value for the same
+    // field from changing between a note and the field across rewrites.
+    if (field && !value) continue;
+    if (field && value && !fields.has(field[1])) fields.set(field[1], value);
+    else noteLines.push(line);
+  }
+  return { fields, notes: noteLines.join('\n').replace(/^(\s*\n)+/, '').trimEnd() };
+}
 
 export function parseRequirements(content: string): Req[] {
   const reqs: Req[] = [];
@@ -40,10 +76,8 @@ export function parseRequirements(content: string): Req[] {
     const id = idMatch[1];
     const title = idMatch[2].trim();
 
-    const get = (field: string): string => {
-      const m = body.match(new RegExp(`\\*\\*${field}\\*\\*:\\s*(.+)`));
-      return m ? m[1].trim() : '';
-    };
+    const { fields, notes } = splitRequirementBody(body);
+    const get = (field: string): string => fields.get(field) ?? '';
 
     const scopeRaw = get('Scope');
     const scope = scopeRaw
@@ -79,6 +113,7 @@ export function parseRequirements(content: string): Req[] {
       satisfiedBy: get('Satisfied by') || undefined,
       waiverReason: get('Waiver reason') || undefined,
       waiverExpires: get('Waiver expires') || undefined,
+      ...(notes ? { notes } : {}),
     });
   }
 
@@ -115,6 +150,7 @@ export function serializeRequirements(reqs: Req[], header = ''): string {
     if (req.satisfiedBy) lines.push(`- **Satisfied by**: ${req.satisfiedBy}`);
     if (req.waiverReason) lines.push(`- **Waiver reason**: ${req.waiverReason}`);
     if (req.waiverExpires) lines.push(`- **Waiver expires**: ${req.waiverExpires}`);
+    if (req.notes) lines.push('', req.notes);
     return lines.join('\n');
   });
 
