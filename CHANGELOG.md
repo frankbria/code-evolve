@@ -11,7 +11,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cloud or Desktop scheduled task, `/loop`, or a Codex scheduled task) instead of cron or GitHub
   Actions. `init --mode native` records the choice and `status` reports it; the `evolve-setup` skill
   and the README give the exact prompt for each scheduler and its constraints (#93).
-
 - **Live acceptance record** for the one-command install and first cycle
   ([docs/demos/first-cycle-acceptance.md](docs/demos/first-cycle-acceptance.md)): both fixtures
   and both install paths on Claude Code (headless sessions), a cron-triggered cycle, and the Codex run from
