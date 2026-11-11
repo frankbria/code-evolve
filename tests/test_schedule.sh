@@ -51,6 +51,15 @@ D=$(mktemp -d)
 ( cd "$D" && git init -q && node "$CLI" init --mode local --every 6 </dev/null >/dev/null 2>&1 )
 check "local: schedule.json every=6"    "$(node -e "console.log(require('$D/.evolve/schedule.json').every)")" "6"
 rm -rf "$D"
+# ── start after native mode (#93): the agent's schedule would keep running next to the new cron job ──
+D=$(mktemp -d)
+( cd "$D" && git init -q && node "$CLI" init --mode native </dev/null >/dev/null 2>&1 )
+OUT=$( cd "$D" && node "$CLI" start --every 6 </dev/null 2>&1 ) || true
+check "start after native: says to pause the agent's schedule" "$(echo "$OUT" | grep -c 'Mode was native: pause or delete the schedule in your agent')" "1"
+check "start after native: mode becomes local" "$(node -e "console.log(require('$D/.evolve/config.json').mode)")" "local"
+OUT=$( cd "$D" && node "$CLI" start --every 6 </dev/null 2>&1 ) || true
+check "start in local mode: no native notice" "$(echo "$OUT" | grep -c 'Mode was native')" "0"
+rm -rf "$D"
 unset ANTHROPIC_API_KEY
 
 # ── Invalid intervals are rejected (out-of-range and non-integer) ──

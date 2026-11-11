@@ -18,7 +18,7 @@ export const setupCommand = new Command('setup')
   .option('--agent-error-pattern <regex>', 'For --agent custom: a log line matching this regex fails the session')
   .option('--agent-env <names>', 'For --agent custom: comma-separated environment variables its CLI needs (saved into the cron .env)')
   .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
-  .option('--mode <mode>', 'Execution mode: local, ci, or both')
+  .option('--mode <mode>', 'Execution mode: local, ci, both, or native (the agent\'s own scheduler)')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
   .action(async (options: InitOptions) => {
     console.log('🌱 code-evolve setup — one guided flow from nothing to a ready-to-evolve repo.\n');

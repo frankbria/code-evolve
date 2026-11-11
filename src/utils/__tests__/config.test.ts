@@ -30,8 +30,8 @@ describe('agent validation', () => {
 });
 
 describe('execution-mode validation', () => {
-  it('accepts the three modes and rejects others', () => {
-    expect(getExecutionModes()).toEqual(['local', 'ci', 'both']);
+  it('accepts the four modes and rejects others', () => {
+    expect(getExecutionModes()).toEqual(['local', 'ci', 'both', 'native']);
     for (const m of getExecutionModes()) expect(isValidMode(m)).toBe(true);
     expect(isValidMode('cloud')).toBe(false);
   });
@@ -42,7 +42,9 @@ describe('resolveModeSelection', () => {
     expect(resolveModeSelection('1')).toBe('local');
     expect(resolveModeSelection('2')).toBe('ci');
     expect(resolveModeSelection('3')).toBe('both');
+    expect(resolveModeSelection('4')).toBe('native');
     expect(resolveModeSelection('ci')).toBe('ci');
+    expect(resolveModeSelection('Native')).toBe('native');
     expect(resolveModeSelection('BOTH')).toBe('both');
     expect(resolveModeSelection('')).toBeUndefined();
     expect(resolveModeSelection('skip')).toBeUndefined();

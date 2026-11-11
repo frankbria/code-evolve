@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { compareVersions, currentDay, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
 import { output } from '../utils/output';
-import { readConfig } from '../utils/config';
+import { ExecutionMode, readConfig } from '../utils/config';
 import { parseRequirements, reinstateLapsedWaivers } from '../utils/proof';
 
 /** Engine files (relative paths) that are missing or differ from the ones this CLI version ships. */
@@ -15,6 +15,14 @@ function differingEngineFiles(shippedDir: string, installedDir: string): string[
     const unchanged = fs.existsSync(installed) && fs.readFileSync(installed).equals(fs.readFileSync(shipped));
     return unchanged ? [] : [entry.name];
   });
+}
+
+/** How cycles get triggered, for the human-readable status. */
+export function engineLine(schedule: { every?: number; model?: string } | null, mode: ExecutionMode | null): string {
+  if (schedule) return `every ${schedule.every}h (${schedule.model})`;
+  // The agent's scheduler lives outside this machine's files, so status cannot tell whether it is active.
+  if (mode === 'native') return "run by the agent's own scheduler (code-evolve cannot see whether it is active)";
+  return 'not scheduled (run: code-evolve start)';
 }
 
 export const statusCommand = new Command('status')
@@ -136,17 +144,13 @@ export const statusCommand = new Command('status')
       ? `${done}/${total} features done${partial > 0 ? ` (${partial} in progress)` : ''}${remaining > 0 ? `, ${remaining} remaining` : ''}`
       : 'No features defined in .evolve/spec.md yet';
 
-    const scheduleLine = schedule
-      ? `every ${schedule.every}h (${schedule.model})`
-      : 'not scheduled (run: code-evolve start)';
-
     const humanReadable = [
       `code-evolve status`,
       `  Day:      ${dayCount}`,
       `  Started:  ${birthDate}`,
       `  Mode:     ${mode ?? 'not set'}`,
       `  Progress: ${progressLine}`,
-      `  Engine:   ${scheduleLine}`,
+      `  Engine:   ${engineLine(schedule, mode)}`,
       `  REQs:     ${requirements.open} open, ${requirements.regressed} regressed, ${requirements.satisfied} satisfied`,
       pendingSession ? '  Session:  an in-session cycle is prepared but not finalized (.evolve/run/)' : '',
       engineDrift === null ? '  Drift:    could not compare the installed engine with this code-evolve' : '',
