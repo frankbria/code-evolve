@@ -57,6 +57,21 @@ env -i PATH="$base_path" HOME="$HOME" ANTHROPIC_API_KEY="$tricky_key" \
 cron_line=$(grep "code-evolve:" "$stub_dir/crontab.table" 2>/dev/null || true)
 [ -n "$cron_line" ] && ok "start installed a cron entry" || bad "no cron entry captured"
 
+# (#134) Started through npm (`npx code-evolve start`), PATH carries entries npm adds for the script
+# run. They are not saved: the npx cache entry goes away when the cache is cleaned.
+cp .evolve/.env "$stub_dir/env.direct"
+env -i PATH="$stub_dir:$(dirname "$(command -v npm)"):$base_path" HOME="$HOME" ANTHROPIC_API_KEY="$tricky_key" \
+    npm_config_update_notifier=false CLI="$CLI" \
+    npm exec -c 'node "$CLI" start --every 4 --model my-model' >/dev/null 2>&1 || bad "start through npm exec failed"
+saved_path=$(sed -n "s/^export PATH='\(.*\)'$/\1/p" .evolve/.env)
+case ":$saved_path:" in
+    *node_modules/.bin:*|*node-gyp-bin:*|*/_npx/*) bad "npm's script-run entries were saved to .env: $saved_path" ;;
+    *) ok "start through npm: the saved PATH has none of npm's script-run entries" ;;
+esac
+[ "$saved_path" = "$stub_dir:$(dirname "$(command -v npm)"):$base_path" ] \
+    && ok "start through npm: the rest of PATH is saved unchanged and in order" || bad "saved PATH: $saved_path"
+cp "$stub_dir/env.direct" .evolve/.env
+
 # Run the cron command the way cron would: /bin/sh with cron's minimal environment.
 cron_command=$(sed -E 's/^([^ ]+ +){5}//' <<<"$cron_line")
 rm -f "$stub_dir/agent-calls"
