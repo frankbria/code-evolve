@@ -4,7 +4,7 @@ import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
 import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, isEnvVarName, AuthMode, NATIVE_REPLACED_WARNING } from '../utils/config';
-import { codexLoginMissing, isOnPath } from '../utils/checks';
+import { codexLoginMissing, isExecutableFile, isOnPath } from '../utils/checks';
 
 
 /** Build the "every N hours" cron expression (top of the hour). */
@@ -206,7 +206,9 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode: A
   entries.push(['CLAUDE_AUTH_MODE', authMode || 'api-key']);
 
   // Preserve PATH so cron can find claude, git, python3
-  entries.push(['PATH', process.env.PATH]);
+  const agentBinary = agent === 'custom' ? customCommandBinary(agentEnv.AGENT_COMMAND) : agent;
+  const shellPath = process.env.PATH ?? '';
+  entries.push(['PATH', process.env.npm_lifecycle_event ? pathWithoutNpmScriptEntries(shellPath, process.cwd(), agentBinary) : shellPath]);
 
   // Cron sources this file with `.`, so each value must be exported (or the engine's
   // child bash never sees it) and single-quoted (so `$`, backticks and `"` stay literal).
@@ -224,6 +226,26 @@ function writeEnvFile(envFile: string, model: string, agent: string, authMode: A
   } finally {
     fs.rmSync(temporaryFile, { force: true });
   }
+}
+
+/**
+ * PATH without the entries npm puts in front of it for a script run (`npx code-evolve start`): the
+ * npx cache's node_modules/.bin, the node_modules/.bin of the working directory and each parent, and
+ * npm's node-gyp-bin. The npx cache entry stops existing when the cache is cleaned. An entry that
+ * holds the agent's binary stays, so an agent CLI installed in the project still runs from cron.
+ */
+export function pathWithoutNpmScriptEntries(pathValue: string, workingDirectory: string, agentBinary: string): string {
+  const addedByNpm = (entry: string): boolean => {
+    const parts = entry.split(path.sep);
+    if (parts.at(-1) === 'node-gyp-bin') return parts.includes('@npmcli');
+    if (!path.isAbsolute(entry) || parts.at(-1) !== '.bin' || parts.at(-2) !== 'node_modules') return false;
+    const fromOwner = path.relative(path.resolve(entry, '..', '..'), workingDirectory);
+    return parts.includes('_npx') || !(fromOwner === '..' || fromOwner.startsWith(`..${path.sep}`));
+  };
+  return pathValue
+    .split(path.delimiter)
+    .filter((entry) => !addedByNpm(entry) || isExecutableFile(path.join(entry, agentBinary)))
+    .join(path.delimiter);
 }
 
 /** The values in a cron .env, read back from the `export NAME='…'` lines writeEnvFile writes. */

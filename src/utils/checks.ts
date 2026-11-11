@@ -13,7 +13,7 @@ interface DependencyCheck {
   version?: string;
 }
 
-function isExecutableFile(file: string): boolean {
+export function isExecutableFile(file: string): boolean {
   try {
     fs.accessSync(file, fs.constants.X_OK);
     return fs.statSync(file).isFile();

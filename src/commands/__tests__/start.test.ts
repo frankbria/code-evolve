@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { credentialsKeptFromEnvFile } from '../start';
+import { credentialsKeptFromEnvFile, pathWithoutNpmScriptEntries } from '../start';
 
 describe('credentialsKeptFromEnvFile', () => {
   let directory: string;
@@ -63,5 +63,45 @@ describe('credentialsKeptFromEnvFile', () => {
       if (saved.AGENT_COMMAND !== undefined) process.env.AGENT_COMMAND = saved.AGENT_COMMAND;
       if (saved.BASH_ENV !== undefined) process.env.BASH_ENV = saved.BASH_ENV;
     }
+  });
+});
+
+describe('pathWithoutNpmScriptEntries', () => {
+  let project: string;
+  const npmEntries = (workingDirectory: string): string[] => [
+    '/home/dev/.npm/_npx/4b4c857f6efdfb61/node_modules/.bin',
+    path.join(workingDirectory, 'node_modules', '.bin'),
+    path.join(path.dirname(workingDirectory), 'node_modules', '.bin'),
+    '/node_modules/.bin',
+    '/usr/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin',
+  ];
+
+  beforeEach(() => {
+    project = fs.mkdtempSync(path.join(os.tmpdir(), 'code-evolve-path-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(project, { recursive: true, force: true });
+  });
+
+  it('drops the npx cache, the node_modules/.bin of the project and its parents, and node-gyp-bin', () => {
+    const value = [...npmEntries(project), '/opt/tools/bin', '/usr/bin', '/bin'].join(':');
+    expect(pathWithoutNpmScriptEntries(value, project, 'claude')).toBe('/opt/tools/bin:/usr/bin:/bin');
+  });
+
+  it('keeps every other entry in order: a node_modules/.bin outside the project and its parents, a relative one, another node-gyp-bin', () => {
+    // The working directory sits under a directory whose name starts with dots: its parents still count.
+    const value = ['/usr/bin', '/srv/other/node_modules/.bin', path.join(project, 'node_modules', '.bin'), '', 'node_modules/.bin', path.join(project, '..sibling', 'node_modules', '.bin'), '/opt/node-gyp-bin', '/bin'].join(':');
+    expect(pathWithoutNpmScriptEntries(value, path.join(project, '..sibling', 'app'), 'claude'))
+      .toBe('/usr/bin:/srv/other/node_modules/.bin::node_modules/.bin:/opt/node-gyp-bin:/bin');
+  });
+
+  it('keeps an npm entry that holds the agent binary, so a project-local agent still runs from cron', () => {
+    const localBin = path.join(project, 'node_modules', '.bin');
+    fs.mkdirSync(localBin, { recursive: true });
+    fs.writeFileSync(path.join(localBin, 'claude'), '#!/bin/sh\n', { mode: 0o755 });
+    const value = [...npmEntries(project), '/usr/bin'].join(':');
+    expect(pathWithoutNpmScriptEntries(value, project, 'claude')).toBe(`${localBin}:/usr/bin`);
+    expect(pathWithoutNpmScriptEntries(value, project, 'codex')).toBe('/usr/bin');
   });
 });
