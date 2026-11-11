@@ -118,6 +118,24 @@ for skill_path in $skill_paths; do
 done
 rm -rf "$native_project" "$native_stub"
 
+# Headless setup (#134): the skill must give signs an agent can check, not just "if no one can
+# answer", and say what a headless setup settles on. The engine commits the install by itself.
+headless_section=$(awk '/^## / { in_section = ($0 ~ /^## 1\. Is anyone there to answer/) } in_section' "$setup_skill")
+missing_signs=""
+for sign in 'claude -p' 'codex exec' 'opencode run' 'CLAUDE_CODE_ENTRYPOINT' 'ps -o args= -p $PPID'; do
+    grep -qF -- "$sign" <<<"$headless_section" || missing_signs="$missing_signs '$sign'"
+done
+[ -n "$headless_section" ] && [ -z "$missing_signs" ] \
+    && ok "evolve-setup names checkable signs of a run nobody can answer" || bad "evolve-setup's headless section lacks:${missing_signs:- the section itself}"
+grep -qF 'inside an agent session, or manually' <<<"$headless_section" && grep -qiF 'do not end with a question' <<<"$headless_section" \
+    && ok "a headless setup settles on in-session or manual cycles and ends without a question" \
+    || bad "evolve-setup does not say what a headless setup settles on, or that it must not end with a question"
+later_references=$(awk '/^## [2-9]/ { later = 1 } later' "$setup_skill" | tr '\n' ' ' | grep -o 'nobody can answer (step 1)' | wc -l | tr -d ' ')
+[ "$later_references" -ge 3 ] && ok "the confirm, run-mode and finish steps each point back to the headless rule" \
+    || bad "only $later_references later step(s) mention the headless rule"
+grep -qF 'code-evolve: add the engine and setup files' "$setup_skill" && grep -qF 'code-evolve: add the engine and setup files' "$engine" \
+    && ok "evolve-setup names the setup commit the engine makes" || bad "evolve-setup and evolve.sh disagree on the setup commit"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

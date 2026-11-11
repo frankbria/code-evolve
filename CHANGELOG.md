@@ -38,6 +38,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **Papercuts from the live Claude acceptance runs** (#134):
+  - `start` run through `npx` no longer saves npm's own `PATH` entries into `.evolve/.env`: the npx
+    cache's `node_modules/.bin` (gone once the cache is cleaned), the `node_modules/.bin` of the
+    project and each parent directory, and `node-gyp-bin`. An entry that holds the agent's binary
+    is kept, so an agent CLI installed in the project still runs from cron. The rest of `PATH` is
+    saved unchanged.
+  - The `evolve-setup` skill can tell a headless run (`claude -p`, `codex exec`, `opencode run`,
+    `CLAUDE_CODE_ENTRYPOINT` starting with `sdk`) and then asks nothing: it uses its recommended
+    answers, settles on cycles run inside an agent session or manually, installs no schedule, and
+    ends with what it assumed instead of a question.
+  - The first cycle commits a new install on its own (`code-evolve: add the engine and setup
+    files`) before the session starts, so the first feature commit holds only the feature. The
+    commit takes only what `init` wrote (`.evolve/`, the code-evolve skills, the code-evolve
+    section's `AGENTS.md` / `CLAUDE.md`, `.gitignore`, the evolve workflows); other uncommitted
+    work is left as it was. It applies to `evolve.sh prepare` and to a headless cycle, once, when
+    nothing under `.evolve/` is committed yet. An install kept out of git by an ignore rule is not
+    committed.
 - **`start` keeps a custom agent's saved credential** (#130). When a variable named with
   `--agent-env` is not set in the shell that runs `code-evolve start` (or an `init` that reinstalls
   the schedule), the value already in `.evolve/.env` is kept instead of being dropped, so scheduled

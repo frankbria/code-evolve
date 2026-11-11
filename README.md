@@ -33,6 +33,8 @@ Day 14 — Your project works. You barely touched a keyboard.
 
 **Quickest path:** run `npx code-evolve` with no subcommand. It finds Claude Code, Codex or OpenCode on your PATH (asking only if there are several), installs `.evolve/`, and opens that agent with the `evolve-setup` skill, which walks you through vision, spec and schedule in conversation. Without a terminal or an agent it prints the exact command for each agent instead.
 
+Run headless (`claude -p`, `codex exec`, a CI job), `evolve-setup` asks nothing: it uses its recommended answers, installs no schedule (cycles then run inside an agent session or with `npx code-evolve run`), and lists what it assumed. You do not need to commit what setup installed: the first cycle commits it on its own (`code-evolve: add the engine and setup files`) before it starts on a feature, and leaves your other uncommitted work out of that commit. An install you keep out of git with an ignore rule is not committed.
+
 ### From inside Claude Code (plugin)
 
 This repository is its own Claude Code marketplace. Install the plugin into your project, then run its setup skill:
@@ -412,6 +414,7 @@ Run it however fits your workflow:
 **Local** — `code-evolve start`
 - Cron job on your machine
 - API key stored securely in `.evolve/.env` (mode 600, gitignored)
+- Your `PATH` is saved there too, so cron finds the agent. Started through `npx`, the entries npm adds for the run (the npx cache, `node_modules/.bin` directories, `node-gyp-bin`) are left out, except one that holds the agent's binary
 - Logs in `.evolve/evolve.log`
 - Only one cycle runs at a time: if a cycle is still going when the next one fires, the new one logs "already running" and exits
 

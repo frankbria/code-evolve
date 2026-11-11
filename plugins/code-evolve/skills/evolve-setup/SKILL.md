@@ -12,7 +12,28 @@ and a way for cycles to run, while asking the user as little as possible. Do the
 ask only about what the repository cannot tell you: **at most five questions in the whole setup**,
 counting the interview for an empty repository, and not counting yes/no consent for actions.
 
-## 1. Check the basics
+## 1. Is anyone there to answer?
+
+Decide this first. Nobody can answer (a headless run) when any of these is true:
+
+- You were started by a one-shot command that takes a prompt and exits: `claude -p` (or `--print`),
+  `codex exec`, `opencode run`, an SDK call, a CI job or a scheduled task. If you are not sure how
+  you were started, `ps -o args= -p $PPID` usually shows the command.
+- `echo "$CLAUDE_CODE_ENTRYPOINT"` prints a value that starts with `sdk` (Claude Code sets
+  `sdk-cli` under `claude -p`).
+- The prompt says the run is unattended, or that no one will reply.
+
+Otherwise someone is there, and the steps below apply as written. When nobody can answer:
+
+- Ask nothing. A question in your last message is never read as a question: the run has ended.
+- Step 5: use your recommended answers.
+- Step 6: install no schedule, workflow or secret (those need consent). The run mode is
+  **inside an agent session, or manually**, which needs nothing installed.
+- Step 7: do not run the first cycle unless the prompt asked for one. Do not end with a question
+  or with "reply with…" or "tell me which…": state what you assumed and chose, and give the
+  command that changes each choice.
+
+## 2. Check the basics
 
 - The project must be a git repository (`git rev-parse --git-dir`). If it is not, offer to run `git init`.
 - `npx` must work (`npx --version`). If it does not, tell the user code-evolve needs Node.js 18 or newer.
@@ -21,7 +42,7 @@ counting the interview for an empty repository, and not counting yes/no consent 
   bypass code-evolve or its checks (for example with `NODE_OPTIONS` preloads or edited copies) to get
   past a failure: a faked check leaves a broken install that reports itself as healthy.
 
-## 2. Install the engine
+## 3. Install the engine
 
 If `.evolve/` does not exist, run:
 
@@ -46,7 +67,7 @@ init may report a skill directory as `Left alone: ... (not writable here)`: Code
 `.agents/` read-only. That is fine while the code-evolve plugin is installed (its skills cover it);
 mention it, and suggest running init once outside the sandbox to add the project copies.
 
-## 3. Draft the vision and spec
+## 4. Draft the vision and spec
 
 Survey the repository first: README, docs, package manifests, source layout, tests, CI config,
 and open issues if `gh` is available.
@@ -68,19 +89,20 @@ Write `.evolve/vision.md` (the why and the what: problem, users, what success lo
 file that still has it as blank. For an existing codebase, list only features that are not built
 yet, and describe the stack the repo already uses.
 
-## 4. Confirm with at most five questions
+## 5. Confirm with at most five questions
 
 Show a short summary of both drafts, then ask only what you could not infer, within what is
 left of the five questions, each with your recommended answer so the user can just accept. Good questions concern
 priorities, scope limits, or things that must never change. Apply the answers to the files.
 
-If no one can answer (a headless or scripted run), do not ask: use your recommended answers and
-list them in the final summary so the user can revise them later.
+If nobody can answer (step 1), do not ask: use your recommended answers and list them in the
+final summary so the user can revise them later.
 
-## 5. Choose how cycles run
+## 6. Choose how cycles run
 
 Offer these options and set up the one the user picks (recommend the first for a laptop or
-dev box, the second for a team repository):
+dev box, the second for a team repository). If nobody can answer (step 1), do not offer: cycles
+run inside an agent session or manually (the last two options), and nothing is installed.
 
 - **Local schedule:** `npx code-evolve start --every <hours>` installs a cron job. It needs the
   agent's API key in the environment. For a Claude subscription instead, install with
@@ -153,12 +175,16 @@ Prefer one scheduler per repository. Two schedulers working from separate clones
 engine rebases a cycle onto what the remote gained before it pushes), but when both change the same
 lines the later cycle is not pushed and ends with exit status 4.
 
-## 6. Finish
+## 7. Finish
 
-Offer to run the first cycle now (the `evolve-run` skill, or `npx code-evolve run`). End with a
-summary: what was installed, the vision and spec in one line each, any answers you assumed, how
-cycles will run, and how to stop them for the mode chosen: `npx code-evolve stop` removes a local
-schedule; GitHub Actions cycles stop with `gh workflow disable evolve.yml` (or by deleting the
+Offer to run the first cycle now (the `evolve-run` skill, or `npx code-evolve run`). If nobody can
+answer (step 1), name those two ways to run it instead of offering. You do not need to commit
+what setup installed: the first cycle commits it on its own, before it starts on a feature, as
+`code-evolve: add the engine and setup files`.
+
+End with a summary: what was installed, the vision and spec in one line each, any answers you
+assumed, how cycles will run, and how to stop them for the mode chosen: `npx code-evolve stop`
+removes a local schedule; GitHub Actions cycles stop with `gh workflow disable evolve.yml` (or by deleting the
 workflow); a native schedule stops where it was made (pause or delete the task at
 claude.ai/code/routines or in the ChatGPT app's Scheduled view, or ask Claude to cancel the loop).
 `npx code-evolve eject --yes` removes everything.
