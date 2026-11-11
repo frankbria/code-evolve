@@ -1350,10 +1350,13 @@ push_session() {
             return 0
         fi
     fi
-    if [ -n "$branch" ]; then
-        push_or_report "Push" -u "$remote" HEAD
-    else
+    if [ -z "$branch" ]; then
         echo "  HEAD is detached: no branch to push."
+    elif git config --get-all "remote.$remote.push" >/dev/null; then
+        # A refspec on the command line would override the mapping the user configured for this remote.
+        push_or_report "Push" "$remote"
+    else
+        push_or_report "Push" -u "$remote" HEAD
     fi
     push_or_report "Tag push" "$remote" --tags
 }

@@ -138,6 +138,15 @@ run_session only.txt
 [ "$(remote_branch_sha fork)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha origin)$(remote_branch_sha other)" ] \
     && ok "branch.<name>.pushRemote wins over remote.pushDefault" || bad "pushRemote: $(tail -4 "$finalize_log")"
 
+# ── A push mapping configured on the remote is kept: the cycle goes to the branch it names ──
+new_project push-refspec
+new_bare_remote origin
+git config remote.origin.push "refs/heads/$branch:refs/heads/deploy"
+run_session only.txt
+[ "$(git ls-remote origin refs/heads/deploy | cut -f1)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha origin)" ] \
+    && [ "$(remote_tag_count origin)" -eq 1 ] && ! grep -q "Push failed" "$finalize_log" \
+    && ok "a configured remote.<name>.push mapping decides the destination branch" || bad "push refspec: $(tail -4 "$finalize_log"); $(git ls-remote origin)"
+
 # ── A remote recorded for the branch without a merge ref is not an upstream ──
 new_project remote-without-merge
 new_bare_remote origin
