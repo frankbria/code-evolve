@@ -44,9 +44,11 @@ new_bare_remote() { # <remote name>
 engine() { env -i PATH="$agentless_path" HOME="$HOME" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude bash .evolve/scripts/evolve.sh "$@"; }
 # One in-session cycle: prepare, one commit, verify, finalize. Sets finalize_status and finalize_log.
-run_session() { # <file to add>
+# In two halves, because prepare brings the branch up to date (#145): what the finalize sync has to
+# deal with is what reaches the remote between the two.
+start_session() { engine prepare > "$work_dir/prepare.log" 2>&1 || bad "prepare failed: $(tail -2 "$work_dir/prepare.log")"; }
+finish_session() { # <file to add>
     finalize_log="$work_dir/finalize-$1.log"
-    engine prepare > "$work_dir/prepare.log" 2>&1 || bad "prepare failed: $(tail -2 "$work_dir/prepare.log")"
     echo "$1" > "$1"
     # The agent's own journal entry: the engine's fallback entry is skipped when the minute already has one.
     { head -1 .evolve/JOURNAL.md; printf '\n## Day 0: entry for %s\n\nAdded %s.\n' "$1" "$1"; tail -n +2 .evolve/JOURNAL.md; } > "$work_dir/journal"
@@ -55,6 +57,7 @@ run_session() { # <file to add>
     engine verify > "$work_dir/verify.log" 2>&1 || bad "verify failed: $(tail -2 "$work_dir/verify.log")"
     finalize_status=0; engine finalize --no-agent > "$finalize_log" 2>&1 || finalize_status=$?
 }
+run_session() { start_session; finish_session "$1"; }
 remote_branch_sha() { git ls-remote "$1" "refs/heads/$branch" | cut -f1; }
 remote_tag_count() { git ls-remote --tags "$1" 'day0-*' | grep -vc '\^{}' || true; }
 
@@ -78,13 +81,15 @@ run_session second.txt
 [ "$(git ls-remote --tags origin 'day0-*' | grep -vc '\^{}')" -eq "$(git tag --list 'day0-*' | wc -l)" ] \
     && ok "its tags go out too" || bad "tags on origin: $(git ls-remote --tags origin), local: $(git tag --list)"
 
-# ── Someone else pushed first: their commits are brought in, then the session is pushed (#137) ──
+# ── Someone else pushed during the session: their commits are brought in, then the session is pushed (#137) ──
+start_session
 git clone -q "$PWD-origin.git" "$work_dir/other-clone"
 git -C "$work_dir/other-clone" -c user.email=other@example.com -c user.name=other commit -q --allow-empty -m "someone else's commit"
 git -C "$work_dir/other-clone" push -q origin "HEAD:$branch"
 other_sha="$(git -C "$work_dir/other-clone" rev-parse HEAD)"
-run_session third.txt
+finish_session third.txt
 [ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && git merge-base --is-ancestor "$other_sha" HEAD \
+    && grep -q "Rebased the session onto 1 new commit(s) from origin" "$finalize_log" \
     && ok "a session behind its upstream is rebased onto it and pushed" || bad "sync: exit $finalize_status, $(tail -4 "$finalize_log")"
 [ -f third.txt ] && ! grep -q "failed" "$finalize_log" && ok "the session's commit survives the sync and nothing is reported as failed" \
     || bad "log: $(grep -i "failed" "$finalize_log")"
@@ -130,10 +135,13 @@ git clone -q "$origin_url" "$work_dir/second-scheduler"
 cd "$work_dir/second-scheduler"
 git config user.email second@example.com
 git config user.name second
+cd "$work_dir/first-scheduler"
+start_session
+cd "$work_dir/second-scheduler"
 run_session from-second.txt
 [ "$finalize_status" -eq 0 ] || bad "second scheduler: finalize exited $finalize_status: $(tail -3 "$finalize_log")"
 cd "$work_dir/first-scheduler"
-run_session from-first.txt
+finish_session from-first.txt
 [ "$finalize_status" -eq 0 ] && ! grep -q "failed" "$finalize_log" \
     && ok "the scheduler that pushes second finishes without a failure" || bad "first scheduler: exit $finalize_status, $(grep -i "failed\|conflict" "$finalize_log")"
 origin_head="$(remote_branch_sha origin)"
@@ -156,24 +164,25 @@ git clone -q --depth 1 "file://$origin_url" "$work_dir/shallow-scheduler"
 cd "$work_dir/shallow-scheduler"
 git config user.email shallow@example.com
 git config user.name shallow
+start_session
 cd "$work_dir/first-scheduler"
 run_session ahead-of-shallow.txt
 cd "$work_dir/shallow-scheduler"
-run_session from-shallow.txt
+finish_session from-shallow.txt
 origin_head="$(remote_branch_sha origin)"
 [ "$finalize_status" -eq 0 ] && [ "$origin_head" = "$(git rev-parse HEAD)" ] && [ "$(git rev-parse --is-shallow-repository)" = true ] \
-    && git cat-file -e "$origin_head:from-shallow.txt" && git cat-file -e "$origin_head:ahead-of-shallow.txt" \
+    && git cat-file -e "$origin_head:from-shallow.txt" && git cat-file -e "$origin_head:ahead-of-shallow.txt" && grep -q "Rebased" "$finalize_log" \
     && ok "a shallow clone that is behind is rebased and pushed" || bad "shallow clone: exit $finalize_status, $(tail -5 "$finalize_log")"
 cd "$work_dir/first-scheduler"
 git pull -q --rebase origin "$branch"
 
 # ── The other scheduler changed the same lines: the cycle fails visibly and keeps its commits (#137) ──
+start_session
 cd "$work_dir/second-scheduler"
 git pull -q --rebase origin "$branch"
 echo "second scheduler's version" > shared-start.txt
 git commit -qam "second scheduler rewrites shared-start.txt" && git push -q origin "HEAD:$branch"
 cd "$work_dir/first-scheduler"
-engine prepare > "$work_dir/prepare.log" 2>&1 || bad "prepare failed: $(tail -2 "$work_dir/prepare.log")"
 echo "first scheduler's version" > shared-start.txt
 git commit -qam "Day 0: rewrite shared-start.txt"
 engine verify > "$work_dir/verify.log" 2>&1 || bad "verify failed: $(tail -2 "$work_dir/verify.log")"

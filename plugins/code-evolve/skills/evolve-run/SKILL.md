@@ -28,7 +28,12 @@ the main repository's `.git`); for Codex, start the session with the `-c
 bash .evolve/scripts/evolve.sh prepare
 ```
 
-- **"Prepared Day N session"**: continue with step 2.
+- **"Prepared Day N session"**: continue with step 2. Prepare first brings the branch up to date
+  with its upstream ("Brought ... up to date"), so read files after it, not before.
+- **"Could not bring ... up to date"** above that line: the upstream has commits this clone could
+  not take in, and prepare names the reason. The session is prepared all the same, on the local
+  branch. Continue, expect finalize to end as not pushed if the reason was a conflict, and say so
+  in your report.
 - **"already running"**: another cycle holds the lock. Stop and tell the user; do not retry in a loop.
 - **"a prepared session is still pending"**: an earlier in-session cycle was never finalized. Ask
   the user whether to finish it or abandon it (`rm -rf .evolve/run`, then prepare again). If no one
@@ -76,7 +81,8 @@ then commits, rebases the session onto anything the remote gained meanwhile, tag
 
 Exit status 4 means the cycle is committed here but was not pushed: finalize ends with
 "NOT pushed" and names the reason above it ("Sync failed" when the remote's new commits conflict
-with this session's, "Push failed" when the remote refused the push). The session is closed
+with this session's, "Push failed" when the remote refused the push or the push settings left the
+branch out). Issue comments are posted only for a cycle whose branch reached a remote. The session is closed
 either way, so do not run finalize again.
 
 ## 5. Report

@@ -21,12 +21,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cloud or Desktop scheduled task, `/loop`, or a Codex scheduled task) instead of cron or GitHub
   Actions. `init --mode native` records the choice and `status` reports it; the `evolve-setup` skill
   and the README give the exact prompt for each scheduler and its constraints (#93).
+- **Recorded GitHub Actions run** of the installed `evolve.yml` with a refused push
+  ([docs/demos/refused-push-on-actions.md](docs/demos/refused-push-on-actions.md)): the session ends
+  with status 4, both retries are skipped and the run fails (#145).
 - **Live acceptance record** for the one-command install and first cycle
   ([docs/demos/first-cycle-acceptance.md](docs/demos/first-cycle-acceptance.md)): both fixtures
   and both install paths on Claude Code (headless sessions), a cron-triggered cycle, and the Codex run from
   2026-11-08, with the defects they turned up (#85).
 
 ### Changed
+- A cycle starts from its upstream's state: `evolve.sh` (`cycle` and `prepare`) fetches the branch's
+  upstream first, fast-forwards a branch that is behind and rebases cycles that were never pushed (a branch that
+  is pushed to a fork is only ever fast-forwarded).
+  When it cannot (a conflict, uncommitted edits in the way, an unreachable remote) it prints the
+  reason and the cycle starts from the local branch as before (#145).
+- Issue comments are posted after the push and cite the commit that is on the remote; they used to
+  cite the commit as it was before the rebase. A cycle whose commits reached no remote (not pushed,
+  or the push was skipped for lack of a chosen remote or a branch) posts no comment and closes no
+  issue; those responses are dropped (#145).
 - The `evolve-setup` skill installs the engine version it was written for
   (`npx -y code-evolve@<version> init ...`) instead of `@latest`, so a plugin and the engine it
   installs stay in step. It falls back to `@latest` when that version is not on npm yet, and does
@@ -45,6 +57,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- A push that git reports as done without sending the cycle's branch (a `remote.<name>.push`
+  mapping or a `push.default` that leaves it out) now ends the cycle as not pushed, with exit
+  status 4 (#145).
+- A remote with one push URL that differs from its fetch URL: the cycle is synced with the push URL's
+  repository, the one that accepts or refuses the push. It used to be rebased onto the fetch side
+  (#145).
 - **Python test detection reads the test files instead of matching lines.** Whether a suite can
   run through `python3 -m unittest discover` is now decided by parsing each test file (new engine
   file `.evolve/scripts/unittest_suite.py`): a pytest function written as `def test_x ():` or
