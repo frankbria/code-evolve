@@ -15,6 +15,8 @@ import re
 import sys
 
 UNITTEST_BASES = {"TestCase", "IsolatedAsyncioTestCase"}
+# Where those classes can be imported from.
+UNITTEST_MODULES = {"unittest", "unittest.case", "unittest.async_case"}
 # unittest discovery skips, without a word, a file whose name is not a module name.
 MODULE_FILE = re.compile(r"[_a-z]\w*\.py\Z", re.IGNORECASE)
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -161,8 +163,8 @@ def names_a_test(name):
 
 def star_import_brings_tests(statement, directories):
     """True when `from module import *` reads a file of the project that binds a name pytest
-    looks at, has a star import of its own, or cannot be parsed. A module found nowhere in
-    `directories` is an installed one and brings none."""
+    looks at or a load_tests hook, has a star import of its own, or cannot be parsed. A module
+    found nowhere in `directories` is an installed one and brings none."""
     relative = (statement.module or "").replace(".", os.sep)
     if statement.level:
         # `from ..module`: one package up from the file's own for each further dot.
@@ -179,7 +181,7 @@ def star_import_brings_tests(statement, directories):
                 try:
                     statements = scope_statements(parse(path).body)
                     return any(
-                        names_a_test(name) or name == "*"
+                        names_a_test(name) or name in ("*", "load_tests")
                         for imported in statements
                         for name in bound_names(imported)
                     )
@@ -225,7 +227,7 @@ def classify(tree, directories):
                 elif alias.name.startswith("unittest.") and alias.asname is None:
                     trust(unittest_modules, "unittest")
         elif isinstance(statement, ast.ImportFrom):
-            if statement.module == "unittest" and statement.level == 0:
+            if statement.module in UNITTEST_MODULES and statement.level == 0:
                 for alias in statement.names:
                     if alias.name in UNITTEST_BASES:
                         trust(test_cases, alias.asname or alias.name)

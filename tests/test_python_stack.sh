@@ -300,6 +300,9 @@ parsed_as "a class made by a call and assigned to a Test name keeps pytest" "pyt
 printf 'from checks import *\n' > "$parsed/tests/relay.py"
 parsed_as "a star import of a file that star-imports another keeps pytest" "pytest" \
     'import unittest\n\nfrom relay import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+printf 'def load_tests(loader, tests, pattern):\n    return loader.suiteClass()\n' > "$parsed/tests/loader.py"
+parsed_as "a star import of a file that holds a load_tests hook keeps pytest" "pytest" \
+    'import unittest\n\nfrom loader import *\n\n\nclass SkippedTest(unittest.TestCase):\n    def test_failure(self):\n        self.fail()\n'
 parsed_as "a class made by a call and assigned to an annotated Test name keeps pytest" "pytest" \
     'import unittest\n\nTestGenerated: type = type("TestGenerated", (), {"test_failure": lambda self: 1 / 0})\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a TestCase file that imports pytest keeps pytest" "pytest" \
@@ -310,6 +313,8 @@ parsed_as "TestCase imported under another name runs unittest" "$UNITTEST" \
     'from unittest import TestCase as Base\n\n\nclass TestAliased(Base):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a Test class on a TestCase of the same file runs unittest" "$UNITTEST" \
     'import unittest as ut\n\n\nclass Shared(ut.TestCase):\n    pass\n\n\nclass TestDerived(Shared):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "TestCase imported from unittest.case runs unittest" "$UNITTEST" \
+    'from unittest.case import TestCase\n\n\nclass TestLong(TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a TestCase named through unittest.case runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass TestLong(unittest.case.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "unittest imported twice, with unittest.mock and in try/except, runs unittest" "$UNITTEST" \
