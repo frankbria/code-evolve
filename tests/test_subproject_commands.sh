@@ -78,6 +78,13 @@ verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?
 grep -q "No build system detected yet" .evolve/run/PROMPT.md \
     && ok "the prompt still asks a session to set up build tooling there" || bad "prompt: $(grep -n "Build Verification" .evolve/run/PROMPT.md)"
 
+# Commands the session adds to a nested folder that had none are verified.
+printf '{"name":"site","scripts":{"test":"echo broken-site-test >&2; exit 1"}}\n' > site/package.json
+verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?
+[ "$verify_status" -ne 0 ] && grep -q "broken-site-test" .evolve/run/ERRORS.md 2>/dev/null \
+    && ok "checks added to a nested folder during the session are verified" || bad "site verify exited $verify_status: $(tail -3 "$stub_dir/verify.log")"
+rm site/package.json
+
 # A project the session adds at the root is verified even though the session started nested.
 printf '{"name":"root","scripts":{"test":"echo broken-root-test >&2; exit 1"}}\n' > package.json
 verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?

@@ -993,8 +993,8 @@ revert_session_and_capture_req() {
 }
 
 DETECTED_SUBSTACKS_JSON=$(echo "$STACK_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin).get('substacks',[])))" 2>/dev/null || echo "[]")
-# Same rule as the commands above: substacks found at session start keep their commands, and
-# subprojects the session added are verified too.
+# Same rule as the commands above: substacks found at session start keep their commands, ones
+# that were empty are filled from re-detection, and subprojects the session added are verified too.
 SUBSTACKS_JSON=$(PREPARED="${SUBSTACKS_JSON:-[]}" DETECTED="$DETECTED_SUBSTACKS_JSON" python3 -c '
 import json, os
 def load(name):
@@ -1004,8 +1004,12 @@ def load(name):
     except ValueError:
         return []
 merged = load("PREPARED")
+detected = {entry.get("dir"): entry for entry in load("DETECTED")}
+for entry in merged:
+    for key in ("build", "test", "lint", "format"):
+        entry[key] = entry.get(key) or detected.get(entry.get("dir"), {}).get(key, "")
 known = {entry.get("dir") for entry in merged}
-merged += [entry for entry in load("DETECTED") if entry.get("dir") not in known]
+merged += [entry for entry in detected.values() if entry.get("dir") not in known]
 print(json.dumps(merged))' 2>/dev/null || echo "$DETECTED_SUBSTACKS_JSON")
 ERRORS=""
 HAS_VERIFICATION=false
