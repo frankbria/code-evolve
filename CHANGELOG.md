@@ -49,8 +49,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   run through `python3 -m unittest discover` is now decided by parsing each test file (new engine
   file `.evolve/scripts/unittest_suite.py`): a pytest function written as `def test_x ():` or
   defined under `try`, a `Test*` class that is not a `unittest.TestCase` and has or may inherit a
-  test, or a test file that imports pytest keeps `pytest`; `TestCase` under another import name, a base class of the same
-  file, and mixins are recognised. Test packages below the start directory (`tests/unit/`,
+  test, a test file that imports pytest, or a `load_tests` hook keeps `pytest`; `TestCase` under
+  another import name, a base class of the same file, and mixins are recognised. Test packages below the start directory (`tests/unit/`,
   `app/tests/`, with `__init__.py` at each level) now run through unittest instead of failing with
   "pytest: command not found" (#143).
 - A project `.venv` without pytest no longer uses a pytest found on `PATH`, which ran on another
