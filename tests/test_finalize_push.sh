@@ -71,6 +71,8 @@ run_session first.txt
 run_session second.txt
 [ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] \
     && ok "a branch with an upstream is pushed to it" || bad "second session: $(tail -4 "$finalize_log")"
+[ "$(git ls-remote --tags origin 'day0-*' | grep -vc '\^{}')" -eq "$(git tag --list 'day0-*' | wc -l)" ] \
+    && ok "its tags go out too" || bad "tags on origin: $(git ls-remote --tags origin), local: $(git tag --list)"
 
 # ── A push the remote rejects is reported with git's reason ──
 git clone -q "$PWD-origin.git" "$work_dir/other-clone"
@@ -115,6 +117,34 @@ new_bare_remote origin
 run_session only.txt
 [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha alpha)" ] \
     && ok "origin is preferred among several remotes" || bad "origin among several: $(tail -4 "$finalize_log")"
+
+# ── A fork setup: git is told where to push, and that wins over origin ──
+new_project push-default
+new_bare_remote origin
+new_bare_remote fork
+git config remote.pushDefault fork
+run_session only.txt
+[ "$(remote_branch_sha fork)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha origin)" ] \
+    && [ "$(remote_tag_count fork)" -eq 1 ] && [ "$(remote_tag_count origin)" -eq 0 ] \
+    && ok "remote.pushDefault decides where a never-pushed branch and its tag go" || bad "pushDefault: $(tail -4 "$finalize_log")"
+
+new_project push-remote
+new_bare_remote origin
+new_bare_remote fork
+new_bare_remote other
+git config remote.pushDefault other
+git config "branch.$branch.pushRemote" fork
+run_session only.txt
+[ "$(remote_branch_sha fork)" = "$(git rev-parse HEAD)" ] && [ -z "$(remote_branch_sha origin)$(remote_branch_sha other)" ] \
+    && ok "branch.<name>.pushRemote wins over remote.pushDefault" || bad "pushRemote: $(tail -4 "$finalize_log")"
+
+# ── A remote recorded for the branch without a merge ref is not an upstream ──
+new_project remote-without-merge
+new_bare_remote origin
+git config "branch.$branch.remote" origin
+run_session only.txt
+[ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && ! grep -q "Push failed" "$finalize_log" \
+    && ok "a branch with a remote but no merge ref is pushed with its upstream set" || bad "remote without merge: $(tail -4 "$finalize_log")"
 
 # ── Detached HEAD: there is no branch to push ──
 new_project detached

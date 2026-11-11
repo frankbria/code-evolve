@@ -1315,11 +1315,13 @@ push_or_report() { # <label> <git push arguments...>
     fi
     printf '%s\n' "$output"
     reason=$(printf '%s\n' "$output" | grep -m1 -E '^(fatal:|error:| ! )' || printf '%s\n' "$output" | grep -m1 . || true)
-    echo "  $label failed: ${reason# }"
+    reason="${reason# }"
+    echo "  $label failed: ${reason:-git gave no reason}"
 }
 
 # A branch that was never pushed has no upstream, and a bare `git push` refuses it while the tag
-# push goes through. Such a branch is pushed with its upstream set, to origin or the only remote.
+# push goes through. Such a branch is pushed with its upstream set: to the remote git is configured
+# to push to (branch.<name>.pushRemote, remote.pushDefault), else origin, else the only remote.
 push_session() {
     local remotes branch remote
     remotes=$(git remote)
@@ -1328,21 +1330,25 @@ push_session() {
         return 0
     fi
     branch=$(git symbolic-ref -q --short HEAD || true)
-    remote=""
-    [ -z "$branch" ] || remote=$(git config --get "branch.$branch.remote" || true)
-    if [ -n "$remote" ]; then
+    if [ -n "$branch" ] && git config --get "branch.$branch.remote" >/dev/null \
+        && git config --get "branch.$branch.merge" >/dev/null; then
         push_or_report "Push"
         push_or_report "Tag push" --tags
         return 0
     fi
-    if printf '%s\n' "$remotes" | grep -qx origin; then
-        remote=origin
-    elif [ "$(printf '%s\n' "$remotes" | grep -c .)" -eq 1 ]; then
-        remote="$remotes"
-    else
-        echo "  Push skipped: ${branch:-HEAD} has no upstream and there are several remotes ($(printf '%s' "$remotes" | tr '\n' ' '))."
-        echo "  Choose one with: git push -u <remote> ${branch:-<branch>} && git push <remote> --tags"
-        return 0
+    remote=""
+    [ -z "$branch" ] || remote=$(git config --get "branch.$branch.pushRemote" || true)
+    [ -n "$remote" ] || remote=$(git config --get remote.pushDefault || true)
+    if [ -z "$remote" ]; then
+        if printf '%s\n' "$remotes" | grep -qx origin; then
+            remote=origin
+        elif [ "$(printf '%s\n' "$remotes" | grep -c .)" -eq 1 ]; then
+            remote="$remotes"
+        else
+            echo "  Push skipped: ${branch:-HEAD} has no upstream and there are several remotes ($(printf '%s' "$remotes" | tr '\n' ' '))."
+            echo "  Choose one with: git push -u <remote> ${branch:-<branch>} && git push <remote> --tags"
+            return 0
+        fi
     fi
     if [ -n "$branch" ]; then
         push_or_report "Push" -u "$remote" HEAD
