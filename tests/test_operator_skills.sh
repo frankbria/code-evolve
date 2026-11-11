@@ -105,8 +105,8 @@ while IFS= read -r prompt; do
     prompt_count=$((prompt_count+1))
     grep -qxF -- "$prompt" "$ROOT/README.md" || bad "README.md does not carry the scheduled prompt: ${prompt:0:60}..."
 done < <(awk '/^ *```text$/ { in_prompt = 1; next } /^ *```$/ { in_prompt = 0 } in_prompt { sub(/^ +/, ""); print }' "$setup_skill")
-[ "$prompt_count" -eq 2 ] && ok "README.md carries evolve-setup's scheduled prompts word for word (failures listed above)" \
-    || bad "expected 2 scheduled prompts in evolve-setup, found $prompt_count"
+[ "$prompt_count" -eq 3 ] && ok "README.md carries evolve-setup's scheduled prompts word for word (failures listed above)" \
+    || bad "expected 3 scheduled prompts in evolve-setup, found $prompt_count"
 native_project="$(mktemp -d)"; native_stub="$(mktemp -d)"
 printf '#!/bin/bash\necho "claude 0.0.0-stub"\n' > "$native_stub/claude"; chmod +x "$native_stub/claude"
 ( cd "$native_project" && git init -q && PATH="$native_stub:$PATH" node "$CLI" init --yes --agent claude </dev/null >/dev/null 2>&1 )

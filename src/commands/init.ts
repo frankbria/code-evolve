@@ -417,9 +417,14 @@ export async function runInit(options: InitOptions): Promise<void> {
           console.warn(`  ⚠ Local schedule not installed yet: ${envKey} is not set. Set it, then run \`code-evolve start\`.`);
         }
       }
-    } else if (modeExplicit && fs.existsSync(evolveFile('schedule.json'))) {
-      // Its cron job would keep running cycles alongside the mode just chosen.
-      console.warn(`  ⚠ A local schedule is still installed; remove it with \`code-evolve stop\` unless you want both.`);
+    }
+    // A schedule the newly chosen mode does not use keeps running cycles next to whatever replaces it.
+    const modeChosen = mode !== undefined && (modeExplicit || mode !== previousConfig.mode);
+    if (modeChosen && !wantLocal && fs.existsSync(evolveFile('schedule.json'))) {
+      console.warn('  ⚠ A local schedule is still installed; remove it with `code-evolve stop` unless you want both.');
+    }
+    if (modeChosen && !wantCi && ourWorkflowsInstalled) {
+      console.warn('  ⚠ The GitHub Actions schedule is still installed; turn it off with `gh workflow disable evolve.yml` unless you want both.');
     }
 
 
@@ -462,9 +467,6 @@ export async function runInit(options: InitOptions): Promise<void> {
     if (mode) {
       console.log(`  Mode: ${mode}`);
     }
-    if (mode === 'native') {
-      console.log("  Cycles run from your agent's own scheduler; the evolve-setup skill and the README give the prompt to schedule.");
-    }
 
     console.log('');
     console.log('code-evolve initialized.');
@@ -497,6 +499,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     console.log(`  ${step++}. ${getAgentEnvHint(agent, authMode)}`);
     if (localScheduled) {
       console.log(`  ${step++}. Local evolution runs every ${hours}h. Run now: code-evolve run`);
+    } else if (mode === 'native') {
+      console.log(`  ${step++}. Schedule cycles in your agent: the evolve-setup skill and the README ("Local vs. Cloud") give the prompt`);
     } else {
       console.log(`  ${step++}. Run: code-evolve run`);
     }

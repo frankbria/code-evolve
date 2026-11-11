@@ -414,20 +414,35 @@ For when you can't or won't run cron or Actions. Nothing is installed: your agen
 
 | Scheduler | Where you create it | Prompt to schedule | Constraints |
 |-----------|--------------------|--------------------|-------------|
-| Claude Code cloud scheduled task (formerly "routine") | [claude.ai/code/routines](https://claude.ai/code/routines), or `/schedule` in a session | See below | Fresh clone of the default branch on every run, so commit and push `.evolve/` and `.claude/skills/` first. Shortest interval: 1 hour. Needs a claude.ai subscription login; runs count against your usage. |
+| Claude Code cloud scheduled task (formerly "routine") | [claude.ai/code/routines](https://claude.ai/code/routines), or `/schedule` in a session | See below | Fresh clone of the default branch on every run, so commit and push `.evolve/` and `.claude/skills/` first. Shortest interval: 1 hour. Needs a claude.ai subscription login; runs count against your usage. A cycle that fails to push is lost with the clone. Without an authenticated `gh` in the cloud environment, cycles skip community issues. |
+| Claude Code Desktop local scheduled task | The Desktop app's Code tab → Scheduled, with "Only on this computer" on and the project as its folder | See below | Runs only while the app is open and the computer is awake; at most hourly from the form. Leave "Worktree" off. Click Run now once and approve the permissions a cycle needs, or later runs stall on a prompt. |
 | Claude Code `/loop` | An open Claude Code session | `/loop 4h` followed by the `/loop` prompt below | Fires only while that session is running and idle. A recurring loop ends after 7 days. |
-| Codex scheduled task (formerly "automation") | The ChatGPT desktop app's Scheduled view | `$evolve-run` | The machine must be on with the app running. Choose the local project, not a new worktree. Runs with your default sandbox settings, which must let the cycle write the repository's `.git` directory and reach the network to push. |
+| Codex scheduled task (also called an "automation") | The ChatGPT desktop app's Scheduled view | `$evolve-run` | The machine must be on with the app running. Choose the local project, not a new worktree. Runs with your default sandbox settings, which must let the cycle write the repository's `.git` directory and reach the network to push (settings below). |
 
 Prompt for a Claude Code cloud scheduled task:
 
 ```text
-Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request.
+Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request. If the push fails, say so in the first line of your report.
+```
+
+Prompt for a Claude Code Desktop local scheduled task:
+
+```text
+Run one code-evolve evolution cycle: read .claude/skills/evolve-run/SKILL.md and follow it from start to finish.
 ```
 
 Prompt for `/loop`:
 
 ```text
 /loop 4h Run one code-evolve evolution cycle: read .claude/skills/evolve-run/SKILL.md and follow it from start to finish.
+```
+
+Sandbox defaults a Codex scheduled task needs, in `~/.codex/config.toml`:
+
+```toml
+[sandbox_workspace_write]
+writable_roots = ["/absolute/path/to/the/repository/.git"]
+network_access = true
 ```
 
 The Claude prompts name the skill file rather than `/evolve-run` because `evolve-run` commits and pushes, so only you can start it by name: a scheduled prompt that says `/evolve-run` reaches Claude as plain text ([Claude Code docs](https://code.claude.com/docs/en/scheduled-tasks)). The `evolve-setup` skill hands out the same prompts.
@@ -437,13 +452,13 @@ The Claude prompts name the skill file rather than `/evolve-run` because `evolve
 | | Local cron | GitHub Actions | Agent's own scheduler |
 |---|---|---|---|
 | Set up with | `code-evolve start` | `code-evolve init --mode ci` | `code-evolve init --mode native`, then the agent's scheduler |
-| Runs on | Your machine | GitHub's runners | Anthropic's cloud (cloud task), or your machine (`/loop`, Codex) |
-| Needs your machine on | Yes | No | Cloud task: no. `/loop` and Codex: yes |
+| Runs on | Your machine | GitHub's runners | Anthropic's cloud (cloud task), or your machine (Desktop task, `/loop`, Codex) |
+| Needs your machine on | Yes | No | Cloud task: no. Desktop task, `/loop` and Codex: yes |
 | Credentials | API key in `.evolve/.env`, or the CLI's login | API key as a repository secret | Your agent subscription login |
-| Shortest interval | 1 hour | 1 hour | Cloud task: 1 hour |
+| Shortest interval | 1 hour | 1 hour | Cloud and Desktop tasks: 1 hour |
 | Stop it with | `code-evolve stop` | Disabling the `evolve.yml` workflow | Pausing or deleting the task where you made it |
 
-Cron and Actions run the same engine and can be combined (`--mode both`). Use a cloud scheduled task on its own: it pushes from a separate clone, so a second scheduler pushing to the same branch makes one of them lose its push.
+All of them run the same engine. Prefer one scheduler per repository: the engine does not pull before it pushes, so when two schedulers work from separate clones (a cloud task or Actions next to anything else), the one that pushes second is rejected and its cycle is lost. `init` warns when a switch of mode leaves an earlier cron job or Actions schedule installed.
 
 ## Community Issues
 

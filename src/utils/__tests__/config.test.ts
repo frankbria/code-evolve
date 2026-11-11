@@ -30,7 +30,7 @@ describe('agent validation', () => {
 });
 
 describe('execution-mode validation', () => {
-  it('accepts the three modes and rejects others', () => {
+  it('accepts the four modes and rejects others', () => {
     expect(getExecutionModes()).toEqual(['local', 'ci', 'both', 'native']);
     for (const m of getExecutionModes()) expect(isValidMode(m)).toBe(true);
     expect(isValidMode('cloud')).toBe(false);

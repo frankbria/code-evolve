@@ -142,6 +142,9 @@ export const startCommand = new Command('start')
     // the mode is at least 'local' (keep 'both' if CI was also chosen).
     // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
     const savedModel = options.model ? model : savedModelFor(config, agent);
+    if (config.mode === 'native') {
+      console.warn("Mode was native: pause or delete the schedule in your agent, or it will run cycles alongside this cron job.");
+    }
     writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', model: savedModel });
 
     // Install cron entry + write .env + schedule.json

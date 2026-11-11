@@ -93,7 +93,9 @@ dev box, the second for a team repository):
 
 Record the choice with `npx code-evolve init --yes --mode native` (it installs no cron job and no
 workflow, and `status` then reports mode `native`). If init says a local schedule is still
-installed, run `npx code-evolve stop` unless the user wants both. Then give the user the prompt for
+installed, run `npx code-evolve stop`; if it says the GitHub Actions schedule is still installed,
+offer `gh workflow disable evolve.yml` and run it only with the user's consent. Skip either only
+when the user wants both schedulers. Then give the user the prompt for
 their scheduler, exactly as written here, and say where it goes. Create the schedule yourself only
 if the user explicitly asks you to.
 
@@ -101,13 +103,24 @@ if the user explicitly asks you to.
   with `/schedule`, needs a claude.ai subscription login). Prompt:
 
   ```text
-  Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request.
+  Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request. If the push fails, say so in the first line of your report.
   ```
 
   Each run is a fresh clone of the default branch, so `.evolve/` and `.claude/skills/` must be
   committed and pushed first. The shortest interval is one hour. Runs count against the user's
   subscription usage, and the push is made as the user's GitHub identity, so a branch protection
-  rule that identity cannot bypass blocks it.
+  rule that identity cannot bypass blocks it. A cycle that fails to push is lost with the clone.
+  Without an authenticated `gh` in the cloud environment, cycles skip community issues.
+- **Claude Code Desktop local scheduled task** (the Desktop app's Code tab, Scheduled, with "Only
+  on this computer" on and the project as its folder). Prompt:
+
+  ```text
+  Run one code-evolve evolution cycle: read .claude/skills/evolve-run/SKILL.md and follow it from start to finish.
+  ```
+
+  It runs only while the app is open and the computer is awake, at most hourly from the form.
+  Leave "Worktree" off so the cycle lands on the user's branch, and have the user click Run now
+  once to approve the permissions a cycle needs, or later runs stall on a prompt.
 - **Claude Code `/loop`** (this machine, inside an open session):
 
   ```text
@@ -116,17 +129,23 @@ if the user explicitly asks you to.
 
   It fires only while that session is running and idle, and a recurring loop ends after seven
   days: it suits a burst of cycles, not a standing schedule.
-- **Codex scheduled task** (formerly "automation"; created in the ChatGPT desktop app's Scheduled
-  view, not in the Codex CLI). Prompt: `$evolve-run`. Choose the local project, not a new worktree,
-  so the cycle lands on the branch the user works on. The machine must be on with the app running.
-  Tasks run with the user's default sandbox settings, and a cycle needs to write the repository's
-  `.git` directory and reach the network to push: see the `evolve-run` skill's note on
-  `sandbox_workspace_write.writable_roots`.
+- **Codex scheduled task** (also called an "automation"; created in the ChatGPT desktop app's
+  Scheduled view, not in the Codex CLI). Prompt: `$evolve-run`. Choose the local project, not a new
+  worktree, so the cycle lands on the branch the user works on. The machine must be on with the app
+  running. Tasks run with the user's default sandbox settings, and a cycle needs to write the
+  repository's `.git` directory and reach the network to push, so those defaults must allow both.
+  In `~/.codex/config.toml`:
+
+  ```toml
+  [sandbox_workspace_write]
+  writable_roots = ["/absolute/path/to/the/repository/.git"]
+  network_access = true
+  ```
 
 The Claude prompts name the skill file instead of `/evolve-run` on purpose: `evolve-run` can only be
 started by the user, and a scheduled prompt that says `/evolve-run` reaches Claude as plain text.
-Use one scheduler per repository: a cloud task and a cron job that both push to the same branch
-will reject each other's pushes.
+Prefer one scheduler per repository: the engine does not pull before it pushes, so when two
+schedulers work from separate clones, the one that pushes second is rejected.
 
 ## 6. Finish
 

@@ -59,6 +59,7 @@ rm -rf "$D"
 D=$(run_init native)
 check "native: mode persisted"       "$(node -e "console.log(require('$D/.evolve/config.json').mode)")" "native"
 check "native: status reports mode"  "$(cd "$D" && node "$CLI" status 2>/dev/null | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).mode))')" "native"
+check "native: next steps point at the agent's scheduler, not at cron" "$(cd "$D" && node "$CLI" init --yes --mode native </dev/null 2>&1 | grep -c 'Schedule cycles in your agent')" "1"
 check "native: no CI workflow"       "$([ -f "$D/.github/workflows/evolve.yml" ] && echo yes || echo no)" "no"
 check "native: no local schedule"    "$([ -f "$D/.evolve/schedule.json" ] && echo yes || echo no)" "no"
 # A cron job left over from local mode would run cycles alongside the agent's scheduler.
@@ -67,7 +68,16 @@ OUT=$( cd "$D" && node "$CLI" init --yes --mode native </dev/null 2>&1 )
 check "native: says a local schedule is still installed" "$(echo "$OUT" | grep -c 'local schedule is still installed.*code-evolve stop')" "1"
 check "native: leaves that schedule for the user to stop" "$([ -f "$D/.evolve/schedule.json" ] && echo yes || echo no)" "yes"
 OUT=$( cd "$D" && node "$CLI" init --yes </dev/null 2>&1 )
+check "native: a plain refresh does not repeat the warning" "$(echo "$OUT" | grep -c 'is still installed')" "0"
 check "native: a plain refresh keeps the mode" "$(node -e "console.log(require('$D/.evolve/config.json').mode)")" "native"
+rm -rf "$D"
+
+# ── ci -> native: our workflow stays installed, so its schedule keeps firing ──
+D=$(run_init ci)
+OUT=$( cd "$D" && node "$CLI" init --yes --mode native </dev/null 2>&1 )
+check "ci to native: says the Actions schedule is still installed" "$(echo "$OUT" | grep -c 'GitHub Actions schedule is still installed')" "1"
+OUT=$( cd "$D" && node "$CLI" init --yes --mode ci </dev/null 2>&1 )
+check "back to ci: no leftover-schedule warning" "$(echo "$OUT" | grep -c 'is still installed')" "0"
 rm -rf "$D"
 
 # ── invalid mode: exits non-zero with a clear message ──
