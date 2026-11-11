@@ -61,7 +61,7 @@ code-evolve/                  # npm package source
 │   ├── state/                # IDENTITY.md, JOURNAL.md, LEARNINGS.md, REQUIREMENTS.md, DAY_COUNT, vision.md, spec.md
 │   └── workflows/            # GitHub Actions (evolve.yml, ci.yml)
 ├── scripts/                  # Repo tooling: sync-plugin-version.js (npm version hook), pack-codex-plugin (plugin ZIP)
-├── docs/                     # INSTALL.md, STATUS.md, PROOF9.md
+├── docs/                     # STATUS.md, PROOF9.md, demos/ (live acceptance records)
 ├── dist/                     # Compiled output (gitignored; built on publish)
 └── .github/workflows/        # CI for this package
 ```

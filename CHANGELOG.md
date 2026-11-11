@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Live acceptance record** for the one-command install and first cycle
+  ([docs/demos/first-cycle-acceptance.md](docs/demos/first-cycle-acceptance.md)): both fixtures
+  and both install paths on Claude Code (headless sessions), a cron-triggered cycle, and the Codex run from
+  2026-11-08, with the defects they turned up (#85).
+
 ## [0.2.0] — 2026-06-29
 
 The guided-install release: `code-evolve` goes from "happy-path engine" to a
