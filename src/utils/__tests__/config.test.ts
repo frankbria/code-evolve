@@ -19,7 +19,9 @@ import {
   customAgentEnv,
   customCommandBinary,
   isEnvVarName,
+  newerInstalledEngine,
 } from '../config';
+import { packageVersion } from '../paths';
 
 describe('agent validation', () => {
   it('accepts every supported agent and rejects unknowns', () => {
@@ -156,6 +158,22 @@ describe('readConfig / writeConfig round-trip', () => {
     // An object without a string `agent` is rejected too.
     fs.writeFileSync(path.join(tmp, '.evolve', 'config.json'), JSON.stringify({ mode: 'ci' }));
     expect(readConfig()).toEqual({ agent: 'claude' });
+  });
+
+  it('reports an installed engine only when it is newer than this CLI', () => {
+    const [major, minor, patch] = packageVersion().split('.').map(Number);
+    expect(newerInstalledEngine()).toBeUndefined();
+    writeConfig({ agent: 'claude' });
+    expect(newerInstalledEngine()).toBeUndefined();
+    writeConfig({ agent: 'claude', engineVersion: packageVersion() });
+    expect(newerInstalledEngine()).toBeUndefined();
+    writeConfig({ agent: 'claude', engineVersion: '0.0.1' });
+    expect(newerInstalledEngine()).toBeUndefined();
+    writeConfig({ agent: 'claude', engineVersion: `${major}.${minor}.${patch + 1}` });
+    expect(newerInstalledEngine()).toBe(`${major}.${minor}.${patch + 1}`);
+    // A hand-edited record that is not a version string is not a reason to refuse.
+    fs.writeFileSync(path.join(tmp, '.evolve', 'config.json'), JSON.stringify({ agent: 'claude', engineVersion: 99 }));
+    expect(newerInstalledEngine()).toBeUndefined();
   });
 });
 

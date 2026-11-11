@@ -32,6 +32,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   installs stay in step. It falls back to `@latest` when that version is not on npm yet, and does
   not put an older engine over a newer one. `npm version` keeps the pinned version current along
   with the plugin manifests (#95).
+- `init` on an existing install (`--yes`, `--force`, or through `setup`) refuses to put its engine
+  over a newer installed one, as `upgrade` already did: when `engineVersion` in
+  `.evolve/config.json` is newer than the code-evolve that was run, it exits 1, changes nothing and
+  says to use a newer code-evolve or update the plugin. An out-of-date plugin or skill copy can no
+  longer downgrade the engine. The `evolve-setup` skill still compares the versions first, because
+  the 0.2.0 already on npm has no such check, and tells the user to update the plugin when init
+  refuses (#140).
 - `init` says when a switch of mode leaves an earlier cron job or GitHub Actions schedule
   installed, and `start` says when it replaces native scheduling, so two schedulers do not run
   side by side unnoticed. The `evolve-run` skill now checks that the push landed and reports a

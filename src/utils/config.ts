@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { evolveFile } from './paths';
+import { compareVersions, evolveFile, packageVersion } from './paths';
 
 export type AuthMode = 'api-key' | 'oauth' | 'chatgpt';
 
@@ -57,6 +57,12 @@ export function readConfig(): EvolveConfig {
   } catch {
     return { agent: 'claude' };
   }
+}
+
+/** The installed engine's recorded version when it is newer than this CLI, which must then not write its own engine over it. */
+export function newerInstalledEngine(): string | undefined {
+  const installed: unknown = readConfig().engineVersion;
+  return typeof installed === 'string' && compareVersions(installed, packageVersion()) > 0 ? installed : undefined;
 }
 
 export function writeConfig(config: EvolveConfig): void {

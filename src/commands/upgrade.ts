@@ -4,8 +4,8 @@ import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
 import { runProcess } from '../utils/checks';
-import { compareVersions, evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
-import { readConfig } from '../utils/config';
+import { evolveFile, getTemplatesDir, isInitialized, packageVersion } from '../utils/paths';
+import { newerInstalledEngine, readConfig } from '../utils/config';
 import { runInit } from './init';
 
 /**
@@ -73,11 +73,12 @@ export const upgradeCommand = new Command('upgrade')
       process.exit(1);
     }
 
-    const config = readConfig();
-    if (config.engineVersion && compareVersions(config.engineVersion, packageVersion()) > 0) {
-      console.error(`The installed engine (${config.engineVersion}) is newer than this code-evolve (${packageVersion()}); run: npx code-evolve@latest upgrade`);
+    const newerEngine = newerInstalledEngine();
+    if (newerEngine !== undefined) {
+      console.error(`The installed engine (${newerEngine}) is newer than this code-evolve (${packageVersion()}); run: npx code-evolve@latest upgrade`);
       process.exit(1);
     }
+    const config = readConfig();
     console.log(`Upgrading the engine from ${config.engineVersion ?? 'an unrecorded version'} to ${packageVersion()}...\n`);
     await runInit({ yes: true, agent: config.agent, authMode: config.authMode ?? 'api-key' });
   });

@@ -25,6 +25,7 @@ import {
   resolveModeSelection,
   getExecutionModes,
   NATIVE_REPLACED_WARNING,
+  newerInstalledEngine,
   isValidMode,
   AuthMode,
   ExecutionMode,
@@ -136,6 +137,17 @@ export async function runInit(options: InitOptions): Promise<void> {
     } else if (options.force) {
       const existingMode = (existingConfig as { mode?: unknown }).mode;
       if (typeof existingMode === 'string' && isValidMode(existingMode)) mode = existingMode;
+    }
+
+    // An out-of-date plugin, skill copy or npx cache re-running init must not put its older engine back.
+    // Checked before the --force hint below, which would only lead to this refusal.
+    const newerEngine = wasInitialized ? newerInstalledEngine() : undefined;
+    if (newerEngine !== undefined) {
+      console.error(
+        `The installed engine (${newerEngine}) is newer than this code-evolve (${packageVersion()}), so nothing was changed. ` +
+          'Use a newer code-evolve (npx code-evolve@latest ...); if a plugin or skill ran this command, update the code-evolve plugin.',
+      );
+      process.exit(1);
     }
 
     // Fail fast before prompting: don't ask agent/auth questions only to abort.
