@@ -480,6 +480,8 @@ ln -s ../../../shared-skill ".evolve/skills/ta${tab}b"
 refused "a symlinked skill directory with a tab in its name" ".evolve/skills/ta${tab}b"
 ln -s "../../../odd${newline}store" .evolve/skills/odd
 refused "a symlinked skill directory with a newline in its target" .evolve/skills/odd
+mkdir "$twelfth_root/store${tab}" && ln -s "store${tab}" "$twelfth_root/alias" && ln -s ../../../alias .evolve/skills/aliased
+refused "a symlinked skill directory that leads to a path with a tab" .evolve/skills/aliased
 echo "echo hi" > ".evolve/scripts/two${newline}lines.sh"
 refused "a protected file with a newline in its name" ".evolve/scripts/two${newline}lines.sh"
 twelfth_status=0

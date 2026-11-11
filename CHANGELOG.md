@@ -37,8 +37,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the status on and the `evolve.yml` workflow fails the run without retrying (a new session would
   take the swapped directory for your layout). Run `code-evolve upgrade` to get the new workflow.
 - **A session refuses names the guard's snapshot cannot hold** (#150): it stops with exit status 1
-  before the agent runs when a symlinked protected directory has a tab or newline in its name or
-  target, or a protected path has a newline in its name. These used to be recorded wrongly.
+  before the agent runs when a symlinked protected directory has a tab or newline in its name, its
+  target or the path it leads to, or a protected path has a newline in its name. These used to be recorded wrongly.
 - A cycle starts from its upstream's state: `evolve.sh` (`cycle` and `prepare`) fetches the branch's
   upstream first, fast-forwards a branch that is behind and rebases cycles that were never pushed (a branch that
   is pushed to a fork is only ever fast-forwarded).

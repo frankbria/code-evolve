@@ -342,8 +342,8 @@ link_record() {
     target="${target%x}"
     physical=$(physical_directory "$1"; printf x)
     physical="${physical%"$NEWLINE"x}"
-    if [[ "$1$target" == *["$TAB$NEWLINE"]* || "$physical" == *"$NEWLINE"* ]]; then
-        printf 'Error: the protected-path guard cannot record the symlink %q -> %q: a tab or newline in its name or target, or a newline in the path it leads to, is not supported. Rename it and run again.\n' "$1" "$target" >&2
+    if [[ "$1$target$physical" == *["$TAB$NEWLINE"]* ]]; then
+        printf 'Error: the protected-path guard cannot record the symlink %q -> %q (leading to %q): a tab or newline in its name, its target or the path it leads to is not supported. Rename it and run again.\n' "$1" "$target" "$physical" >&2
         return 1
     fi
     printf '%s\t%s\t%s\n' "$1" "$target" "$physical"
