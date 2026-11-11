@@ -365,6 +365,8 @@ CI always uses `api-key` mode, whatever you choose locally.
 
 The default model adapts to your agent (e.g., `llama3` for Ollama, `o4-mini` for Codex). Override it per run with `--model`; `start --model` also saves it to `.evolve/config.json` as `model`, which later `run` and `start` calls use for that agent.
 
+What has been run live with real agents, from install to a committed first cycle, is recorded in [docs/demos/first-cycle-acceptance.md](docs/demos/first-cycle-acceptance.md).
+
 ## Stack Detection
 
 Drop code-evolve into any project. It figures out how to build and test it:
