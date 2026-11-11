@@ -38,6 +38,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **Protected-files guard, two layouts it missed** (#109):
+  - A protected directory you keep as a symlink (for example `.evolve/skills` pointing at a shared
+    store, or one skill directory inside it) is now followed when the session starts. Files
+    behind the link are restored after an agent call, files planted there are removed, and a
+    link the agent repoints or deletes goes back on its original target. A directory symlink
+    the agent adds is removed without being followed.
+  - An engine run by hand with an absolute `EVOLVE_DIR` is guarded. A path inside the project is
+    reduced to its relative form (so `prepare` also writes its state under `.evolve/run/` rather
+    than a stray nested directory); a path outside the project is guarded in place. Nothing was
+    snapshotted in either case before. `code-evolve run` always passed the relative path.
 - **Engine papercuts** (#98):
   - A reverted session keeps the lessons it wrote to `.evolve/LEARNINGS.md` and the day counter.
     The revert used to take all of `.evolve/` back with the code, so what a failed session learned

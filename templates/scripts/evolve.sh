@@ -36,6 +36,19 @@ set -euo pipefail
 REPO="${REPO:-$(git remote get-url origin 2>/dev/null | sed 's|.*github.com[:/]||;s|\.git$||' || echo "owner/code-evolve")}"
 TIMEOUT="${TIMEOUT:-3600}"
 EVOLVE_DIR="${EVOLVE_DIR:-.evolve}"
+# The engine joins EVOLVE_DIR to the project root and matches protected paths as
+# project-relative globs, so an absolute path inside the project is reduced to that form.
+# Only the parent is resolved: EVOLVE_DIR itself may be a symlink the user keeps.
+case "$EVOLVE_DIR" in
+    /*)
+        evolve_parent=$(cd -P "$(dirname "$EVOLVE_DIR")" 2>/dev/null && pwd -P) || evolve_parent=""
+        project_root=$(pwd -P)
+        case "$evolve_parent/" in
+            "$project_root"/*)
+                EVOLVE_DIR="${evolve_parent#"$project_root"}/$(basename "$EVOLVE_DIR")"
+                EVOLVE_DIR="${EVOLVE_DIR#/}" ;;
+        esac ;;
+esac
 PROJECT_DIR="${PROJECT_DIR:-.}"
 AGENT="${AGENT:-claude}"
 # Each agent's default model. Keep in sync with AGENT_DEFAULT_MODELS in src/utils/config.ts
@@ -253,30 +266,67 @@ protected_path_matches() {
     return 1
 }
 
-# Every file or symlink on disk that matches the protected list. Walks the filesystem rather
-# than asking git, so gitignored protected files (and planted files hidden by a new ignore
-# rule) are still covered. Only each pattern's first path segment is searched, so a pattern
-# must start with a literal directory or file name (not a glob). find -H follows a top-level
-# symlink (a user may symlink .evolve) but never symlinks inside it.
-list_protected_files() {
-    local pattern search_root candidate
+# Where each pattern is searched from: its path up to the first glob character
+# (".evolve/skills" for ".evolve/skills/*"). A pattern must therefore start with a literal
+# directory or file name.
+protected_search_roots() {
+    local pattern literal
     while IFS= read -r pattern; do
         case "$pattern" in ''|'#'*) continue ;; esac
-        search_root="${pattern%%/*}"
-        [ -e "$search_root" ] || [ -L "$search_root" ] || continue
-        find -H "$search_root" \( -type f -o -type l \) 2>/dev/null
-    done < "$PROTECTED_SNAPSHOT/patterns" | sort -u | while IFS= read -r candidate; do
+        literal="${pattern%%[*?[]*}"
+        if [ "$literal" != "$pattern" ]; then
+            case "$literal" in */*) literal="${literal%/*}" ;; *) literal="" ;; esac
+        fi
+        [ -n "$literal" ] || continue
+        [ -e "$literal" ] || [ -L "$literal" ] || continue
+        printf '%s\n' "$literal"
+    done < "$PROTECTED_SNAPSHOT/patterns" | sort -u
+}
+
+# True if <path> was a directory symlink at session start (the user's own layout).
+session_start_link() {
+    awk -F '\t' -v path="$1" '$1 == path { found = 1 } END { exit !found }' "$PROTECTED_SNAPSHOT/ancestor_links"
+}
+
+# Directory symlinks under the protected paths, with their targets. Run once, at session start,
+# when every link on disk is the user's. find -L stops at a link that loops back on itself.
+list_protected_directory_links() {
+    local search_root directory
+    while IFS= read -r search_root; do
+        find -L "$search_root" -type d 2>/dev/null
+    done < <(protected_search_roots) | sort -u | while IFS= read -r directory; do
+        [ -L "$directory" ] || continue
+        if protected_path_matches "$directory/"; then printf '%s\t%s\n' "$directory" "$(readlink "$directory")"; fi
+    done
+}
+
+# Every file or symlink on disk that matches the protected list. Walks the filesystem rather
+# than asking git, so gitignored protected files (and planted files hidden by a new ignore
+# rule) are still covered. Only directory symlinks recorded at session start are followed (a
+# user may symlink .evolve or a directory inside it); one made since is listed as a file.
+list_protected_files() {
+    local search_root candidate
+    { protected_search_roots; cut -f1 "$PROTECTED_SNAPSHOT/ancestor_links"; } | sort -u | while IFS= read -r search_root; do
+        if [ -L "$search_root" ] && ! session_start_link "$search_root"; then
+            printf '%s\n' "$search_root"
+        else
+            find -H "$search_root" \( -type f -o -type l \) 2>/dev/null
+        fi
+    done | sort -u | while IFS= read -r candidate; do
+        session_start_link "$candidate" && continue
         if protected_path_matches "$candidate"; then printf '%s\n' "$candidate"; fi
     done
 }
 
-# Directories between the project root and <path>, outermost first (".evolve", ".evolve/scripts").
+# Directories above <path>, outermost first (".evolve", ".evolve/scripts").
 path_ancestors() {
     local parent prefix="" part
     parent=$(dirname "$1")
     [ "$parent" = "." ] && return 0
+    case "$parent" in /*) prefix="/" ;; esac
     while IFS= read -r part; do
-        prefix="${prefix:+$prefix/}$part"
+        [ -n "$part" ] || continue
+        prefix="${prefix%/}${prefix:+/}$part"
         printf '%s\n' "$prefix"
     done < <(printf '%s\n' "$parent" | tr '/' '\n')
 }
@@ -302,8 +352,10 @@ snapshot_protected_paths() {
         printf '%s\n' "$EVOLVE_DIR/IDENTITY.md" "$EVOLVE_DIR/scripts/*" "$EVOLVE_DIR/skills/*" \
             .github/workflows/evolve.yml .github/workflows/evolve-ci.yml > "$PROTECTED_SNAPSHOT/patterns"
     fi
-    list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
     : > "$PROTECTED_SNAPSHOT/ancestor_links"
+    list_protected_directory_links > "$PROTECTED_SNAPSHOT/directory_links"
+    mv "$PROTECTED_SNAPSHOT/directory_links" "$PROTECTED_SNAPSHOT/ancestor_links"
+    list_protected_files > "$PROTECTED_SNAPSHOT/manifest"
     while IFS= read -r protected_file; do
         mkdir -p "$PROTECTED_SNAPSHOT/files/$(dirname "$protected_file")"
         cp -P -p "$protected_file" "$PROTECTED_SNAPSHOT/files/$protected_file"
@@ -329,6 +381,7 @@ repair_protected_ancestors() {
         if [ -n "$original_target" ]; then
             [ -L "$ancestor" ] && [ "$(readlink "$ancestor")" = "$original_target" ] && continue
             rm -rf -- "$ancestor" 2>/dev/null || true
+            mkdir -p "$(dirname "$ancestor")" 2>/dev/null || true
             ln -s "$original_target" "$ancestor" 2>/dev/null || true
             repaired="$repaired $ancestor (symlink target restored)"
         elif [ -L "$ancestor" ] || { [ -e "$ancestor" ] && [ ! -d "$ancestor" ]; }; then
@@ -354,8 +407,13 @@ protected_file_changed() {
 # into a symlink is replaced by a real one first (writes would otherwise land wherever the link
 # points). Restores go through a temp file and mv, so a running evolve.sh keeps its old inode.
 restore_protected_paths() {
-    local protected_file restore_dir restored=""
+    local protected_file restore_dir session_link restored=""
     [ -n "${PROTECTED_SNAPSHOT:-}" ] || return 0
+    # The user's directory symlinks go back on their targets before anything is walked, so the
+    # walk below never follows a link the agent repointed.
+    while IFS=$'\t' read -r session_link _; do
+        restored="$restored$(repair_protected_ancestors "$session_link/.")"
+    done < "$PROTECTED_SNAPSHOT/ancestor_links"
     while IFS= read -r protected_file; do
         restored="$restored$(repair_protected_ancestors "$protected_file")"
         if grep -qxF -- "$protected_file" "$PROTECTED_SNAPSHOT/manifest"; then
