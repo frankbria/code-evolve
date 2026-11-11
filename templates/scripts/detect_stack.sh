@@ -28,21 +28,56 @@ python_tool() {
     fi
 }
 
-# python_test_files <dir> [pattern] — true when the project has a test file (matching pattern).
-# Searched from inside the project: grep would skip a project directory itself named "venv".
+# Directories that hold no project tests: the engine, agent CLIs, and installed packages.
+PYTHON_SKIPPED_DIRS=(.git .evolve .claude .agents .venv venv node_modules)
+
+# python_test_files <dir> <pattern> <file glob>... — true when a project file with one of the
+# names has a line matching the pattern. Searched from inside the project: grep would skip a
+# project directory itself named "venv".
 python_test_files() {
-    (cd "$1" && grep -rlqE --include='test*.py' --include='*_test.py' \
-        --exclude-dir=.git --exclude-dir=.evolve --exclude-dir=.claude --exclude-dir=.agents \
-        --exclude-dir=.venv --exclude-dir=venv --exclude-dir=node_modules \
-        "${2:-}" .) 2>/dev/null
+    local dir="$1" pattern="$2" options=() name
+    shift 2
+    for name in "$@"; do options+=("--include=$name"); done
+    for name in "${PYTHON_SKIPPED_DIRS[@]}"; do options+=("--exclude-dir=$name"); done
+    (cd "$dir" && grep -rlqE "${options[@]}" "$pattern" .) 2>/dev/null
 }
 
-# PEP 668: outside a virtual environment, a distribution-owned Python refuses pip installs.
-# shortcut: asks python3, not the interpreter behind `pip`; resolve pip's own interpreter if the two are seen to differ.
-python_externally_managed() {
-    python3 -c 'import os, sys, sysconfig
+# python_unittest_command <dir> <python> — prints the unittest command when it runs the whole
+# suite: only TestCase classes, all in files discovery will open. Prints nothing otherwise,
+# because a suite unittest would run in part (or not at all) must not pass as verified.
+python_unittest_command() {
+    local dir="$1" python="$2" start_directory="" prunes=() name all_count seen_count
+    python_test_files "$dir" '^[[:space:]]*class[[:space:]].*TestCase' 'test*.py' || return 0
+    python_test_files "$dir" '^(async[[:space:]]+)?def[[:space:]]+test' 'test*.py' '*_test.py' && return 0
+    python_test_files "$dir" '' '*_test.py' && return 0
+
+    # Discovery only enters packages, so a plain tests/ folder is named as the start instead.
+    if [ ! -f "$dir/tests/__init__.py" ] && compgen -G "$dir/tests/test*.py" >/dev/null; then
+        start_directory="tests"
+    fi
+    for name in "${PYTHON_SKIPPED_DIRS[@]}"; do prunes+=(-name "$name" -o); done
+    all_count=$(cd "$dir" && find . \( "${prunes[@]}" -false \) -prune -o -type f -name 'test*.py' -print | wc -l)
+    # shortcut: counts only the start directory and a tests/ package directly under it; deeper
+    # packages fall back to pytest. Walk __init__.py chains if such a layout needs unittest.
+    if [ -n "$start_directory" ]; then
+        seen_count=$(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | wc -l)
+    else
+        seen_count=$(cd "$dir" && find . -maxdepth 1 -type f -name 'test*.py' | wc -l)
+        if [ -f "$dir/tests/__init__.py" ]; then
+            seen_count=$((seen_count + $(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | wc -l)))
+        fi
+    fi
+    [ "$all_count" -eq "$seen_count" ] || return 0
+    echo "$python -m unittest discover${start_directory:+ -s $start_directory}"
+}
+
+# python_can_install <python> — true when that interpreter has pip and accepts installs.
+# PEP 668: outside a virtual environment, a distribution-owned Python refuses them.
+python_can_install() {
+    "$1" -m pip --version >/dev/null 2>&1 || return 1
+    "$1" -c 'import os, sys, sysconfig
 marker = os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")
-sys.exit(0 if sys.prefix == sys.base_prefix and os.path.exists(marker) else 1)' 2>/dev/null
+sys.exit(1 if sys.prefix == sys.base_prefix and os.path.exists(marker) else 0)' 2>/dev/null
 }
 
 # python_commands <dir> <pip install arguments> — for projects without a uv or poetry lock.
@@ -51,23 +86,25 @@ python_commands() {
     local dir="$1" install_arguments="$2" python="python3" pytest ruff
     if [ -x "$dir/.venv/bin/python" ]; then
         python=".venv/bin/python"
-        [ -x "$dir/.venv/bin/pip" ] && BUILD_CMD=".venv/bin/pip install $install_arguments"
-    elif command -v pip >/dev/null 2>&1 && ! python_externally_managed; then
-        BUILD_CMD="pip install $install_arguments"
+        if python_can_install "$dir/.venv/bin/python"; then
+            BUILD_CMD="$python -m pip install $install_arguments"
+        elif command -v uv >/dev/null 2>&1; then
+            # A .venv made by uv has no pip of its own.
+            BUILD_CMD="uv pip install --python $python $install_arguments"
+        fi
+    elif python_can_install python3; then
+        BUILD_CMD="python3 -m pip install $install_arguments"
     fi
 
     pytest=$(python_tool "$dir" pytest)
     if [ -n "$pytest" ]; then
         TEST_CMD="$pytest"
-    elif python_test_files "$dir" '^[[:space:]]*(import|from)[[:space:]]+unittest'; then
-        TEST_CMD="$python -m unittest discover"
-        # Discovery from the root only enters packages; a plain tests/ folder is named instead.
-        if [ -d "$dir/tests" ] && [ ! -f "$dir/tests/__init__.py" ]; then
-            TEST_CMD="$TEST_CMD -s tests"
+    else
+        TEST_CMD=$(python_unittest_command "$dir" "$python")
+        if [ -z "$TEST_CMD" ] && python_test_files "$dir" '' 'test*.py' '*_test.py'; then
+            # Tests that need pytest: keep the command so its absence is reported, not skipped.
+            TEST_CMD="pytest"
         fi
-    elif python_test_files "$dir"; then
-        # Tests that need pytest: keep the command so its absence is reported, not skipped.
-        TEST_CMD="pytest"
     fi
 
     ruff=$(python_tool "$dir" ruff)

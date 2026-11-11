@@ -32,6 +32,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install ruff
+        # tests/test_python_stack.sh runs the detected lint and format commands with the real tool.
+        run: pipx install ruff
+
       - name: Test
         run: npm test
 

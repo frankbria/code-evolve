@@ -46,12 +46,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   says so in one line. A failed push is reported with git's own reason instead of "maybe no remote
   or auth issue" (#132).
 - A Python project without a uv or poetry lock is verified with tools that can run. `pytest` and
-  `ruff` are only used when installed (the project's `.venv` first, then `PATH`); tests written
-  with `unittest` run through `python3 -m unittest discover` when pytest is missing; and
-  `pip install` is left out where pip is missing or the Python is externally managed (PEP 668)
-  with no virtual environment. Before, a standard-library project on a stock Ubuntu Python failed
+  `ruff` are only used when installed (the project's `.venv` first, then `PATH`); a suite made
+  only of `unittest.TestCase` classes runs through `python3 -m unittest discover` when pytest is
+  missing; and the install step runs as `python3 -m pip install` (or the `.venv`'s Python, or
+  `uv pip install` for a `.venv` without pip) and is left out where that Python has no pip or is
+  externally managed (PEP 668) with no virtual environment. Before, a standard-library project on a stock Ubuntu Python failed
   its first verification on `pip`, `pytest` and `ruff` alone. The `evolve-ci.yml` workflow reads
-  the commands after it installs dependencies (#133).
+  the commands after it installs dependencies, for a root project and for nested ones (#133).
 - Ruff and deno checks skip `.evolve/`, `.claude/` and `.agents/`. `ruff format --check .` used to
   fail on the engine's own scripts in any project that had ruff, and the automatic format fix then
   rewrote those protected files (#133).

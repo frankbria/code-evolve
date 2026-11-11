@@ -4,8 +4,8 @@
 #     unittest-style tests fall back to `python3 -m unittest discover`.
 #   - `pip install` is not returned where pip would refuse it or is missing.
 #   - ruff (and deno) leave the engine's own directories alone.
-# The detected commands are run for real in the fixtures; only ruff and pip are stand-ins
-# where the real tool may not be installed (real ruff is also used when it is on PATH).
+# The detected commands are run for real in the fixtures. Ruff is the real one when it is on
+# PATH (CI installs it) next to a stand-in that fails the way ruff does on the engine's files.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,16 +21,20 @@ bad() { echo "  FAIL: $1"; fail=$((fail+1)); }
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
-# A PATH holding only what detection and the fixtures' own commands need, so pytest, ruff
-# and pip are absent whatever this machine has installed.
+# A PATH holding only what detection and the fixtures' own commands need, so pytest and ruff
+# are absent whatever this machine has installed. Its python3 is a virtual environment
+# without pip, so "pip cannot install" does not depend on this machine's Python either.
 toolbox="$scratch/toolbox"
 mkdir "$toolbox"
-for tool in bash sh cat grep basename dirname python3 sed env; do
+for tool in bash sh cat grep find wc basename dirname sed env; do
     ln -s "$(command -v "$tool")" "$toolbox/$tool"
 done
+SYSTEM_PYTHON="$(command -v python3)"
 REAL_RUFF="$(command -v ruff || true)"
+"$SYSTEM_PYTHON" -m venv --without-pip "$scratch/no-pip"
+ln -s "$scratch/no-pip/bin/python3" "$toolbox/python3"
 
-field() { echo "$1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$2',''))"; }
+field() { echo "$1" | "$SYSTEM_PYTHON" -c "import sys,json; print(json.load(sys.stdin).get('$2',''))"; }
 # detect_in <dir> [extra PATH dir]  → the JSON detected with the toolbox PATH
 detect_in() { PATH="${2:+$2:}$toolbox" bash "$SCRIPT" "$1"; }
 # run_in <dir> <command> [extra PATH dir]  → run a detected command the way the engine does
@@ -106,40 +110,102 @@ J=$(detect_in "$bare")
 check "engine and .venv test files do not count" "$(field "$J" test)" ""
 rm -rf "$bare/.evolve" "$bare/.venv"
 
+# unittest discovery would skip these, so they keep pytest and the missing tool is reported.
+mocked="$(new_fixture mocked)"
+printf '[project]\nname = "mocked"\nversion = "0.1.0"\n' > "$mocked/pyproject.toml"
+mkdir "$mocked/tests"
+printf 'from unittest.mock import Mock\n\n\ndef test_failure():\n    assert Mock() is None\n' > "$mocked/tests/test_mocked.py"
+J=$(detect_in "$mocked")
+check "pytest functions that import unittest.mock keep pytest" "$(field "$J" test)" "pytest"
+write_unittest "$mocked/tests/test_greeting.py"
+J=$(detect_in "$mocked")
+check "TestCase classes next to pytest functions keep pytest" "$(field "$J" test)" "pytest"
+
+suffixed="$(new_fixture suffixed)"
+printf '[project]\nname = "suffixed"\nversion = "0.1.0"\n' > "$suffixed/pyproject.toml"
+write_unittest "$suffixed/tests/greeting_test.py"
+J=$(detect_in "$suffixed")
+check "TestCase classes in *_test.py files keep pytest" "$(field "$J" test)" "pytest"
+
+# A tests/ folder that holds no tests does not become the start directory.
+beside="$(new_fixture beside)"
+printf '[project]\nname = "beside"\nversion = "0.1.0"\n' > "$beside/pyproject.toml"
+write_unittest "$beside/test_greeting.py"
+mkdir "$beside/tests"; echo "fixture data" > "$beside/tests/data.txt"
+J=$(detect_in "$beside")
+check "tests next to the code with a data-only tests/ folder" "$(field "$J" test)" "python3 -m unittest discover"
+run_in "$beside" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "tests next to the code: the test is found and passes" || bad "tests next to the code: $(tail -3 "$scratch/run.log")"
+
+# Test files in folders discovery does not enter would be skipped, so those suites keep pytest.
+nested="$(new_fixture nested)"
+printf '[project]\nname = "nested"\nversion = "0.1.0"\n' > "$nested/pyproject.toml"
+write_unittest "$nested/tests/test_greeting.py"
+write_unittest "$nested/tests/unit/test_deeper.py"
+J=$(detect_in "$nested")
+check "a test folder discovery would not enter keeps pytest" "$(field "$J" test)" "pytest"
+rm -rf "$nested/tests/unit"
+write_unittest "$nested/test_beside.py"
+J=$(detect_in "$nested")
+check "tests both in a plain tests/ folder and beside the code keep pytest" "$(field "$J" test)" "pytest"
+rm "$nested/test_beside.py"
+J=$(detect_in "$nested")
+check "the same project with every test in tests/ runs unittest" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+
 # ── A project .venv is preferred, so a scheduled run uses what an in-session run used ──
 venv="$(new_fixture venv)"
 printf '[project]\nname = "venv"\nversion = "0.1.0"\n' > "$venv/pyproject.toml"
 write_unittest "$venv/tests/test_greeting.py"
-PATH="$toolbox" python3 -m venv --without-pip "$venv/.venv"
+"$SYSTEM_PYTHON" -m venv --without-pip "$venv/.venv"
 J=$(detect_in "$venv")
 check ".venv without pytest: unittest runs on its python" "$(field "$J" test)" ".venv/bin/python -m unittest discover -s tests"
 check ".venv without pip: no build" "$(field "$J" build)" ""
 run_in "$venv" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
     && ok ".venv: the test command runs on the .venv python" || bad ".venv: $(tail -3 "$scratch/run.log")"
+executable "$tools/uv"
+J=$(detect_in "$venv" "$tools")
+check ".venv without pip, uv installed: uv installs into it" "$(field "$J" build)" "uv pip install --python .venv/bin/python -e ."
+rm "$tools/uv"
 executable "$venv/.venv/bin/pytest"
 executable "$venv/.venv/bin/ruff"
-executable "$venv/.venv/bin/pip"
 J=$(detect_in "$venv")
 check ".venv: test"   "$(field "$J" test)"   ".venv/bin/pytest"
-check ".venv: build"  "$(field "$J" build)"  ".venv/bin/pip install -e ."
 check ".venv: lint"   "$(field "$J" lint)"   ".venv/bin/ruff check --extend-exclude $ENGINE_EXCLUDES ."
 check ".venv: format" "$(field "$J" format)" ".venv/bin/ruff format --check --extend-exclude $ENGINE_EXCLUDES ."
-echo "requests" > "$venv/requirements.txt"; rm "$venv/pyproject.toml"
-J=$(detect_in "$venv")
-check ".venv + requirements.txt: build" "$(field "$J" build)" ".venv/bin/pip install -r requirements.txt"
 
-# ── pip outside a virtual environment: only where this Python accepts installs (PEP 668) ──
-executable "$tools/pip"
-if PATH="$toolbox" python3 -c 'import os, sys, sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 1)'; then
-    system_build=""
+# ── pip: only through an interpreter that has it and accepts installs (PEP 668) ──
+# The checks that need pip borrow this machine's through --system-site-packages, so they
+# only run where the system Python has pip.
+system_python_dir="$scratch/system-python"
+mkdir "$system_python_dir"
+ln -s "$SYSTEM_PYTHON" "$system_python_dir/python3"
+if "$SYSTEM_PYTHON" -m pip --version >/dev/null 2>&1; then
+    if "$SYSTEM_PYTHON" -c 'import os, sys, sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else 1)'; then
+        J=$(detect_in "$plain" "$system_python_dir")
+        check "externally managed system python: no build" "$(field "$J" build)" ""
+    else
+        echo "  (this Python is not externally managed: that check was not run)"
+    fi
+
+    "$SYSTEM_PYTHON" -m venv --without-pip --system-site-packages "$scratch/active"
+    J=$(detect_in "$plain" "$scratch/active/bin")
+    check "active virtual environment with pip: build" "$(field "$J" build)" "python3 -m pip install -e ."
+    # A pip on PATH that belongs to another Python is not what the build would use.
+    executable "$tools/pip"
+    J=$(detect_in "$plain" "$tools")
+    check "a pip on PATH next to a python3 without pip: no build" "$(field "$J" build)" ""
+    rm "$tools/pip"
+
+    rm -rf "$venv/.venv"
+    "$SYSTEM_PYTHON" -m venv --without-pip --system-site-packages "$venv/.venv"
+    J=$(detect_in "$venv")
+    check ".venv with pip: build" "$(field "$J" build)" ".venv/bin/python -m pip install -e ."
+    echo "requests" > "$venv/requirements.txt"; rm "$venv/pyproject.toml"
+    J=$(detect_in "$venv")
+    check ".venv with pip + requirements.txt: build" "$(field "$J" build)" ".venv/bin/python -m pip install -r requirements.txt"
 else
-    system_build="pip install -e ."
+    echo "  (this Python has no pip: the checks that need one were not run)"
 fi
-J=$(detect_in "$plain" "$tools")
-check "system python: build matches whether it is externally managed" "$(field "$J" build)" "$system_build"
-PATH="$toolbox" python3 -m venv --without-pip "$scratch/active"
-J=$(detect_in "$plain" "$scratch/active/bin:$tools")
-check "active virtual environment: pip install is returned" "$(field "$J" build)" "pip install -e ."
 
 # ── Acceptance 2: ruff available + a fresh .evolve/ → lint and format pass with no project config ──
 # The stand-in fails the way ruff does on main: when the engine's Python files are in scope.
@@ -170,6 +236,8 @@ if [ -n "$REAL_RUFF" ]; then
     run_in "$linted" "$(field "$J" lint) --isolated" "$real_ruff_dir"   && bad "real ruff: lint missed the project's own file"   || ok "real ruff: the project's own files are still linted"
     run_in "$linted" "$(field "$J" format) --isolated" "$real_ruff_dir" && bad "real ruff: format missed the project's own file" || ok "real ruff: the project's own files are still format-checked"
     rm "$linted/unformatted.py"
+elif [ -n "${CI:-}" ]; then
+    bad "ruff is not installed in CI: the real-ruff checks did not run"
 else
     echo "  (ruff is not installed: the real-ruff checks were not run)"
 fi

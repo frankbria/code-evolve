@@ -394,13 +394,13 @@ project's `.venv` when it has one and from `PATH` otherwise:
 
 | Check | Command | When |
 |-------|---------|------|
-| Build | `pip install -e .` (or `-r requirements.txt`) | pip can install here: a `.venv` with pip, an active virtual environment, or a Python that is not externally managed |
+| Build | `python3 -m pip install -e .` (or `-r requirements.txt`) | pip can install here: a `.venv` with pip, an active virtual environment, or a Python that is not externally managed. A `.venv` without pip is installed into with `uv pip install` when uv is available |
 | Test | `pytest` | pytest is installed |
-| Test | `python3 -m unittest discover` | pytest is not installed and the tests use `unittest` |
+| Test | `python3 -m unittest discover` | pytest is not installed and the whole suite is `unittest.TestCase` classes in `test*.py` files, either next to the code or directly in `tests/` |
 | Lint / format | `ruff check`, `ruff format --check` | ruff is installed |
 
-Tests written for pytest still get `pytest` when it is missing, so the run reports it instead of
-skipping them. Tree-wide linters and formatters (ruff, deno) skip `.evolve/`, `.claude/` and
+Any other test layout still gets `pytest` when it is missing, so the run reports the missing tool
+instead of skipping tests. Tree-wide linters and formatters (ruff, deno) skip `.evolve/`, `.claude/` and
 `.agents/`, so the engine's own files never fail your project's checks.
 
 **Monorepos and nested projects** are supported automatically. If no stack marker is found at the project root, code-evolve scans immediate subdirectories. Each project it finds there (e.g., `backend/` with Python and `frontend/` with Next.js, or a single `app/`) is verified independently — build, test, and lint run in that project's own directory. The post-session fix loop and CI workflow both handle monorepos.
