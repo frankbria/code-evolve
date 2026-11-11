@@ -308,13 +308,17 @@ detect_single_stack() {
 # relative to the project root. Without a root project every folder one level down counts
 # already, and the list adds deeper ones.
 NESTED_LIST="$SCRIPTS_DIR/../nested-projects.txt"
+# DETECT_STACK_NESTED=0: <project_dir> is itself a nested project (the CI workflow reads one
+# again after installing its dependencies). The list belongs to the project root, so it must
+# not be read against this directory, and nothing below it is named.
+SCAN_NESTED="${DETECT_STACK_NESTED:-1}"
 
 # listed_nested_dirs — the list's directories, one per line: no comments, no surrounding
 # blanks, no leading ./ or trailing /, and no absolute path or .. component (a symlink the
 # user lists is followed wherever it leads).
 listed_nested_dirs() {
     local line
-    [ -f "$NESTED_LIST" ] || return 0
+    [ "$SCAN_NESTED" != "0" ] && [ -f "$NESTED_LIST" ] || return 0
     while IFS= read -r line || [ -n "$line" ]; do
         line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s|^\(\./\)*||; s|/*$||')
         case "/$line/" in //|/'#'*|//*|*/../*|*/./*) continue ;; esac
@@ -386,13 +390,19 @@ has_project_marker() {
     done
     compgen -G "$1/*.sln" >/dev/null || compgen -G "$1/*.csproj" >/dev/null
 }
-if [ "$ROOT_STACK" != "unknown" ]; then
+# printable_ascii_name <name> — the root project's JSON never carried directory names before,
+# and one the JSON reader rejects (bytes that are not UTF-8) would lose every check.
+# shortcut: a folder with a non-ASCII name is not named in the notice; check for valid UTF-8
+# instead if such folders turn out to matter.
+printable_ascii_name() {
+    local LC_ALL=C
+    case "$1" in *[!\ -~]*) return 1 ;; esac
+}
+if [ "$ROOT_STACK" != "unknown" ] && [ "$SCAN_NESTED" != "0" ]; then
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
         SUBDIR_NAME=$(basename "$subdir")
-        # The root project's JSON never carried directory names before, so only plain ones go
-        # in: a name the JSON reader rejects (bytes that are not UTF-8) would lose every check.
-        case "$SUBDIR_NAME" in *[!A-Za-z0-9._@+\ -]*) continue ;; esac
+        json_safe_name "$SUBDIR_NAME" && printable_ascii_name "$SUBDIR_NAME" || continue
         case "$SUBSTACK_DIRS" in *$'\n'"$SUBDIR_NAME"$'\n'*) continue ;; esac
         ! git -C "$PROJECT_DIR" check-ignore -q -- "$SUBDIR_NAME" 2>/dev/null || continue
         has_project_marker "$subdir" || continue

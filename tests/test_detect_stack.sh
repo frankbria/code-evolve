@@ -173,6 +173,20 @@ JR=$(installed_detect "$MIXED")
 check "listed: duplicates count once; paths outside the project are ignored" "$(listing "$JR" substacks dir)" "api"
 check "listed: the rest is still named as unverified" "$(listing "$JR" unverified dir)" "examples"
 
+# Read as a nested project itself (the CI workflow does, after installing dependencies), a
+# folder is not searched with the root's list: api/api was never listed.
+mkdir -p "$MIXED/api/api/.venv/bin" "$MIXED/a|b"
+printf '[project]\nname = "inner"\n' > "$MIXED/api/api/pyproject.toml"
+cp "$MIXED/examples/.venv/bin/python" "$MIXED/api/api/.venv/bin/python"
+printf 'all:\n' > "$MIXED/a|b/Makefile"
+rm -f "$MIXED/interpreter-ran"
+JA=$(DETECT_STACK_NESTED=0 bash "$MIXED/.evolve/scripts/detect_stack.sh" "$MIXED/api")
+check "a nested project read on its own: its commands, no list, nothing named" \
+  "$(field "$JA" stack)|$(listing "$JA" substacks dir)|$(listing "$JA" unverified dir)|$([ -e "$MIXED/interpreter-ran" ] && echo ran || echo "not run")" "java|||not run"
+JR=$(installed_detect "$MIXED")
+check "unverified: a name with | is named too" "$(listing "$JR" unverified dir)" "a|b,examples"
+rm -rf "$MIXED/a|b"
+
 git -C "$MIXED" init -q
 echo 'examples/' > "$MIXED/.gitignore"
 JR=$(installed_detect "$MIXED")

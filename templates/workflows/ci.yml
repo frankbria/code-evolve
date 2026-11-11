@@ -118,7 +118,8 @@ jobs:
                       subprocess.run('pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true', shell=True, cwd=subdir)
 
               # Read again after the install: detection only returns a Python tool that is installed.
-              detected = subprocess.run(['bash', '.evolve/scripts/detect_stack.sh', subdir], capture_output=True, text=True)
+              # DETECT_STACK_NESTED=0: the list of nested projects belongs to the root, not to this one.
+              detected = subprocess.run(['bash', '.evolve/scripts/detect_stack.sh', subdir], capture_output=True, text=True, env={**os.environ, 'DETECT_STACK_NESTED': '0'})
               if detected.returncode == 0:
                   s = {**s, **{key: value for key, value in json.loads(detected.stdout).items() if key in ('build', 'test', 'lint')}}
 
