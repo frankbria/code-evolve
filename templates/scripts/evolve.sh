@@ -1306,7 +1306,8 @@ echo "-> Pushing..."
 # Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
 SESSION_BRANCH=$(git symbolic-ref -q HEAD || true)
 SESSION_BRANCH="${SESSION_BRANCH#refs/heads/}"
-SYNC_REF=refs/code-evolve/upstream
+# Per run: linked worktrees share one ref store, and two of them can finalize at the same time.
+SYNC_REF="refs/code-evolve/upstream-$$"
 
 branch_has_upstream() {
     [ -n "$SESSION_BRANCH" ] && git config --get "branch.$SESSION_BRANCH.remote" >/dev/null \
