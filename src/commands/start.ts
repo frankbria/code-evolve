@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getEvolveDir, isInitialized, EVOLVE_DIR_NAME } from '../utils/paths';
 import { cronEntryMarker, getCrontab, setCrontab, withoutProjectEntry } from '../utils/crontab';
-import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, AuthMode } from '../utils/config';
+import { readConfig, writeConfig, getAgentEnvKey, getAgentEnvHint, getSupportedAgents, isLoginAuth, isValidAgent, resolveModel, savedModelFor, customAgentEnv, customCommandBinary, AuthMode, NATIVE_REPLACED_WARNING } from '../utils/config';
 import { codexLoginMissing, isOnPath } from '../utils/checks';
 
 
@@ -143,7 +143,7 @@ export const startCommand = new Command('start')
     // A saved model belongs to the agent it was chosen for, so a switch of agent drops it.
     const savedModel = options.model ? model : savedModelFor(config, agent);
     if (config.mode === 'native') {
-      console.warn("Mode was native: pause or delete the schedule in your agent, or it will run cycles alongside this cron job.");
+      console.warn(NATIVE_REPLACED_WARNING);
     }
     writeConfig({ ...config, agent, authMode, mode: config.mode === 'both' ? 'both' : 'local', model: savedModel });
 

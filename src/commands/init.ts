@@ -24,6 +24,7 @@ import {
   resolveAgentSelection,
   resolveModeSelection,
   getExecutionModes,
+  NATIVE_REPLACED_WARNING,
   isValidMode,
   AuthMode,
   ExecutionMode,
@@ -422,6 +423,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     const modeChosen = mode !== undefined && (modeExplicit || mode !== previousConfig.mode);
     if (modeChosen && !wantLocal && fs.existsSync(evolveFile('schedule.json'))) {
       console.warn('  ⚠ A local schedule is still installed; remove it with `code-evolve stop` unless you want both.');
+    }
+    if (modeChosen && mode !== 'native' && previousConfig.mode === 'native') {
+      console.warn(`  ⚠ ${NATIVE_REPLACED_WARNING}`);
     }
     if (modeChosen && !wantCi && ourWorkflowsInstalled) {
       console.warn('  ⚠ The GitHub Actions schedule is still installed; turn it off with `gh workflow disable evolve.yml` unless you want both.');

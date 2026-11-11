@@ -77,6 +77,7 @@ D=$(run_init ci)
 OUT=$( cd "$D" && node "$CLI" init --yes --mode native </dev/null 2>&1 )
 check "ci to native: says the Actions schedule is still installed" "$(echo "$OUT" | grep -c 'GitHub Actions schedule is still installed')" "1"
 OUT=$( cd "$D" && node "$CLI" init --yes --mode ci </dev/null 2>&1 )
+check "native to ci: says the agent's schedule must be paused" "$(echo "$OUT" | grep -c 'Mode was native: pause or delete the schedule in your agent')" "1"
 check "back to ci: no leftover-schedule warning" "$(echo "$OUT" | grep -c 'is still installed')" "0"
 rm -rf "$D"
 

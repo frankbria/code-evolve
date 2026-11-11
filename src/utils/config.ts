@@ -31,6 +31,10 @@ export interface EvolveConfig {
   agentEnvVars?: string[];
 }
 
+/** Shown when another mode replaces native scheduling: code-evolve cannot stop the agent's schedule itself. */
+export const NATIVE_REPLACED_WARNING =
+  'Mode was native: pause or delete the schedule in your agent, or it will keep running cycles alongside the new one.';
+
 const CONFIG_FILE = 'config.json';
 const SUPPORTED_AGENTS = ['claude', 'codex', 'opencode', 'ollama', 'custom'];
 // The interactive picker offers the built-in backends; a custom agent needs --agent-command.
