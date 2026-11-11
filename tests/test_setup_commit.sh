@@ -32,7 +32,7 @@ SETUP_SUBJECT="code-evolve: add the engine and setup files"
 setup_commits() { git log --format=%s | grep -cxF "$SETUP_SUBJECT" || true; }
 committed_files() { git show --format= --name-only "$1" | sort; }
 
-new_project() { # <name>: a repository with one commit, then init, nothing of the install committed
+new_repository() { # <name>: a repository with one commit
     mkdir "$work_root/$1" && cd "$work_root/$1"
     git init -q
     git config user.email test@example.com
@@ -40,8 +40,9 @@ new_project() { # <name>: a repository with one commit, then init, nothing of th
     printf '{"name":"demo","scripts":{"build":"true","test":"true"}}\n' > package.json
     echo "# demo" > README.md
     git add -A && git commit -qm "baseline"
-    node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "$1: init failed"
 }
+install() { node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "init failed in $PWD"; }
+new_project() { new_repository "$1"; install; } # nothing of the install is committed
 
 # ── prepare (the in-session cycle) ──
 new_project prepared
@@ -104,8 +105,56 @@ engine prepare > "$stub_dir/ignored.log" 2>&1 || bad "ignored prepare failed: $(
 new_project hook
 printf '#!/bin/sh\n[ -f feature.txt ] || exit 1\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 hook_status=0; engine prepare > "$stub_dir/hook.log" 2>&1 || hook_status=$?
-[ "$hook_status" -eq 0 ] && grep -q "WARNING: could not commit the code-evolve install on its own" "$stub_dir/hook.log" && [ "$(setup_commits)" = "0" ] \
+[ "$hook_status" -eq 0 ] && grep -q "WARNING: could not commit the code-evolve install on its own" "$stub_dir/hook.log" && grep -q "  git said: " "$stub_dir/hook.log" && [ "$(setup_commits)" = "0" ] \
     && ok "a refused setup commit is a warning, and prepare still succeeds" || bad "hook: exit $hook_status: $(tail -3 "$stub_dir/hook.log")"
+
+# An install the user staged (`git add -A`) without committing is still a new install, and what
+# else they staged stays staged.
+new_project staged
+echo "mine" > notes.txt
+git add -A
+engine prepare > "$stub_dir/staged.log" 2>&1 || bad "staged prepare failed: $(tail -3 "$stub_dir/staged.log")"
+[ "$(setup_commits)" = "1" ] && ! committed_files HEAD | grep -qx "notes.txt" && [ "$(git status --porcelain -- notes.txt)" = "A  notes.txt" ] \
+    && ok "a staged install is committed on its own, and the user's staged file stays staged" \
+    || bad "staged: commits $(setup_commits), notes.txt: '$(git status --porcelain -- notes.txt)'"
+
+# init adds a section to AGENTS.md and lines to .gitignore. A file init alone changed belongs to
+# the install; one that also has the user's uncommitted edits is left to the user.
+new_repository shared_files
+printf '# Rules\n\nBe kind.\n' > AGENTS.md
+echo "node_modules/" > .gitignore
+git add -A && git commit -qm "instructions and ignore rules"
+echo "A rule I have not committed yet." >> AGENTS.md
+install
+engine prepare > "$stub_dir/shared.log" 2>&1 || bad "shared-files prepare failed: $(tail -3 "$stub_dir/shared.log")"
+shared_files=$(committed_files HEAD)
+grep -qx ".gitignore" <<<"$shared_files" && git show HEAD:.gitignore | grep -qx "node_modules/" && git show HEAD:.gitignore | grep -qxF ".evolve/.env" \
+    && ok "a tracked .gitignore that only init changed is in the setup commit" || bad "setup commit files: $(tr '\n' ' ' <<<"$shared_files")"
+! grep -qx "AGENTS.md" <<<"$shared_files" && [ "$(git status --porcelain -- AGENTS.md)" = " M AGENTS.md" ] \
+    && grep -q "Left AGENTS.md out of the install commit" "$stub_dir/shared.log" \
+    && ok "an AGENTS.md with the user's own uncommitted edit is left out, and prepare says so" \
+    || bad "AGENTS.md: in commit=$(grep -cx AGENTS.md <<<"$shared_files"), status '$(git status --porcelain -- AGENTS.md)'"
+
+new_repository tracked_instructions
+printf '# Rules\n\nBe kind.\n' > AGENTS.md
+git add -A && git commit -qm "instructions"
+install
+engine prepare > "$stub_dir/tracked.log" 2>&1 || bad "tracked-instructions prepare failed: $(tail -3 "$stub_dir/tracked.log")"
+committed_files HEAD | grep -qx "AGENTS.md" && git show HEAD:AGENTS.md | grep -qx "Be kind." && git show HEAD:AGENTS.md | grep -qF "code-evolve:begin" \
+    && ok "a tracked AGENTS.md that only init changed is in the setup commit" || bad "AGENTS.md was not committed with the install"
+
+# A merge the user has not finished is left alone: adding a conflicted file would mark it resolved.
+new_repository merging
+printf '# Rules\n' > AGENTS.md && git add -A && git commit -qm "instructions"
+git checkout -q -b other && echo "theirs" >> AGENTS.md && git commit -qam "theirs"
+git checkout -q - && echo "ours" >> AGENTS.md && git commit -qam "ours"
+git merge other >/dev/null 2>&1 || true
+install
+engine prepare > "$stub_dir/merging.log" 2>&1 || true
+[ "$(setup_commits)" = "0" ] && [ "$(git status --porcelain -- AGENTS.md)" = "UU AGENTS.md" ] \
+    && [ -z "$(git diff --cached --name-only -- .evolve)" ] && ! grep -q "could not commit the code-evolve install" "$stub_dir/merging.log" \
+    && ok "an unfinished merge is left alone: nothing staged or committed, the conflict stays unresolved" \
+    || bad "merging: commits $(setup_commits), AGENTS.md '$(git status --porcelain -- AGENTS.md)'"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

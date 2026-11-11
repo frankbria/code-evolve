@@ -732,34 +732,53 @@ else
 fi
 echo ""
 
+# What is left of .gitignore or an agent instruction file once init's additions are taken out.
+without_install_additions() { # <file name>, content on stdin
+    case "$1" in
+        .gitignore) awk -v engine_dir="$EVOLVE_DIR/" 'NF && index($0, engine_dir) != 1 && $0 != "# code-evolve ephemeral files"' ;;
+        *) sed '/<!-- code-evolve:begin -->/,/<!-- code-evolve:end -->/d' | awk 'NF' ;;
+    esac
+}
+
 # init leaves its files uncommitted, and the session's first `git add -A` would put them into the
-# first feature commit. A new install (nothing under $EVOLVE_DIR tracked yet) gets its own commit
+# first feature commit. A new install (nothing under $EVOLVE_DIR committed yet) gets its own commit
 # first, limited to what init wrote, so the user's other uncommitted work stays out of it.
 commit_new_install() {
-    [ -z "$(git ls-files -- "$EVOLVE_DIR")" ] || return 0
-    # An install the user keeps out of git stays out, with everything that came with it.
-    ! git check-ignore -q "$EVOLVE_DIR" || return 0
-    local candidates=("$EVOLVE_DIR") candidate install_paths=()
+    [ -z "$(git ls-tree --name-only HEAD -- "$EVOLVE_DIR" 2>/dev/null)" ] || return 0
+    # An install the user keeps out of git (or outside the repository) stays out, with everything that came with it.
+    # A merge in progress is the user's to finish: adding a conflicted file would mark it resolved.
+    [ -z "$(git ls-files -u)" ] || return 0
+    git add -- "$EVOLVE_DIR" 2>/dev/null || return 0
+    ! git diff --cached --quiet -- "$EVOLVE_DIR" || return 0
+    local install_paths=("$EVOLVE_DIR") candidates=() candidate committed current refusal
     for candidate in .claude/skills/*/SKILL.md .agents/skills/*/SKILL.md; do
         ! grep -qs "managed-by: code-evolve" "$candidate" || candidates+=("$(dirname "$candidate")")
-    done
-    for candidate in AGENTS.md CLAUDE.md; do
-        ! grep -qsF -- "<!-- code-evolve:begin -->" "$candidate" || candidates+=("$candidate")
     done
     for candidate in .github/workflows/evolve.yml .github/workflows/evolve-ci.yml; do
         ! grep -qsF "code-evolve:managed" "$candidate" || candidates+=("$candidate")
     done
-    ! grep -qsF "$EVOLVE_DIR/" .gitignore || candidates+=(.gitignore)
+    # init adds to these files rather than owning them. One that also carries the user's own
+    # uncommitted edits is left out: the commit would take those edits with it.
+    for candidate in AGENTS.md CLAUDE.md .gitignore; do
+        [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+        grep -qsF -e "<!-- code-evolve:begin -->" -e "$EVOLVE_DIR/" "$candidate" || continue
+        committed=$(git show "HEAD:./$candidate" 2>/dev/null | without_install_additions "$candidate" || true)
+        current=$(without_install_additions "$candidate" < "$candidate")
+        if [ "$current" = "$committed" ]; then
+            candidates+=("$candidate")
+        else
+            echo "  Left $candidate out of the install commit: it also has uncommitted changes of your own"
+        fi
+    done
     # One path at a time: git refuses a whole `add` over a single ignored or symlinked path.
-    for candidate in "${candidates[@]}"; do
+    for candidate in ${candidates[@]+"${candidates[@]}"}; do
         ! git add -- "$candidate" 2>/dev/null || install_paths+=("$candidate")
     done
-    [ "${#install_paths[@]}" -gt 0 ] || return 0
-    ! git diff --cached --quiet -- "${install_paths[@]}" || return 0
-    if git commit -q -m "code-evolve: add the engine and setup files" -- "${install_paths[@]}" >/dev/null 2>&1; then
+    if refusal=$(git commit -q -m "code-evolve: add the engine and setup files" -- "${install_paths[@]}" 2>&1); then
         echo "  Committed the code-evolve install on its own, ahead of this session's work"
     else
         echo "  WARNING: could not commit the code-evolve install on its own; it will be part of this session's first commit"
+        echo "  git said: $(tail -1 <<<"$refusal")"
     fi
 }
 
@@ -775,6 +794,8 @@ if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
     git commit -q --allow-empty -m "code-evolve: initial commit"
     echo "  Seeded initial commit (greenfield repo)"
 fi
+SESSION_START_SHA=$(git rev-parse HEAD)
+# The session starts after the install commit, so a revert keeps the install.
 commit_new_install
 SESSION_START_SHA=$(git rev-parse HEAD)
 snapshot_protected_paths

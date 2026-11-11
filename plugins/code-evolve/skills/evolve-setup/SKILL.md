@@ -178,9 +178,13 @@ lines the later cycle is not pushed and ends with exit status 4.
 ## 7. Finish
 
 Offer to run the first cycle now (the `evolve-run` skill, or `npx code-evolve run`). If nobody can
-answer (step 1), name those two ways to run it instead of offering. You do not need to commit
-what setup installed: the first cycle commits it on its own, before it starts on a feature, as
-`code-evolve: add the engine and setup files`.
+answer (step 1), name those two ways to run it instead of offering.
+
+For cycles that run on this machine (a local schedule, inside a session, manually) you do not
+need to commit what setup installed: the first cycle commits it on its own, before it starts on a
+feature, as `code-evolve: add the engine and setup files`. GitHub Actions and a cloud scheduled
+task work from the remote, so there the install must be committed and pushed before the first
+cycle: offer to do that.
 
 End with a summary: what was installed, the vision and spec in one line each, any answers you
 assumed, how cycles will run, and how to stop them for the mode chosen: `npx code-evolve stop`

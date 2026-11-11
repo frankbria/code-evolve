@@ -52,9 +52,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     files`) before the session starts, so the first feature commit holds only the feature. The
     commit takes only what `init` wrote (`.evolve/`, the code-evolve skills, the code-evolve
     section's `AGENTS.md` / `CLAUDE.md`, `.gitignore`, the evolve workflows); other uncommitted
-    work is left as it was. It applies to `evolve.sh prepare` and to a headless cycle, once, when
-    nothing under `.evolve/` is committed yet. An install kept out of git by an ignore rule is not
-    committed.
+    work is left as it was, and an `AGENTS.md`, `CLAUDE.md` or `.gitignore` that also has your own
+    uncommitted edits is left out with a note. It applies to `evolve.sh prepare` and to a headless
+    cycle, once, when nothing under `.evolve/` is committed yet. An install kept out of git by an
+    ignore rule is not committed, and nothing is committed during an unfinished merge. Cycles
+    that run from the remote (GitHub Actions, a cloud scheduled task) still need the install
+    committed and pushed by you.
 - **`start` keeps a custom agent's saved credential** (#130). When a variable named with
   `--agent-env` is not set in the shell that runs `code-evolve start` (or an `init` that reinstalls
   the schedule), the value already in `.evolve/.env` is kept instead of being dropped, so scheduled
