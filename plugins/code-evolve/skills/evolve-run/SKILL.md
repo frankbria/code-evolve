@@ -56,7 +56,8 @@ the failure.
 
 The engine remembers every build, test and lint command it finds during the session, and every
 later verify and finalize runs them all. Removing a failing test script does not remove the check:
-fix what it reports.
+fix what it reports. The same holds for a project you move or delete after a verify has seen it:
+its old checks still run where it was, so settle the layout before the first verify.
 
 Under Codex's sandbox, a failure like `spawnSync ... EPERM` comes from the sandbox, not the code:
 it blocks synchronous child processes (Node's `spawnSync`/`execSync`). Prefer async APIs in tests
