@@ -205,7 +205,7 @@ if [ "$STACK" = "unknown" ]; then
         SUBDIR_NAME=$(basename "$subdir")
         # The name goes into the JSON unescaped; one that would break it is not worth losing
         # the whole detection over.
-        case "$SUBDIR_NAME" in *'"'*|*'\'*) continue ;; esac
+        case "$SUBDIR_NAME" in *'"'*|*'\'*|*[[:cntrl:]]*) continue ;; esac
         detect_single_stack "$subdir"
         if [ "$STACK" != "unknown" ]; then
             [ "$SUBSTACK_COUNT" -gt 0 ] && SUBSTACKS="$SUBSTACKS,"

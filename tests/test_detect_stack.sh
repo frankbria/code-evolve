@@ -125,6 +125,8 @@ mkdir "$NESTED/we\"ird"
 echo '<project/>' > "$NESTED/we\"ird/pom.xml"
 mkdir "$NESTED/back\\slash"
 echo '<project/>' > "$NESTED/back\\slash/pom.xml"
+mkdir "$NESTED/tab"$'\t'"name"
+echo '<project/>' > "$NESTED/tab"$'\t'"name/pom.xml"
 JN=$(bash "$SCRIPT" "$NESTED")
 check "nested: a name that would break the JSON is skipped" "$(substack_field dir)" "app"
 rm -rf "$NESTED"
