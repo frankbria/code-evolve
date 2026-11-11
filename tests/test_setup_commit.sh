@@ -143,6 +143,28 @@ engine prepare > "$stub_dir/tracked.log" 2>&1 || bad "tracked-instructions prepa
 committed_files HEAD | grep -qx "AGENTS.md" && git show HEAD:AGENTS.md | grep -qx "Be kind." && git show HEAD:AGENTS.md | grep -qF "code-evolve:begin" \
     && ok "a tracked AGENTS.md that only init changed is in the setup commit" || bad "AGENTS.md was not committed with the install"
 
+# What counts as init's: only the ignore lines the CLI manages, only skills marked in their
+# frontmatter, and never a file whose staged version differs from both HEAD and the work tree.
+new_repository narrow
+printf '# Rules\n' > AGENTS.md
+echo "node_modules/" > .gitignore
+git add -A && git commit -qm "instructions and ignore rules"
+echo ".evolve/private-notes/" >> .gitignore
+echo "staged only" >> AGENTS.md && git add AGENTS.md && printf '# Rules\n' > AGENTS.md
+install
+mkdir -p .claude/skills/helper
+printf -- '---\nname: helper\ndescription: mine\n---\nNot one of the skills with\n  managed-by: code-evolve\n' > .claude/skills/helper/SKILL.md
+engine prepare > "$stub_dir/narrow.log" 2>&1 || bad "narrow prepare failed: $(tail -3 "$stub_dir/narrow.log")"
+narrow_files=$(committed_files HEAD)
+[ "$(setup_commits)" = "1" ] && ! grep -qxE '\.gitignore|AGENTS\.md|\.claude/skills/helper/SKILL\.md' <<<"$narrow_files" \
+    && ok "the user's own ignore rule, staged edit and skill stay out of the setup commit" \
+    || bad "narrow: commits $(setup_commits), took: $(grep -xE '\.gitignore|AGENTS\.md|\.claude/skills/helper/SKILL\.md' <<<"$narrow_files" | tr '\n' ' ')"
+git show :AGENTS.md | grep -qx "staged only" && ok "a version the user staged is still staged" || bad "the staged AGENTS.md was replaced"
+# The engine's list of managed ignore lines must match the CLI's, or a fresh .gitignore would be left out.
+managed_lines=$(node -e 'console.log(require(process.argv[1]).MANAGED_GITIGNORE_LINES.join("\n"))' "$ROOT/dist/utils/projectIntegration.js")
+leftover=$(cd "$work_root/prepared" && git show HEAD:.gitignore | grep -vxF -e "$managed_lines" | grep -c . || true)
+[ -n "$managed_lines" ] && [ "$leftover" = "0" ] && ok "every line init writes to .gitignore is one the CLI manages" || bad "$leftover unmanaged line(s) in a fresh .gitignore"
+
 # A merge the user has not finished is left alone: adding a conflicted file would mark it resolved.
 new_repository merging
 printf '# Rules\n' > AGENTS.md && git add -A && git commit -qm "instructions"

@@ -735,7 +735,13 @@ echo ""
 # What is left of .gitignore or an agent instruction file once init's additions are taken out.
 without_install_additions() { # <file name>, content on stdin
     case "$1" in
-        .gitignore) awk -v engine_dir="$EVOLVE_DIR/" 'NF && index($0, engine_dir) != 1 && $0 != "# code-evolve ephemeral files"' ;;
+        .gitignore) # The lines init and start manage (MANAGED_GITIGNORE_LINES in the CLI).
+            awk -v engine_dir="$EVOLVE_DIR/" 'BEGIN {
+                    count = split("ISSUES_TODAY.md ISSUE_RESPONSE.md .env .env* evolve.log schedule.json evidence/", names, " ")
+                    for (i = 1; i <= count; i++) managed[engine_dir names[i]] = 1
+                    managed["# code-evolve ephemeral files"] = 1
+                }
+                NF && !($0 in managed)' ;;
         *) sed '/<!-- code-evolve:begin -->/,/<!-- code-evolve:end -->/d' | awk 'NF' ;;
     esac
 }
@@ -751,8 +757,12 @@ commit_new_install() {
     git add -- "$EVOLVE_DIR" 2>/dev/null || return 0
     ! git diff --cached --quiet -- "$EVOLVE_DIR" || return 0
     local install_paths=("$EVOLVE_DIR") candidates=() candidate committed current refusal
+    # init marks its skills in the frontmatter; a mention of the marker in a skill's text is not one.
     for candidate in .claude/skills/*/SKILL.md .agents/skills/*/SKILL.md; do
-        ! grep -qs "managed-by: code-evolve" "$candidate" || candidates+=("$(dirname "$candidate")")
+        [ -f "$candidate" ] || continue
+        ! awk 'NR == 1 && $0 != "---" { exit } NR > 1 && $0 == "---" { exit }
+               /^[[:space:]]*managed-by: code-evolve[[:space:]]*$/ { found = 1; exit } END { exit !found }' "$candidate" \
+            || candidates+=("$(dirname "$candidate")")
     done
     for candidate in .github/workflows/evolve.yml .github/workflows/evolve-ci.yml; do
         ! grep -qsF "code-evolve:managed" "$candidate" || candidates+=("$candidate")
@@ -764,7 +774,8 @@ commit_new_install() {
         grep -qsF -e "<!-- code-evolve:begin -->" -e "$EVOLVE_DIR/" "$candidate" || continue
         committed=$(git show "HEAD:./$candidate" 2>/dev/null | without_install_additions "$candidate" || true)
         current=$(without_install_additions "$candidate" < "$candidate")
-        if [ "$current" = "$committed" ]; then
+        # A version the user staged that is neither HEAD's nor the file's would be lost to `git add`.
+        if [ "$current" = "$committed" ] && { git diff --cached --quiet -- "$candidate" || git diff --quiet -- "$candidate"; }; then
             candidates+=("$candidate")
         else
             echo "  Left $candidate out of the install commit: it also has uncommitted changes of your own"
