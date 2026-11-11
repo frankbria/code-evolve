@@ -1436,7 +1436,8 @@ push_session() {
     fi
     if [ "$(git config --type=bool --get "remote.$remote.mirror" || true)" = "true" ]; then
         # A mirror takes every ref, tags included, and git refuses a refspec for it.
-        push_or_report "Push" "$remote"
+        # Atomic, so a refused branch does not leave the session's tag on the remote.
+        push_or_report "Push" --atomic "$remote"
         return
     fi
     if [ -z "$branch" ]; then

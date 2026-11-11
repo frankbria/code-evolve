@@ -344,6 +344,12 @@ run_session only.txt
 [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && [ "$(remote_tag_count origin)" -eq 1 ] && ! grep -q "failed" "$finalize_log" \
     && ok "a mirror remote receives the branch and the tag" || bad "mirror: $(tail -4 "$finalize_log")"
 
+printf '#!/bin/sh\ncase "$1" in refs/heads/*) echo "no branches here" >&2; exit 1 ;; esac\n' > "$PWD-origin.git/hooks/update"
+chmod +x "$PWD-origin.git/hooks/update"
+run_session refused.txt
+[ "$finalize_status" -eq 4 ] && [ "$(remote_tag_count origin)" -eq 1 ] \
+    && ok "a mirror that refuses the branch does not receive the tag either" || bad "mirror refusal: exit $finalize_status, tags: $(git ls-remote --tags origin)"
+
 # ── A tag named like the branch must not hide the branch's upstream ──
 new_project branch-and-tag-share-a-name
 new_bare_remote origin
