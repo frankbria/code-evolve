@@ -38,6 +38,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   build, test and lint run in that subdirectory, in the baseline check, verification, the cycle
   prompt and the `evolve-ci.yml` workflow. They ran at the project root before and failed.
   `detect_stack.sh` reports such a project as `monorepo` with one substack (#94).
+- A cycle on a branch that has no upstream (a fresh repository, or a new branch that was never
+  pushed) now pushes the branch and sets its upstream: to the remote git is configured to push to
+  (`branch.<name>.pushRemote`, `remote.pushDefault`, `branch.<name>.remote`), else `origin`, else
+  the only remote. Before, only the tag reached the remote. With several remotes and nothing to
+  choose by, the push is skipped and the command to run is printed; a repository with no remote
+  says so in one line. A failed push is reported with git's own reason instead of "maybe no remote
+  or auth issue" (#132).
 
 ## [0.2.0] — 2026-06-29
 

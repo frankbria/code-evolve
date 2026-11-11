@@ -1304,8 +1304,74 @@ echo "  Tagged: $TAG_NAME"
 # ── Step 9: Push ──
 echo ""
 echo "-> Pushing..."
-git push || echo "  Push failed (maybe no remote or auth issue)"
-git push --tags || echo "  Tag push failed (non-fatal)"
+
+# Runs `git push <args>`, shows git's output, and on failure repeats the line that carries git's reason.
+push_or_report() { # <label> <git push arguments...>
+    local label="$1" output reason
+    shift
+    if output=$(git push "$@" 2>&1); then
+        [ -z "$output" ] || printf '%s\n' "$output"
+        return 0
+    fi
+    printf '%s\n' "$output"
+    reason=$(printf '%s\n' "$output" | grep -m1 -E '^(fatal:|error:| ! )' || printf '%s\n' "$output" | grep -m1 . || true)
+    reason="${reason# }"
+    echo "  $label failed: ${reason:-git gave no reason}"
+}
+
+# A branch that was never pushed has no upstream, and a bare `git push` refuses it while the tag
+# push goes through. Such a branch is pushed with its upstream set: to the remote git is configured
+# to push to (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote), else origin, else the only remote.
+push_session() {
+    local remotes branch remote
+    # Not --short: with a tag of the same name it answers "heads/<branch>", which matches no branch.* setting.
+    branch=$(git symbolic-ref -q HEAD || true)
+    branch="${branch#refs/heads/}"
+    # Checked before the list of remotes: an upstream can name a URL or a path instead of a remote.
+    if [ -n "$branch" ] && git config --get "branch.$branch.remote" >/dev/null \
+        && git config --get "branch.$branch.merge" >/dev/null; then
+        push_or_report "Push"
+        push_or_report "Tag push" --tags
+        return 0
+    fi
+    remote=""
+    [ -z "$branch" ] || remote=$(git config --get "branch.$branch.pushRemote" || true)
+    [ -n "$remote" ] || remote=$(git config --get remote.pushDefault || true)
+    [ -n "$remote" ] || [ -z "$branch" ] || remote=$(git config --get "branch.$branch.remote" || true)
+    # "." is git's name for this repository itself (a branch tracking a local branch), not a remote.
+    [ "$remote" != "." ] || remote=""
+    remotes=$(git remote)
+    if [ -z "$remote" ] && [ -z "$remotes" ]; then
+        echo "  No remote configured; nothing pushed."
+        return 0
+    fi
+    if [ -z "$remote" ]; then
+        if printf '%s\n' "$remotes" | grep -qx origin; then
+            remote=origin
+        elif [ "$(printf '%s\n' "$remotes" | grep -c .)" -eq 1 ]; then
+            remote="$remotes"
+        else
+            echo "  Push skipped: ${branch:-HEAD} has no upstream and there are several remotes ($(printf '%s' "$remotes" | tr '\n' ' '))."
+            echo "  Choose one with: git push -u <remote> ${branch:-<branch>} && git push <remote> --tags"
+            return 0
+        fi
+    fi
+    if [ "$(git config --type=bool --get "remote.$remote.mirror" || true)" = "true" ]; then
+        # A mirror takes every ref, tags included, and git refuses a refspec for it.
+        push_or_report "Push" "$remote"
+        return 0
+    fi
+    if [ -z "$branch" ]; then
+        echo "  HEAD is detached: no branch to push."
+    elif git config --get-all "remote.$remote.push" >/dev/null; then
+        # A refspec on the command line would override the mapping the user configured for this remote.
+        push_or_report "Push" "$remote"
+    else
+        push_or_report "Push" -u "$remote" HEAD
+    fi
+    push_or_report "Tag push" "$remote" --tags
+}
+push_session
 
 echo ""
 # The session is over; a later cycle or prepare starts fresh.
