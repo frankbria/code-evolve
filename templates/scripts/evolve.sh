@@ -1332,17 +1332,17 @@ push_session() {
         push_or_report "Tag push" --tags
         return 0
     fi
-    remotes=$(git remote)
-    if [ -z "$remotes" ]; then
-        echo "  No remote configured; nothing pushed."
-        return 0
-    fi
     remote=""
     [ -z "$branch" ] || remote=$(git config --get "branch.$branch.pushRemote" || true)
     [ -n "$remote" ] || remote=$(git config --get remote.pushDefault || true)
     [ -n "$remote" ] || [ -z "$branch" ] || remote=$(git config --get "branch.$branch.remote" || true)
     # "." is git's name for this repository itself (a branch tracking a local branch), not a remote.
     [ "$remote" != "." ] || remote=""
+    remotes=$(git remote)
+    if [ -z "$remote" ] && [ -z "$remotes" ]; then
+        echo "  No remote configured; nothing pushed."
+        return 0
+    fi
     if [ -z "$remote" ]; then
         if printf '%s\n' "$remotes" | grep -qx origin; then
             remote=origin

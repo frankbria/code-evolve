@@ -102,6 +102,15 @@ run_session only.txt
 [ "$(git ls-remote "$PWD-target.git" "refs/heads/$branch" | cut -f1)" = "$(git rev-parse HEAD)" ] && ! grep -q "No remote" "$finalize_log" \
     && ok "an upstream that is a path rather than a named remote is pushed to" || bad "upstream by path: $(tail -4 "$finalize_log")"
 
+# ── A push destination configured as a path, with no named remote and no upstream ──
+new_project push-default-by-path
+git init -q --bare "$PWD-target.git"
+git config remote.pushDefault "$PWD-target.git"
+run_session only.txt
+[ "$(git ls-remote "$PWD-target.git" "refs/heads/$branch" | cut -f1)" = "$(git rev-parse HEAD)" ] \
+    && [ "$(remote_tag_count "$PWD-target.git")" -eq 1 ] && ! grep -q "No remote" "$finalize_log" \
+    && ok "a push destination that is a path rather than a named remote is pushed to" || bad "pushDefault by path: $(tail -4 "$finalize_log")"
+
 # ── One remote that is not called origin ──
 new_project single-remote
 new_bare_remote backup
