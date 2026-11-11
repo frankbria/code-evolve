@@ -522,9 +522,9 @@ STUB_MARKER="$thirteenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve P
     && [ -z "$(git ls-files .evolve | grep -F '\n' || true)" ] \
     && ok "a script and a skill directory planted with a newline in their names are removed, also from the commit" \
     || bad "newline names survived: $(find .evolve/scripts .evolve/skills -name "*${newline}*" | tr '\n' '?'; git ls-files .evolve | grep -F '\n')"
-[ "$(readlink .evolve/skills/shared; printf x)" = "../../../shared-skill${newline}x" ] && [ "$(cat .evolve/skills/shared/SKILL.md)" = "# shared skill" ] \
+[ "$(python3 -c 'import os; print(repr(os.readlink(".evolve/skills/shared")))')" = "'../../../shared-skill'" ] && [ "$(cat .evolve/skills/shared/SKILL.md)" = "# shared skill" ] \
     && ok "a link repointed to a name that differs by a trailing newline gets its target back" \
-    || bad "trailing-newline repoint not undone: $(readlink .evolve/skills/shared | od -c | tail -2 | head -1)"
+    || bad "trailing-newline repoint not undone: $(python3 -c 'import os; print(repr(os.readlink(".evolve/skills/shared")))')"
 [ "$thirteenth_status" -eq 0 ] && grep -q "=== Day 0 complete ===" "$stub_dir/engine13.log" \
     && ok "the cycle with planted newline names still completes" || bad "thirteenth: exit $thirteenth_status, $(tail -2 "$stub_dir/engine13.log")"
 cd / && rm -rf "$thirteenth_root"

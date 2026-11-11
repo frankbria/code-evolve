@@ -142,6 +142,8 @@ PROTECTED_PATHS_UNCHECKED=false
 # the swapped directory for the user's layout.
 end_of_run() {
     kill "$LOCK_HOLDER_PID" 2>/dev/null || true
+    # Reaped here, so bash does not print a "Terminated" job notice into the cycle's output.
+    wait "$LOCK_HOLDER_PID" 2>/dev/null || true
     [ -n "$RUN_TMP" ] && rm -rf "$RUN_TMP"
     if [ "$PROTECTED_PATHS_UNCHECKED" = true ]; then
         echo "=== Ended with protected files NOT checked (exit status 5): see the WARNING above ==="
@@ -318,10 +320,17 @@ physical_directory() {
 TAB=$'\t'
 NEWLINE=$'\n'
 
-# True if symlink <path> holds exactly <text>. A plain $(readlink) drops trailing newlines, so a
-# link repointed from "store" to "store<newline>" would compare equal.
+# The exact text of symlink <path> with an "x" after it; nothing if <path> is not a symlink.
+# $(readlink) drops trailing newlines, so a link repointed from "store" to "store<newline>" would
+# compare equal. python3 and not readlink plus a sentinel: on macOS that still compared equal
+# (the guard-macos CI run of the trailing-newline test).
+link_text_x() {
+    python3 -c 'import os, sys; sys.stdout.buffer.write(os.readlink(os.fsencode(sys.argv[1])) + b"x")' "$1" 2>/dev/null || true
+}
+
+# True if symlink <path> holds exactly <text>.
 link_holds() {
-    [ "$(readlink "$1" 2>/dev/null; printf x)" = "$2${NEWLINE}x" ]
+    [ "$(link_text_x "$1")" = "$2x" ]
 }
 
 # The snapshot's record for a directory symlink: its path, the link's text and the directory it
@@ -329,8 +338,8 @@ link_holds() {
 # recorded wrongly; the session then stops before the agent runs.
 link_record() {
     local target physical
-    target=$(readlink "$1"; printf x)
-    target="${target%"$NEWLINE"x}"
+    target=$(link_text_x "$1")
+    target="${target%x}"
     physical=$(physical_directory "$1"; printf x)
     physical="${physical%"$NEWLINE"x}"
     if [[ "$1$target" == *["$TAB$NEWLINE"]* || "$physical" == *"$NEWLINE"* ]]; then
@@ -485,7 +494,7 @@ repair_protected_ancestors() {
 protected_file_changed() {
     local saved="$PROTECTED_SNAPSHOT/files/$1"
     if [ -L "$saved" ]; then
-        [ "$(readlink "$saved"; printf x)" != "$(readlink "$1" 2>/dev/null; printf x)" ]
+        [ "$(link_text_x "$saved")" != "$(link_text_x "$1")" ]
         return
     fi
     [ -L "$1" ] || [ ! -f "$1" ] || ! cmp -s "$saved" "$1" || { [ -x "$saved" ] && [ ! -x "$1" ]; } || { [ ! -x "$saved" ] && [ -x "$1" ]; }
