@@ -341,7 +341,7 @@ The `--agent` flag on `init` is stored in `.evolve/config.json`. Subsequent `run
 - `{model}` is replaced with the configured model (`start --model`/`run --model`); leave it out to use the CLI's own default. Placeholders are passed safely whether or not you quote them.
 - The command runs headless and unattended, so it must let the agent edit files and run commands without asking.
 - A non-zero exit fails the session. For a CLI that exits 0 on errors, add `--agent-error-pattern '<regex>'`: a log line matching it fails the session too.
-- If the CLI reads a credential from the environment (say `GEMINI_API_KEY`), name it with `--agent-env GEMINI_API_KEY` (comma-separate several): scheduled cycles run from cron without your shell's environment, so its current value is saved into `.evolve/.env` (a 0600 file). After rotating it, run `code-evolve start` again to refresh the saved copy.
+- If the CLI reads a credential from the environment (say `GEMINI_API_KEY`), name it with `--agent-env GEMINI_API_KEY` (comma-separate several): scheduled cycles run from cron without your shell's environment, so its current value is saved into `.evolve/.env` (a 0600 file). After rotating it, run `code-evolve start` again with the new value set to refresh the saved copy. If `start` (or `init`) runs in a shell where the variable is not set, it keeps the saved value and says so; set the variable to an empty string to clear the saved value.
 - These values are saved in `.evolve/config.json` (`agentCommand`, `agentErrorPattern`, `agentEnvVars`). Custom agents run locally only (no GitHub Actions profile).
 
 ```bash

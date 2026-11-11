@@ -38,6 +38,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **`start` keeps a custom agent's saved credential** (#130). When a variable named with
+  `--agent-env` is not set in the shell that runs `code-evolve start` (or an `init` that reinstalls
+  the schedule), the value already in `.evolve/.env` is kept instead of being dropped, so scheduled
+  cycles keep authenticating. `start` now warns for each such variable, and says when no value is
+  saved either. `start --run-now` uses the kept value for its first cycle.
 - **In-session cycles keep every check they find** (#113). `evolve.sh verify` now saves the build,
   test and lint commands and the nested projects it finds to `.evolve/run/session.env`. A check
   that first appears during the session (a new `package.json`, a new `app/` project) is run again

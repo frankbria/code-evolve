@@ -30,7 +30,7 @@ import {
   ExecutionMode,
   AgentCiProfile,
 } from '../utils/config';
-import { installLocalSchedule, hourlyCron, parseInterval } from './start';
+import { installLocalSchedule, hourlyCron, parseInterval, credentialsKeptFromEnvFile } from './start';
 
 // Default evolution cadence (hours) when --every isn't passed and isn't chosen interactively.
 const DEFAULT_EVERY_HOURS = 4;
@@ -182,10 +182,8 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.error(`--agent-env: "${invalidEnvName}" is not a valid environment variable name, or is one code-evolve sets itself (MODEL, AGENT, PATH, …).`);
       process.exit(1);
     }
-    const unsetEnvNames = (agentEnvVars ?? []).filter((name) => process.env[name] === undefined);
-    if (unsetEnvNames.length > 0) {
-      console.warn(`  ⚠ --agent-env: ${unsetEnvNames.join(', ')} not set in this shell; scheduled cycles won't get ${unsetEnvNames.length > 1 ? 'them' : 'it'} until you set it and run code-evolve start`);
-    }
+    const savedCredentials = credentialsKeptFromEnvFile(agentEnvVars ?? [], evolveFile('.env'));
+    for (const warning of savedCredentials.warnings) console.warn(`  ⚠ --agent-env: ${warning}`);
     if (agent === 'custom' && !agentCommand?.trim()) {
       console.error('--agent custom needs --agent-command "<your CLI> -p ..." (the prompt goes to stdin, or replaces {prompt_file}).');
       process.exit(1);
@@ -407,7 +405,7 @@ export async function runInit(options: InitOptions): Promise<void> {
             installLocalSchedule({
               agent, authMode, model: resolveModel(agent, undefined, previousConfig), hours, projectDir: process.cwd(),
               // The config is written after scheduling, so pass this run's custom command directly.
-              agentEnv: customAgentEnv(agent, { agent, agentCommand, agentErrorPattern, agentEnvVars }),
+              agentEnv: { ...savedCredentials.kept, ...customAgentEnv(agent, { agent, agentCommand, agentErrorPattern, agentEnvVars }) },
             });
             console.log(`Local schedule installed: every ${hours}h (.evolve/evolve.log)`);
             localScheduled = true;
