@@ -86,6 +86,13 @@ python_unittest_command() {
     echo "$python -m unittest discover${start_directory:+ -s $start_directory}"
 }
 
+# python_declares_pytest <dir> — true when the project's own files name pytest (a dependency,
+# its configuration, a conftest). Such a suite may be collected in ways only pytest knows.
+python_declares_pytest() {
+    [ -f "$1/pytest.ini" ] || [ -f "$1/conftest.py" ] || [ -f "$1/tests/conftest.py" ] \
+        || grep -qs pytest "$1/pyproject.toml" "$1"/requirements*.txt "$1/setup.cfg" "$1/tox.ini"
+}
+
 # python_can_install <python> — true when that interpreter has pip and accepts installs.
 # PEP 668: outside a virtual environment, a distribution-owned Python refuses them.
 python_can_install() {
@@ -114,10 +121,12 @@ python_commands() {
     pytest=$(python_tool "$dir" pytest)
     if [ -n "$pytest" ]; then
         TEST_CMD="$pytest"
+    elif python_declares_pytest "$dir"; then
+        # Keep the command so the missing tool is reported instead of the tests being skipped.
+        TEST_CMD="pytest"
     else
         TEST_CMD=$(python_unittest_command "$dir" "$python")
         if [ -z "$TEST_CMD" ] && python_test_files "$dir" '' 'test*.py' '*_test.py'; then
-            # Tests that need pytest: keep the command so its absence is reported, not skipped.
             TEST_CMD="pytest"
         fi
     fi

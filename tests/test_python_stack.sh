@@ -102,6 +102,24 @@ printf '[project]\nname = "bare"\nversion = "0.1.0"\n' > "$bare/pyproject.toml"
 J=$(detect_in "$bare")
 check "no tests and no pytest: no test command" "$(field "$J" test)" ""
 
+# A project that names pytest keeps it, whatever its test files look like: pytest may be
+# configured to collect files this script would not recognise.
+configured="$(new_fixture configured)"
+printf '[project]\nname = "configured"\nversion = "0.1.0"\n\n[tool.pytest.ini_options]\npython_files = ["check_*.py"]\n' > "$configured/pyproject.toml"
+printf 'def check_failure():\n    assert False\n' > "$configured/check_failure.py"
+J=$(detect_in "$configured")
+check "pytest configured in pyproject.toml keeps pytest" "$(field "$J" test)" "pytest"
+write_unittest "$configured/tests/test_greeting.py"
+J=$(detect_in "$configured")
+check "pytest configured, TestCase tests present: still pytest" "$(field "$J" test)" "pytest"
+declared="$(new_fixture declared)"
+echo "pytest>=8" > "$declared/requirements-dev.txt"; echo "requests" > "$declared/requirements.txt"
+J=$(detect_in "$declared")
+check "pytest in a requirements file keeps pytest" "$(field "$J" test)" "pytest"
+rm "$declared/requirements-dev.txt"; : > "$declared/conftest.py"
+J=$(detect_in "$declared")
+check "a conftest.py keeps pytest" "$(field "$J" test)" "pytest"
+
 # Test files inside the engine's or a virtual environment's directories are not the project's.
 mkdir -p "$bare/.evolve/scripts" "$bare/.venv/lib"
 write_unittest "$bare/.evolve/scripts/test_engine.py"
