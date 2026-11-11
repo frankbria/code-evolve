@@ -9,7 +9,8 @@ const LOGIN_AUTH_MODES: Record<string, AuthMode> = { claude: 'oauth', codex: 'ch
 export function isLoginAuth(agent: string, authMode?: AuthMode): boolean {
   return authMode !== undefined && LOGIN_AUTH_MODES[agent] === authMode;
 }
-export type ExecutionMode = 'local' | 'ci' | 'both';
+/** Where cycles run: local cron, GitHub Actions, both, or `native` (the agent's own scheduler runs the evolve-run skill). */
+export type ExecutionMode = 'local' | 'ci' | 'both' | 'native';
 
 export interface EvolveConfig {
   agent: string;
@@ -34,7 +35,7 @@ const CONFIG_FILE = 'config.json';
 const SUPPORTED_AGENTS = ['claude', 'codex', 'opencode', 'ollama', 'custom'];
 // The interactive picker offers the built-in backends; a custom agent needs --agent-command.
 const PICKABLE_AGENTS = SUPPORTED_AGENTS.filter((agent) => agent !== 'custom');
-const EXECUTION_MODES: ExecutionMode[] = ['local', 'ci', 'both'];
+const EXECUTION_MODES: ExecutionMode[] = ['local', 'ci', 'both', 'native'];
 
 export function getConfigPath(): string {
   return evolveFile(CONFIG_FILE);

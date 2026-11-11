@@ -216,7 +216,7 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 
 The one-command front door for new projects. On a terminal it chains the whole
 onboarding flow — agent + auth picker, vision + spec interview, execution mode
-(local/ci/both), and schedule — then installs everything and tells you you're
+(local/ci/both/native), and schedule — then installs everything and tells you you're
 live. Re-run it any time to reconfigure; it honors your existing config and
 preserves evolution history.
 
@@ -232,12 +232,12 @@ code-evolve init                          # on a terminal, prompts for agent + a
 code-evolve init --agent codex            # skip the prompt; use Codex CLI
 code-evolve init --auth-mode oauth        # use Claude subscription (claude login) instead of API key
 code-evolve init --with-ci               # also install GitHub Actions for cloud evolution
-code-evolve init --mode both             # choose where evolution runs: local | ci | both (persisted in config)
+code-evolve init --mode both             # choose where evolution runs: local | ci | both | native (persisted in config)
 code-evolve init --mode ci --every 6     # run every 6 hours (applies to both the CI cron and the local job)
 code-evolve init --force                 # upgrade framework files (preserves journal + learnings)
 ```
 
-`--mode` is the unified execution-mode selector (also offered as an interactive prompt on a terminal). `local` installs a local cron job, `ci` installs the GitHub Actions workflows, `both` does both; the choice is persisted in `.evolve/config.json` and shown by `code-evolve status`. `--with-ci` remains as an alias for `--mode ci`. When `local`/`both` is chosen but the agent's API key isn't set yet, the cron job is deferred — set the key and run `code-evolve start`.
+`--mode` is the unified execution-mode selector (also offered as an interactive prompt on a terminal). `local` installs a local cron job, `ci` installs the GitHub Actions workflows, `both` does both, and `native` installs neither because [your agent's own scheduler](#local-vs-cloud) runs the cycles; the choice is persisted in `.evolve/config.json` and shown by `code-evolve status`. `--with-ci` remains as an alias for `--mode ci`. When `local`/`both` is chosen but the agent's API key isn't set yet, the cron job is deferred — set the key and run `code-evolve start`.
 
 `--every <hours>` (1–24, default 4) sets the evolution cadence and is applied to **both** targets: the installed GitHub Actions `cron:` and the local cron entry. On a terminal it's also offered as a prompt when a schedule is being installed.
 
@@ -408,7 +408,42 @@ Run it however fits your workflow:
 - The workflow is templated for your `--agent`: it installs the matching CLI, sets `AGENT`/`MODEL`, and wires the right secret. `init` prints the exact `gh secret set …` command for your backend (`ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex, the provider key for opencode). Login modes (`oauth`, `chatgpt`) are local-only, so CI always uses `api-key` mode regardless of your local `--auth-mode`.
 - `ollama` runs models locally and isn't supported on hosted CI runners, so `--with-ci` is skipped for it — use **Local** execution.
 
-Both run the same engine. Mix and match.
+**Your agent's own scheduler** — `code-evolve init --mode native`
+
+For when you can't or won't run cron or Actions. Nothing is installed: your agent's scheduler runs the `evolve-run` skill, which drives the same engine from inside an agent session. `--mode native` records the choice in `.evolve/config.json`, and `code-evolve status` reports it (it cannot see the agent's schedule, so check the journal dates to confirm cycles are firing).
+
+| Scheduler | Where you create it | Prompt to schedule | Constraints |
+|-----------|--------------------|--------------------|-------------|
+| Claude Code cloud scheduled task (formerly "routine") | [claude.ai/code/routines](https://claude.ai/code/routines), or `/schedule` in a session | See below | Fresh clone of the default branch on every run, so commit and push `.evolve/` and `.claude/skills/` first. Shortest interval: 1 hour. Needs a claude.ai subscription login; runs count against your usage. |
+| Claude Code `/loop` | An open Claude Code session | `/loop 4h` followed by the `/loop` prompt below | Fires only while that session is running and idle. A recurring loop ends after 7 days. |
+| Codex scheduled task (formerly "automation") | The ChatGPT desktop app's Scheduled view | `$evolve-run` | The machine must be on with the app running. Choose the local project, not a new worktree. Runs with your default sandbox settings, which must let the cycle write the repository's `.git` directory and reach the network to push. |
+
+Prompt for a Claude Code cloud scheduled task:
+
+```text
+Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request.
+```
+
+Prompt for `/loop`:
+
+```text
+/loop 4h Run one code-evolve evolution cycle: read .claude/skills/evolve-run/SKILL.md and follow it from start to finish.
+```
+
+The Claude prompts name the skill file rather than `/evolve-run` because `evolve-run` commits and pushes, so only you can start it by name: a scheduled prompt that says `/evolve-run` reaches Claude as plain text ([Claude Code docs](https://code.claude.com/docs/en/scheduled-tasks)). The `evolve-setup` skill hands out the same prompts.
+
+**Which one?**
+
+| | Local cron | GitHub Actions | Agent's own scheduler |
+|---|---|---|---|
+| Set up with | `code-evolve start` | `code-evolve init --mode ci` | `code-evolve init --mode native`, then the agent's scheduler |
+| Runs on | Your machine | GitHub's runners | Anthropic's cloud (cloud task), or your machine (`/loop`, Codex) |
+| Needs your machine on | Yes | No | Cloud task: no. `/loop` and Codex: yes |
+| Credentials | API key in `.evolve/.env`, or the CLI's login | API key as a repository secret | Your agent subscription login |
+| Shortest interval | 1 hour | 1 hour | Cloud task: 1 hour |
+| Stop it with | `code-evolve stop` | Disabling the `evolve.yml` workflow | Pausing or deleting the task where you made it |
+
+Cron and Actions run the same engine and can be combined (`--mode both`). Use a cloud scheduled task on its own: it pushes from a separate clone, so a second scheduler pushing to the same branch makes one of them lose its push.
 
 ## Community Issues
 

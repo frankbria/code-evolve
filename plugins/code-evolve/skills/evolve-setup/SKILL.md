@@ -84,9 +84,49 @@ dev box, the second for a team repository):
 - **GitHub Actions:** `npx code-evolve init --yes --mode ci --every <hours>` adds the workflows. The
   repository needs the agent's API key as a secret; offer to run the `gh secret set` command that
   init prints, and run it only with the user's explicit consent.
-- **Inside an agent session:** run the `evolve-run` skill whenever the user wants a cycle, or from
-  the agent's own scheduler if it has one.
+- **The agent's own scheduler (native):** for users who cannot or will not run cron or Actions.
+  See "Native scheduling" below.
+- **Inside an agent session:** run the `evolve-run` skill whenever the user wants a cycle.
 - **Manually:** `npx code-evolve run` runs one headless cycle.
+
+### Native scheduling
+
+Record the choice with `npx code-evolve init --yes --mode native` (it installs no cron job and no
+workflow, and `status` then reports mode `native`). If init says a local schedule is still
+installed, run `npx code-evolve stop` unless the user wants both. Then give the user the prompt for
+their scheduler, exactly as written here, and say where it goes. Create the schedule yourself only
+if the user explicitly asks you to.
+
+- **Claude Code cloud scheduled task** (formerly "routine"; created at claude.ai/code/routines or
+  with `/schedule`, needs a claude.ai subscription login). Prompt:
+
+  ```text
+  Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request.
+  ```
+
+  Each run is a fresh clone of the default branch, so `.evolve/` and `.claude/skills/` must be
+  committed and pushed first. The shortest interval is one hour. Runs count against the user's
+  subscription usage, and the push is made as the user's GitHub identity, so a branch protection
+  rule that identity cannot bypass blocks it.
+- **Claude Code `/loop`** (this machine, inside an open session):
+
+  ```text
+  /loop 4h Run one code-evolve evolution cycle: read .claude/skills/evolve-run/SKILL.md and follow it from start to finish.
+  ```
+
+  It fires only while that session is running and idle, and a recurring loop ends after seven
+  days: it suits a burst of cycles, not a standing schedule.
+- **Codex scheduled task** (formerly "automation"; created in the ChatGPT desktop app's Scheduled
+  view, not in the Codex CLI). Prompt: `$evolve-run`. Choose the local project, not a new worktree,
+  so the cycle lands on the branch the user works on. The machine must be on with the app running.
+  Tasks run with the user's default sandbox settings, and a cycle needs to write the repository's
+  `.git` directory and reach the network to push: see the `evolve-run` skill's note on
+  `sandbox_workspace_write.writable_roots`.
+
+The Claude prompts name the skill file instead of `/evolve-run` on purpose: `evolve-run` can only be
+started by the user, and a scheduled prompt that says `/evolve-run` reaches Claude as plain text.
+Use one scheduler per repository: a cloud task and a cron job that both push to the same branch
+will reject each other's pushes.
 
 ## 6. Finish
 
@@ -94,4 +134,6 @@ Offer to run the first cycle now (the `evolve-run` skill, or `npx code-evolve ru
 summary: what was installed, the vision and spec in one line each, any answers you assumed, how
 cycles will run, and how to stop them for the mode chosen: `npx code-evolve stop` removes a local
 schedule; GitHub Actions cycles stop with `gh workflow disable evolve.yml` (or by deleting the
-workflow). `npx code-evolve eject --yes` removes everything.
+workflow); a native schedule stops where it was made (pause or delete the task at
+claude.ai/code/routines or in the ChatGPT app's Scheduled view, or ask Claude to cancel the loop).
+`npx code-evolve eject --yes` removes everything.

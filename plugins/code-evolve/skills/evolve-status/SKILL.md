@@ -11,8 +11,10 @@ metadata:
    `features` (total, done, partial, remaining), `mode`, `schedule`, `requirements` (open, regressed,
    satisfied, waived), `pendingSession`, `abandonedSession`, `engineVersion`, `engineDrift` and `lastEntry`.
 2. Summarize in a few sentences: the day count and spec progress, how cycles run (`schedule` is the
-   local cron; `mode` `ci` or `both` means GitHub Actions also runs them; with neither, cycles are
-   run by hand or from an agent session), how many
+   local cron; `mode` `ci` or `both` means GitHub Actions also runs them; `mode` `native` means the
+   user set up the agent's own scheduler, which code-evolve cannot see, so judge whether it is
+   firing from the dates of the journal entries; with none of these, cycles are run by hand or
+   from an agent session), how many
    requirements are open (work the agent owes), and what the last journal entry says.
 3. Call out anything that needs attention:
    - `requirements.regressed` above 0: something that used to work is broken, and the next cycle

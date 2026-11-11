@@ -55,11 +55,26 @@ check "both: mode persisted"         "$(node -e "console.log(require('$D/.evolve
 check "both: evolve workflow installed" "$([ -f "$D/.github/workflows/evolve.yml" ] && echo yes || echo no)" "yes"
 rm -rf "$D"
 
+# ── native mode: the agent's own scheduler runs cycles, so nothing is installed (#93) ──
+D=$(run_init native)
+check "native: mode persisted"       "$(node -e "console.log(require('$D/.evolve/config.json').mode)")" "native"
+check "native: status reports mode"  "$(cd "$D" && node "$CLI" status 2>/dev/null | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).mode))')" "native"
+check "native: no CI workflow"       "$([ -f "$D/.github/workflows/evolve.yml" ] && echo yes || echo no)" "no"
+check "native: no local schedule"    "$([ -f "$D/.evolve/schedule.json" ] && echo yes || echo no)" "no"
+# A cron job left over from local mode would run cycles alongside the agent's scheduler.
+echo '{"every":4,"model":"m"}' > "$D/.evolve/schedule.json"
+OUT=$( cd "$D" && node "$CLI" init --yes --mode native </dev/null 2>&1 )
+check "native: says a local schedule is still installed" "$(echo "$OUT" | grep -c 'local schedule is still installed.*code-evolve stop')" "1"
+check "native: leaves that schedule for the user to stop" "$([ -f "$D/.evolve/schedule.json" ] && echo yes || echo no)" "yes"
+OUT=$( cd "$D" && node "$CLI" init --yes </dev/null 2>&1 )
+check "native: a plain refresh keeps the mode" "$(node -e "console.log(require('$D/.evolve/config.json').mode)")" "native"
+rm -rf "$D"
+
 # ── invalid mode: exits non-zero with a clear message ──
 D=$(mktemp -d)
 OUT=$( cd "$D" && git init -q && node "$CLI" init --mode bogus </dev/null 2>&1 ) && rc=0 || rc=$?
 check "invalid mode exits non-zero"  "$([ "${rc:-0}" -ne 0 ] && echo yes || echo no)" "yes"
-check "invalid mode explains"        "$(echo "$OUT" | grep -c 'Unknown mode')" "1"
+check "invalid mode explains"        "$(echo "$OUT" | grep -c 'Unknown mode "bogus". Supported: local, ci, both, native')" "1"
 rm -rf "$D"
 
 # ── back-compat: --with-ci still installs workflows and persists mode=ci ──

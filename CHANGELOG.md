@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Native scheduling** (`--mode native`): cycles run from the agent's own scheduler (a Claude Code
+  cloud scheduled task or `/loop`, or a Codex scheduled task) instead of cron or GitHub Actions.
+  `init --mode native` records the choice and `status` reports it; the `evolve-setup` skill and the
+  README give the exact prompt for each scheduler and its constraints. `init` now also says when a
+  local schedule is still installed after a switch to a mode without one (#93).
 - **Live acceptance record** for the one-command install and first cycle
   ([docs/demos/first-cycle-acceptance.md](docs/demos/first-cycle-acceptance.md)): both fixtures
   and both install paths on Claude Code (headless sessions), a cron-triggered cycle, and the Codex run from

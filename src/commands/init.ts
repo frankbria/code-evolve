@@ -23,6 +23,7 @@ import {
   getPickableAgents,
   resolveAgentSelection,
   resolveModeSelection,
+  getExecutionModes,
   isValidMode,
   AuthMode,
   ExecutionMode,
@@ -58,7 +59,7 @@ export const initCommand = new Command('init')
   .option('--agent-error-pattern <regex>', 'For --agent custom: a log line matching this regex fails the session')
   .option('--agent-env <names>', 'For --agent custom: comma-separated environment variables its CLI needs (saved into the cron .env)')
   .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
-  .option('--mode <mode>', 'Execution mode: local, ci, or both')
+  .option('--mode <mode>', 'Execution mode: local, ci, both, or native (the agent\'s own scheduler)')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
   .option('--yes', 'Never prompt; refresh an existing install (managed files only, state kept)')
   .action(runInit);
@@ -126,7 +127,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       if (options.mode && isValidMode(options.mode)) {
         mode = options.mode;
       } else {
-        console.error(`Unknown mode "${options.mode}". Supported: local, ci, both`);
+        console.error(`Unknown mode "${options.mode}". Supported: ${getExecutionModes().join(', ')}`);
         process.exit(1);
       }
     } else if (options.withCi) {
@@ -416,6 +417,9 @@ export async function runInit(options: InitOptions): Promise<void> {
           console.warn(`  ⚠ Local schedule not installed yet: ${envKey} is not set. Set it, then run \`code-evolve start\`.`);
         }
       }
+    } else if (modeExplicit && fs.existsSync(evolveFile('schedule.json'))) {
+      // Its cron job would keep running cycles alongside the mode just chosen.
+      console.warn(`  ⚠ A local schedule is still installed; remove it with \`code-evolve stop\` unless you want both.`);
     }
 
 
@@ -458,6 +462,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     if (mode) {
       console.log(`  Mode: ${mode}`);
     }
+    if (mode === 'native') {
+      console.log("  Cycles run from your agent's own scheduler; the evolve-setup skill and the README give the prompt to schedule.");
+    }
 
     console.log('');
     console.log('code-evolve initialized.');
@@ -495,8 +502,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
     if (!wantCi || !wantLocal) {
       console.log('');
-      console.log('  To choose where evolution runs (local / ci / both):');
-      console.log('    code-evolve init --mode <local|ci|both> --force');
+      console.log('  To choose where evolution runs (local / ci / both / native):');
+      console.log('    code-evolve init --mode <local|ci|both|native> --force');
     }
 }
 
@@ -615,7 +622,7 @@ async function promptForAgentAndAuth(
 }
 
 /**
- * Interactively ask where evolution should run. Free-text (local/ci/both/skip)
+ * Interactively ask where evolution should run. Free-text (local/ci/both/native/skip)
  * to avoid colliding with the numbered agent picker's "Select [1-N]" prompt.
  * Empty / "skip" keeps the current `fallback` (decide later).
  */
@@ -626,10 +633,11 @@ async function promptForMode(fallback: ExecutionMode | undefined): Promise<Execu
     console.log('  local — schedule a cron job on this machine');
     console.log('  ci    — install GitHub Actions workflows');
     console.log('  both  — local + CI');
+    console.log("  native — your agent's own scheduler runs the evolve-run skill");
     console.log('  skip  — decide later (default)');
     const raw = await new Promise<string>((resolve) => {
       rl.on('close', () => resolve(''));
-      rl.question('Select [local/ci/both/skip] (default skip): ', resolve);
+      rl.question('Select [local/ci/both/native/skip] (default skip): ', resolve);
     });
     return resolveModeSelection(raw) ?? fallback;
   } finally {
