@@ -192,6 +192,14 @@ for number in $(seq 1 3000); do
 done >> "$nested/tests/test_greeting.py"
 J=$(detect_in "$nested")
 check "a pytest class ahead of thousands of TestCase classes keeps pytest" "$(field "$J" test)" "pytest"
+printf 'from helpers import TestCaseMixin\n\n\nclass TestRegression(TestCaseMixin):\n    def test_failure(self):\n        assert False\n' > "$nested/tests/test_greeting.py"
+J=$(detect_in "$nested")
+check "a base class that only contains the word TestCase keeps pytest" "$(field "$J" test)" "pytest"
+printf 'import unittest\n\n\nclass AsyncGreetingTest(unittest.IsolatedAsyncioTestCase):\n    async def test_greeting(self):\n        self.assertEqual("hi", "hi")\n' > "$nested/tests/test_greeting.py"
+J=$(detect_in "$nested")
+check "an IsolatedAsyncioTestCase suite runs unittest" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+run_in "$nested" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "an IsolatedAsyncioTestCase suite: the test is found and passes" || bad "async suite: $(tail -3 "$scratch/run.log")"
 dashed="$(new_fixture dashed)"
 printf '[project]\nname = "dashed"\nversion = "0.1.0"\n' > "$dashed/pyproject.toml"
 write_unittest "$dashed/tests/test-regression.py"

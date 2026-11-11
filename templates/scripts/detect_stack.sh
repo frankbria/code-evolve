@@ -55,21 +55,25 @@ unittest_module_count() {
     grep -cE '(^|/)test[A-Za-z0-9_]*\.py$' || true
 }
 
+# A class base list naming TestCase itself (TestCase, unittest.TestCase,
+# IsolatedAsyncioTestCase), not a longer name that merely contains it.
+UNITTEST_BASE='[(,.[:space:]](IsolatedAsyncio)?TestCase[,)[:space:]]'
+
 # python_unittest_command <dir> <python> — prints the unittest command when it runs the whole
 # suite: only TestCase classes, all in files discovery will load. Prints nothing otherwise,
 # because a suite unittest would run in part (or not at all) must not pass as verified.
 python_unittest_command() {
     local dir="$1" python="$2" start_directory="" prunes=() name all_count seen_count pytest_only
-    python_test_files "$dir" '^[[:space:]]*class[[:space:]].*\(.*TestCase' 'test*.py' || return 0
+    python_test_files "$dir" "^[[:space:]]*class[[:space:]].*$UNITTEST_BASE" 'test*.py' || return 0
     python_test_files "$dir" '' '*_test.py' && return 0
-    # A test function that does not take self, or a Test* class with no TestCase among its
-    # bases, belongs to pytest. Both scans are read to the end: stopping at the first hit
+    # A test function that does not take self, or a Test* class without a TestCase base,
+    # belongs to pytest. Both scans are read to the end: stopping at the first hit
     # would kill the first grep mid-write and, under pipefail, read as "no hit".
     pytest_only=$(
         python_test_grep "$dir" -h '^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+test[A-Za-z0-9_]*\(' 'test*.py' \
             | grep -vE '\([[:space:]]*self\b' || true
         python_test_grep "$dir" -h '^[[:space:]]*class[[:space:]]+Test' 'test*.py' \
-            | grep -vE '\(.*TestCase' || true
+            | grep -vE "$UNITTEST_BASE" || true
     )
     [ -n "$pytest_only" ] && return 0
 
