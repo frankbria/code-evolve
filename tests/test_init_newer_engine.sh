@@ -39,10 +39,14 @@ refused() { # <label> <command...>: exits 1, says why and what to do, and leaves
 
 record_engine 99.0.0
 refused "init --yes over a newer engine" init --yes --agent claude
+# Plain init is refused for the same reason, not sent to --force (which would only be refused next).
+refused "plain init over a newer engine" init
+check "plain init does not suggest --force" "$(grep -c -- '--force' "$stub_dir/refusal.log" || true)" "0"
 refused "init --yes switching agent over a newer engine" init --yes --agent codex
 refused "init --force over a newer engine" init --force
 refused "setup over a newer engine" setup
 refused "upgrade over a newer engine" upgrade
+check "upgrade names its own command" "$(grep -c 'npx code-evolve@latest upgrade' "$stub_dir/refusal.log")" "1"
 check "the newer engine's files are still installed" "$(marker)" "1"
 check "the newer engine's version is still recorded" "$(node -p "require('./.evolve/config.json').engineVersion")" "99.0.0"
 
@@ -58,6 +62,18 @@ refreshed() { # <label> <recorded version, or empty>
 refreshed "the same version" "$VERSION"
 refreshed "an older version" "0.0.1"
 refreshed "an unrecorded version" ""
+
+# A leftover config.json without an engine beside it is not an install: init sets the directory up.
+leftover="$(mktemp -d)"
+(
+    cd "$leftover"
+    git init -q
+    mkdir .evolve && printf '{"agent":"claude","engineVersion":"99.0.0"}\n' > .evolve/config.json
+    status=0; node "$CLI" init --yes </dev/null >/dev/null 2>&1 || status=$?
+    echo "$status $(node -p "require('./.evolve/config.json').engineVersion") $([ -f .evolve/scripts/evolve.sh ] && echo installed)" > "$stub_dir/leftover"
+)
+rm -rf "$leftover"
+check "a leftover config.json with no engine does not block a new install" "$(cat "$stub_dir/leftover")" "0 $VERSION installed"
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]
