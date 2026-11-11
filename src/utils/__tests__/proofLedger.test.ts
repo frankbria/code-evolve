@@ -131,6 +131,25 @@ describe('writeLedger', () => {
     expect(fs.readFileSync(ledgerPath, 'utf8').endsWith(`- **Status**: open\n\n${example}\n`)).toBe(true);
   });
 
+  it('ends a fenced example only at a fence of the same kind that is at least as long', () => {
+    const example = '````\n```\n- **Waiver expires**: Day 9999\n~~~~\n- **Waiver reason**: example\n````';
+    fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n- **Evidence**: after the example\n`);
+    const [requirement] = readLedger();
+    expect(requirement).toMatchObject({ notes: example, evidence: 'after the example' });
+    expect(requirement.waiverExpires).toBeUndefined();
+    expect(requirement.waiverReason).toBeUndefined();
+  });
+
+  it('reads a field the same way before and after a rewrite when its first line is empty', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Status**: waived\n- **Waiver expires**:\n- **Waiver expires**: Day 12\n');
+    const before = readLedger();
+    expect(before[0].waiverExpires).toBe('Day 12');
+    expect(before[0].notes).toBeUndefined();
+    writeLedger(before);
+    expect(readLedger()[0]).toMatchObject({ status: 'waived', waiverExpires: 'Day 12' });
+    expect(readLedger()[0].notes).toBeUndefined();
+  });
+
   it('reads fields written as a numbered, plus-bulleted or quoted list, as it did before', () => {
     fs.writeFileSync(ledgerPath, '## REQ-0001: first\n1. **Severity**: low\n+ **Status**: satisfied\n> **Source**: manual\n**Evidence**: e1\n');
     expect(readLedger()[0]).toMatchObject({ severity: 'low', status: 'satisfied', source: 'manual', evidence: 'e1' });
