@@ -276,6 +276,12 @@ parsed_as "a test function imported into a TestCase file keeps pytest" "pytest" 
     'import unittest\n\nfrom helpers import test_shared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a Test class imported into a TestCase file keeps pytest" "pytest" \
     'import unittest\n\nfrom checks import TestShared\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(TestShared)\n'
+printf 'def test_shared():\n    assert False\n' > "$parsed/tests/checks.py"
+printf 'def greeting():\n    return "hi"\n' > "$parsed/tests/helpers.py"
+parsed_as "a star import of a project file that holds a test function keeps pytest" "pytest" \
+    'import unittest\n\nfrom checks import *\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a class made by a call and assigned to a Test name keeps pytest" "pytest" \
+    'import unittest\n\nTestGenerated = type("TestGenerated", (), {"test_failure": lambda self: 1 / 0})\n\n\nclass OtherTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a TestCase file that imports pytest keeps pytest" "pytest" \
     'import unittest\n\nimport pytest\n\n\nclass MarkedTest(unittest.TestCase):\n    @pytest.mark.slow\n    def test_marked(self):\n        pass\n'
 parsed_as "a test file this Python cannot parse keeps pytest" "pytest" \
@@ -290,6 +296,8 @@ parsed_as "unittest imported twice, with unittest.mock and in try/except, runs u
     'import unittest\nimport unittest.mock\n\ntry:\n    from unittest import IsolatedAsyncioTestCase\nexcept ImportError:\n    from unittest import IsolatedAsyncioTestCase\n\n\nclass TestMocked(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(unittest.mock.Mock())\n\n\nclass TestAsync(IsolatedAsyncioTestCase):\n    async def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "setting an attribute of unittest.TestCase does not rebind unittest" "$UNITTEST" \
     'import unittest\n\nunittest.TestCase.maxDiff = None\nsettings = {}\nsettings[unittest] = 1\n\n\nclass TestLong(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "star imports of project code and of installed modules run unittest" "$UNITTEST" \
+    'import unittest\n\nfrom helpers import *\nfrom os.path import *\n\n\nclass StarTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(greeting(), "hi")\n'
 parsed_as "a mixin holding the tests of a TestCase runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass GreetingChecks:\n    def test_passes(self):\n        self.assertTrue(True)\n\n\nclass MixedTest(GreetingChecks, unittest.TestCase):\n    pass\n'
 parsed_as "a Test-named helper class with no test in it or its bases runs unittest" "$UNITTEST" \

@@ -18,6 +18,7 @@ UNITTEST_BASES = {"TestCase", "IsolatedAsyncioTestCase"}
 # unittest discovery skips, without a word, a file whose name is not a module name.
 MODULE_FILE = re.compile(r"[_a-z]\w*\.py\Z", re.IGNORECASE)
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+UNREADABLE = (OSError, SyntaxError, ValueError, RecursionError)
 
 
 def is_unittest_file(name):
@@ -150,9 +151,43 @@ def unittest_module(node):
     return node.id if isinstance(node, ast.Name) else None
 
 
-def classify(tree):
+def names_a_test(name):
+    """A module-level name pytest looks at, apart from unittest's own classes."""
+    return name.startswith(("test", "Test")) and name not in UNITTEST_BASES
+
+
+def star_import_brings_tests(statement, directories):
+    """True when `from module import *` reads a file of the project that binds a name pytest
+    looks at, or one that cannot be parsed. A module found nowhere in `directories` is an
+    installed one and brings none."""
+    relative = (statement.module or "").replace(".", os.sep)
+    for directory in directories[:1] if statement.level else directories:
+        for path in (
+            os.path.join(directory, relative + ".py"),
+            os.path.join(directory, relative, "__init__.py"),
+        ):
+            if os.path.isfile(path):
+                try:
+                    statements = scope_statements(parse(path).body)
+                    return any(
+                        names_a_test(name)
+                        for imported in statements
+                        for name in bound_names(imported)
+                    )
+                except UNREADABLE:
+                    return True
+    return False
+
+
+def parse(path):
+    with open(path, "rb") as source:
+        return ast.parse(source.read(), filename=path)
+
+
+def classify(tree, directories):
     """'pytest' when the file holds a test only pytest collects, 'unittest' when it defines a
-    unittest.TestCase class and no such test, else 'neither'."""
+    unittest.TestCase class and no such test, else 'neither'. `directories` are where a
+    module the file imports may be: the file's own first."""
     if imports_pytest(tree):
         return "pytest"
     unittest_modules = set()
@@ -187,12 +222,18 @@ def classify(tree):
                         trust(test_cases, alias.asname or alias.name)
             # pytest collects a test function or Test* class a module imports as if it were
             # defined there.
-            elif any(
-                (alias.asname or alias.name).startswith(("test", "Test"))
-                for alias in statement.names
+            elif any(names_a_test(alias.asname or alias.name) for alias in statement.names):
+                return "pytest"
+            elif statement.names[0].name == "*" and star_import_brings_tests(
+                statement, directories
             ):
                 return "pytest"
         elif is_test_function(statement):
+            return "pytest"
+        elif isinstance(statement, ast.Assign) and any(
+            name.startswith("Test") for name in bound_names(statement)
+        ):
+            # A class made by a call is collected under the name it is assigned to.
             return "pytest"
         elif isinstance(statement, ast.ClassDef):
             derives = any(
@@ -237,9 +278,8 @@ def unittest_arguments(project, skipped):
     kinds = set()
     for path in loaded:
         try:
-            with open(path, "rb") as source:
-                kinds.add(classify(ast.parse(source.read(), filename=path)))
-        except (OSError, SyntaxError, ValueError, RecursionError):
+            kinds.add(classify(parse(path), [os.path.dirname(path), start, project]))
+        except UNREADABLE:
             # A file this Python cannot read or parse is left to pytest to report.
             return ""
     return arguments if "unittest" in kinds and "pytest" not in kinds else ""
