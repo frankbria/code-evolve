@@ -153,6 +153,17 @@ status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --ag
 check "a pattern this system's grep -E rejects is rejected at init" "$status" "1"
 check "and the message names grep -E" "$(grep -c 'not a valid grep -E pattern' "$work/init-regex.log")" "1"
 
+# A name every JavaScript object has (constructor, toString) is a variable like any other: unset
+# unless the shell exports it (#154). process.env answers for such a name with a function.
+status=0; node "$CLI" init --yes --agent custom --agent-command 'fakeagent' --agent-env 'constructor,toString' </dev/null > "$work/init-inherited.log" 2>&1 || status=$?
+check "init schedules with a credential named constructor that is not set" \
+    "$status:$(grep -c 'Could not install local cron job' "$work/init-inherited.log"):$(grep -c 'constructor is not set in this shell and no value is saved' "$work/init-inherited.log"):$(grep -c 'toString is not set in this shell and no value is saved' "$work/init-inherited.log")" "0:0:1:1"
+check "and writes no line for it into the cron .env" "$(grep -c "AGENT_COMMAND='fakeagent'" .evolve/.env):$(grep -cE '^export (constructor|toString)=' .evolve/.env)" "1:0"
+constructor='built' node "$CLI" start --every 6 </dev/null > "$work/start-inherited.log" 2>&1
+check "a variable the shell really exports as constructor is saved" "$(grep -c "^export constructor='built'\$" .evolve/.env):$(grep -c 'constructor is not set' "$work/start-inherited.log")" "1:0"
+node "$CLI" start --every 6 </dev/null > "$work/start-inherited-kept.log" 2>&1
+check "and kept when a later start runs without it" "$(grep -c "^export constructor='built'\$" .evolve/.env):$(grep -c 'constructor is not set in this shell; keeping the value saved' "$work/start-inherited-kept.log")" "1:1"
+
 echo "---"
 echo "passed: $pass  failed: $fail"
 [ "$fail" -eq 0 ]

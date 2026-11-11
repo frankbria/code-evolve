@@ -52,6 +52,21 @@ describe('credentialsKeptFromEnvFile', () => {
     expect(credentialsKeptFromEnvFile(['CODE_EVOLVE_TEST_TOKEN'], envFile).kept).toEqual({});
   });
 
+  it('reports a name every object inherits as not set, and keeps its saved value', () => {
+    const missing = (name: string) => `${name} is not set in this shell and no value is saved in .evolve/.env; scheduled cycles won't get it until you set it and run code-evolve start`;
+    expect(credentialsKeptFromEnvFile(['constructor', 'toString', '__proto__'], envFile)).toEqual({
+      kept: {},
+      warnings: [missing('constructor'), missing('toString'), missing('__proto__')],
+    });
+    fs.writeFileSync(envFile, "export constructor='built'\nexport __proto__='chain'\n");
+    const { kept, warnings } = credentialsKeptFromEnvFile(['constructor', '__proto__'], envFile);
+    expect(Object.entries(kept)).toEqual([['constructor', 'built'], ['__proto__', 'chain']]);
+    expect(warnings).toEqual([
+      'constructor is not set in this shell; keeping the value saved in .evolve/.env',
+      '__proto__ is not set in this shell; keeping the value saved in .evolve/.env',
+    ]);
+  });
+
   it('never carries a name the engine sets itself', () => {
     fs.writeFileSync(envFile, "export AGENT_COMMAND='planted'\nexport BASH_ENV='/tmp/x'\n");
     const saved = { AGENT_COMMAND: process.env.AGENT_COMMAND, BASH_ENV: process.env.BASH_ENV };

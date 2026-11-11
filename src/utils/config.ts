@@ -165,6 +165,14 @@ export function isEnvVarName(name: string): boolean {
 }
 
 /**
+ * The value this process's environment sets for a name, or undefined. process.env also answers for
+ * what every object inherits (constructor, toString, __proto__) with a function or an object.
+ */
+export function environmentValue(name: string): string | undefined {
+  return Object.hasOwn(process.env, name) ? process.env[name] : undefined;
+}
+
+/**
  * Engine variables for the custom adapter (agents/custom.sh): the command, the error pattern, and the
  * current values of the credentials it names (agentEnvVars), so scheduled cycles get them too.
  * Empty for the built-in agents.
@@ -172,9 +180,10 @@ export function isEnvVarName(name: string): boolean {
 export function customAgentEnv(agent: string, config: EvolveConfig): Record<string, string> {
   if (agent !== 'custom') return {};
   const credentials = Object.fromEntries(
-    (config.agentEnvVars ?? [])
-      .filter((name) => isEnvVarName(name) && process.env[name] !== undefined)
-      .map((name) => [name, process.env[name] as string]),
+    (config.agentEnvVars ?? []).flatMap((name) => {
+      const value = isEnvVarName(name) ? environmentValue(name) : undefined;
+      return value === undefined ? [] : [[name, value]];
+    }),
   );
   return {
     ...credentials,
