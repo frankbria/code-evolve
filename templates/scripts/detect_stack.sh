@@ -7,7 +7,8 @@
 #
 # Supports nested layouts: if no stack marker at root, scans immediate subdirectories.
 # When any are found, outputs {"stack":"monorepo","substacks":[...]}; each substack's
-# commands run in its "dir".
+# commands run in its "dir". Next to a root project, the folders listed in
+# ../nested-projects.txt are its "substacks" and other folders with checks are "unverified".
 
 set -euo pipefail
 
@@ -303,32 +304,62 @@ detect_single_stack() {
 
 # ── Main detection ──
 
-# Try root directory first
+# Nested projects the user wants verified next to a root project: one directory per line,
+# relative to the project root. Without a root project every folder one level down counts
+# already, and the list adds deeper ones.
+NESTED_LIST="$SCRIPTS_DIR/../nested-projects.txt"
+
+# listed_nested_dirs — the list's directories, one per line: no comments, no surrounding
+# blanks, no leading ./ or trailing /, and nothing that points outside the project.
+listed_nested_dirs() {
+    local line
+    [ -f "$NESTED_LIST" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s|^\(\./\)*||; s|/*$||')
+        case "/$line/" in //|/'#'*|//*|*/../*|*/./*) continue ;; esac
+        echo "$line"
+    done < "$NESTED_LIST"
+}
+
+# json_safe_name <name> — a name goes into the JSON unescaped; one that would break it is not
+# worth losing the whole detection over.
+json_safe_name() {
+    case "$1" in *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;; esac
+}
+
+SUBSTACKS=""
+SUBSTACK_DIRS=$'\n'
+UNVERIFIED=""
+
+# add_substack <dir relative to the project> — records the project found there, once.
+add_substack() {
+    json_safe_name "$1" || return 0
+    case "$SUBSTACK_DIRS" in *$'\n'"$1"$'\n'*) return 0 ;; esac
+    [ -d "$PROJECT_DIR/$1" ] || return 0
+    detect_single_stack "$PROJECT_DIR/$1"
+    [ "$STACK" != "unknown" ] || return 0
+    SUBSTACKS="${SUBSTACKS:+$SUBSTACKS,}{\"name\":\"$1\",\"dir\":\"$1\",\"stack\":\"$STACK\",\"build\":\"$BUILD_CMD\",\"test\":\"$TEST_CMD\",\"lint\":\"$LINT_CMD\",\"format\":\"$FORMAT_CMD\"}"
+    SUBSTACK_DIRS="$SUBSTACK_DIRS$1"$'\n'
+}
+
 detect_single_stack "$PROJECT_DIR"
+ROOT_STACK="$STACK"; ROOT_BUILD_CMD="$BUILD_CMD"; ROOT_TEST_CMD="$TEST_CMD"
+ROOT_LINT_CMD="$LINT_CMD"; ROOT_FORMAT_CMD="$FORMAT_CMD"
 
-# If unknown, scan immediate subdirectories for monorepo layout
-if [ "$STACK" = "unknown" ]; then
-    SUBSTACKS=""
-    SUBSTACK_COUNT=0
-
+if [ "$ROOT_STACK" = "unknown" ]; then
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
-        SUBDIR_NAME=$(basename "$subdir")
-        # The name goes into the JSON unescaped; one that would break it is not worth losing
-        # the whole detection over.
-        case "$SUBDIR_NAME" in *'"'*|*'\'*|*[[:cntrl:]]*) continue ;; esac
-        detect_single_stack "$subdir"
-        if [ "$STACK" != "unknown" ]; then
-            [ "$SUBSTACK_COUNT" -gt 0 ] && SUBSTACKS="$SUBSTACKS,"
-            SUBSTACKS="$SUBSTACKS{\"name\":\"$SUBDIR_NAME\",\"dir\":\"$SUBDIR_NAME\",\"stack\":\"$STACK\",\"build\":\"$BUILD_CMD\",\"test\":\"$TEST_CMD\",\"lint\":\"$LINT_CMD\",\"format\":\"$FORMAT_CMD\"}"
-            SUBSTACK_COUNT=$((SUBSTACK_COUNT + 1))
-        fi
+        add_substack "$(basename "$subdir")"
     done
+fi
+while IFS= read -r listed_dir; do
+    add_substack "$listed_dir"
+done < <(listed_nested_dirs)
 
-    if [ "$SUBSTACK_COUNT" -ge 1 ]; then
-        # One nested project is reported the same way as several: only a substack entry
-        # carries the directory its commands must run in.
-        cat <<EOF
+if [ "$ROOT_STACK" = "unknown" ] && [ -n "$SUBSTACKS" ]; then
+    # One nested project is reported the same way as several: only a substack entry
+    # carries the directory its commands must run in.
+    cat <<EOF
 {
   "stack": "monorepo",
   "substacks": [$SUBSTACKS],
@@ -338,18 +369,35 @@ if [ "$STACK" = "unknown" ]; then
   "format": ""
 }
 EOF
-        exit 0
-    fi
-    # If 0 substacks, STACK remains "unknown" — fall through to single output
+    exit 0
 fi
 
-# Single-stack output (or unknown)
+# Next to a root project, a folder with checks of its own that is not on the list is not
+# verified. It is reported so that the engine can say so; folders git ignores (build output)
+# are left out.
+if [ "$ROOT_STACK" != "unknown" ]; then
+    for subdir in "$PROJECT_DIR"/*/; do
+        [ -d "$subdir" ] || continue
+        SUBDIR_NAME=$(basename "$subdir")
+        json_safe_name "$SUBDIR_NAME" || continue
+        case "$SUBSTACK_DIRS" in *$'\n'"$SUBDIR_NAME"$'\n'*) continue ;; esac
+        ! git -C "$PROJECT_DIR" check-ignore -q -- "$SUBDIR_NAME" 2>/dev/null || continue
+        detect_single_stack "$subdir"
+        [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ] || continue
+        UNVERIFIED="${UNVERIFIED:+$UNVERIFIED,}{\"dir\":\"$SUBDIR_NAME\",\"stack\":\"$STACK\"}"
+    done
+fi
+
+# Single-stack output (or unknown). The two lists appear only when they have entries.
+NESTED_LISTS=""
+[ -z "$SUBSTACKS" ] || NESTED_LISTS="$NESTED_LISTS"$'\n'"  \"substacks\": [$SUBSTACKS],"
+[ -z "$UNVERIFIED" ] || NESTED_LISTS="$NESTED_LISTS"$'\n'"  \"unverified\": [$UNVERIFIED],"
 cat <<EOF
 {
-  "stack": "$STACK",
-  "build": "$BUILD_CMD",
-  "test": "$TEST_CMD",
-  "lint": "$LINT_CMD",
-  "format": "$FORMAT_CMD"
+  "stack": "$ROOT_STACK",$NESTED_LISTS
+  "build": "$ROOT_BUILD_CMD",
+  "test": "$ROOT_TEST_CMD",
+  "lint": "$ROOT_LINT_CMD",
+  "format": "$ROOT_FORMAT_CMD"
 }
 EOF

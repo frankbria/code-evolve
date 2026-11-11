@@ -131,6 +131,65 @@ JN=$(bash "$SCRIPT" "$NESTED")
 check "nested: a name that would break the JSON is skipped" "$(substack_field dir)" "app"
 rm -rf "$NESTED"
 
+# ── Nested projects next to a root project (#152) ──
+# The list lives in the engine's directory, so these fixtures get the scripts installed.
+install_engine() { mkdir -p "$1/.evolve"; cp -R "$ROOT/templates/scripts" "$1/.evolve/scripts"; }
+installed_detect() { bash "$1/.evolve/scripts/detect_stack.sh" "$1"; }
+# listing <json> <key> <field>  → that field of every entry (or the entry itself), comma-joined
+listing() { echo "$1" | python3 -c "import sys,json; print(','.join(e if isinstance(e, str) else e['$3'] for e in json.load(sys.stdin).get('$2', [])))"; }
+
+MIXED=$(mktemp -d)
+install_engine "$MIXED"
+echo '{"scripts":{"build":"x","test":"y"}}' > "$MIXED/package.json"
+mkdir -p "$MIXED/api" "$MIXED/examples" "$MIXED/site" "$MIXED/services/worker" "$MIXED/plain"
+echo '<project/>' > "$MIXED/api/pom.xml"
+printf 'all:\n' > "$MIXED/examples/Makefile"
+echo '<html></html>' > "$MIXED/site/index.html"
+echo '{}' > "$MIXED/services/worker/deno.json"
+JR=$(installed_detect "$MIXED")
+check "root + nested, no list: the root project is reported as before" "$(field "$JR" stack)|$(field "$JR" build)" "javascript|npm run build"
+check "root + nested, no list: no nested project is verified" "$(listing "$JR" substacks dir)" ""
+check "root + nested, no list: folders with their own checks are named as unverified" "$(listing "$JR" unverified dir)" "api,examples"
+
+printf '# verified next to the root project\n\napi/\n  services/worker  \r\n./examples\nplain\nmissing\n' > "$MIXED/.evolve/nested-projects.txt"
+JR=$(installed_detect "$MIXED")
+check "listed: the root project keeps its own commands" "$(field "$JR" stack)|$(field "$JR" test)" "javascript|npm run test"
+check "listed: listed folders are substacks, deeper paths too" "$(listing "$JR" substacks dir)" "api,services/worker,examples"
+check "listed: a substack carries its own commands" \
+  "$(echo "$JR" | python3 -c "import sys,json; s=json.load(sys.stdin)['substacks'][0]; print(s['stack'], s['build'], s['test'], sep='|')")" "java|mvn compile|mvn test"
+check "listed: nothing listed is left unverified" "$(listing "$JR" unverified dir)" ""
+
+printf 'api\napi/\n/etc\n../outside\napi/../..\n.\n' > "$MIXED/.evolve/nested-projects.txt"
+JR=$(installed_detect "$MIXED")
+check "listed: duplicates count once; paths outside the project are ignored" "$(listing "$JR" substacks dir)" "api"
+check "listed: the rest is still named as unverified" "$(listing "$JR" unverified dir)" "examples"
+
+git -C "$MIXED" init -q
+echo 'examples/' > "$MIXED/.gitignore"
+JR=$(installed_detect "$MIXED")
+check "unverified: a folder git ignores is not named" "$(listing "$JR" unverified dir)" ""
+rm -rf "$MIXED"
+
+# Without a root project every folder one level down counts, and the list adds deeper ones.
+DEEP=$(mktemp -d)
+install_engine "$DEEP"
+mkdir -p "$DEEP/web" "$DEEP/services/worker"
+echo '{}' > "$DEEP/web/deno.json"
+echo '<project/>' > "$DEEP/services/worker/pom.xml"
+printf 'services/worker\nweb\n' > "$DEEP/.evolve/nested-projects.txt"
+JD=$(installed_detect "$DEEP")
+check "no root project: still a monorepo" "$(field "$JD" stack)" "monorepo"
+check "no root project: scanned folders once, listed deeper ones added" "$(listing "$JD" substacks dir)" "web,services/worker"
+rm -rf "$DEEP"
+
+# A name with | is a project like any other (the engine does not split on it).
+PIPE=$(mktemp -d)
+mkdir "$PIPE/a|b"
+echo '<project/>' > "$PIPE/a|b/pom.xml"
+JP=$(bash "$SCRIPT" "$PIPE")
+check "a directory name with | is detected" "$(listing "$JP" substacks dir)" "a|b"
+rm -rf "$PIPE"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

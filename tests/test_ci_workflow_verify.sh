@@ -85,6 +85,28 @@ python_project "$nested/tools" 'assertEqual("hi", "bye")'
 run_step "$nested" && bad "a failing nested project passed the step" \
     || { logged "=== backend (python) ===" && logged "FAILED (failures=1)" && ok "one failing nested project fails the step" || bad "failing nested project: $(tail -8 "$scratch/step.log")"; }
 
+# ── A root project with listed nested projects (#152) ──
+# The root project is a Makefile one, with a stand-in make that fails when ./broken exists.
+printf '#!/bin/sh\necho "make $*"\n[ ! -e broken ]\n' > "$toolbox/make"; chmod +x "$toolbox/make"
+mixed="$(new_project mixed)"
+printf 'all:\n' > "$mixed/Makefile"
+python_project "$mixed/backend" 'assertEqual("hi", "hi")'
+python_project "$mixed/tools" 'assertEqual("hi", "bye")'
+run_step "$mixed" && logged "Running tests: make test" && ! logged "Ran 1 test" \
+    && ok "root + nested, no list: only the root project is verified" || bad "root + nested, no list: $(tail -8 "$scratch/step.log")"
+echo "backend" > "$mixed/.evolve/nested-projects.txt"
+run_step "$mixed" && logged "Running tests: make test" && logged "=== backend (python) ===" \
+    && ! logged "=== tools (python) ===" && [ "$(grep -c "Ran 1 test" "$scratch/step.log")" = "1" ] \
+    && ok "root + nested, listed: the root project and the listed one are verified, the step passes" || bad "root + nested, listed: $(tail -8 "$scratch/step.log")"
+python_project "$mixed/backend" 'assertEqual("hi", "bye")'
+run_step "$mixed" && bad "a failing listed project passed the step" \
+    || { logged "=== backend (python) ===" && logged "FAILED (failures=1)" && ok "a failing listed project fails the step" || bad "failing listed project: $(tail -8 "$scratch/step.log")"; }
+python_project "$mixed/backend" 'assertEqual("hi", "hi")'
+touch "$mixed/broken"
+run_step "$mixed" && bad "a failing root project passed the step" \
+    || { ! logged "=== backend (python) ===" && ok "a failing root project fails the step before the nested ones run" || bad "failing root project: $(tail -8 "$scratch/step.log")"; }
+rm "$toolbox/make"
+
 echo "----"
 echo "PASS: $pass  FAIL: $fail"
 [ "$fail" -eq 0 ]

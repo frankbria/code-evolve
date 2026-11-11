@@ -286,6 +286,7 @@ my-project/
 │   ├── vision.md          ← you write this (or use `code-evolve vision`)
 │   ├── spec.md            ← you write this (or use `code-evolve migrate`)
 │   ├── config.json        ← agent and model settings
+│   ├── nested-projects.txt ← optional: nested projects to verify next to a root project
 │   ├── scripts/           ← orchestration engine (protected)
 │   ├── skills/            ← agent behaviors (protected)
 │   ├── IDENTITY.md        ← agent constitution (protected)
@@ -413,6 +414,16 @@ discover`); without ruff in the lock, the ruff of `.venv` or `PATH` is used, or 
 `.agents/`, so the engine's own files never fail your project's checks.
 
 **Monorepos and nested projects** are supported automatically. If no stack marker is found at the project root, code-evolve scans immediate subdirectories. Each project it finds there (e.g., `backend/` with Python and `frontend/` with Next.js, or a single `app/`) is verified independently — build, test, and lint run in that project's own directory. The post-session fix loop and CI workflow both handle monorepos.
+
+**A project at the root hides the ones below it**, unless you list them. When the root has its own stack marker (say a `package.json`) and `api/` is a project too, only the root is verified by default: checking every subdirectory would run `make` or `npm run build` in folders you never offered for it, such as `examples/` or a `frontend/` without installed dependencies. To have nested projects verified next to the root one, list their directories in `.evolve/nested-projects.txt`:
+
+```
+# one directory per line, relative to the project root
+api
+services/worker
+```
+
+Listed projects get the baseline check, the cycle prompt, verification and the CI workflow, each in its own directory, in addition to the root project. A session that starts with a folder on the list keeps verifying it even if the list changes during the session. When a session starts and when it is verified, the engine names nested projects that have checks and are not listed (`Not verified: examples/ (make)`); folders git ignores are left out. Without a root project the file is optional: it adds projects deeper than one level.
 
 ## Local vs. Cloud
 

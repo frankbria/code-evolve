@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Nested projects next to a root project**: list their directories in
+  `.evolve/nested-projects.txt` (one per line) and the baseline check, the cycle prompt,
+  verification and the installed CI workflow run each one's build, test and lint in its own
+  directory, in addition to the root project. Nothing changes without the file: the root project
+  alone is verified, and the engine now names the nested projects with checks that it does not
+  verify (`Not verified: api/ (python)`). Without a root project, the list adds projects deeper
+  than one level. `detect_stack.sh` reports listed projects as `substacks` and the unlisted ones
+  as `unverified` (#152).
 - **Release workflow**: pushing a `v<version>` tag publishes that version to npm with provenance and
   creates the GitHub release with the plugin ZIP attached (`.github/workflows/release.yml`,
   `scripts/publish-release`). It refuses a tag that does not match `package.json`, and a re-run after
@@ -66,6 +74,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- A nested project whose directory name contains `|` is verified in its directory. The engine
+  split its `dir|build|test` lines on that character, so the baseline check and verification ran
+  `cd` on half the name and the session could only be reverted (#152).
 - **Protected-files guard leftovers** (#150):
   - A file or directory with a newline in its name that the agent plants under a protected path is
     removed like any other planted file. It used to survive.
