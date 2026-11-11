@@ -24,4 +24,7 @@ REQs are created automatically from:
 
 Evidence artifacts are stored in .evolve/evidence/REQ-XXXX/
 and are NOT committed to git (ephemeral audit trail).
+
+Your own text is kept when `code-evolve proof` rewrites this file: anything above the first
+requirement stays there, and anything under a requirement is written back below its fields.
 -->

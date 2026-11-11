@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, packageVersion, EVOLVE_DIR_NAME } from '../utils/paths';
+import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, localCalendarDate, packageVersion, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults, runProcess } from '../utils/checks';
 import {
   readConfig,
@@ -273,8 +273,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     // Create .birth_date only if it doesn't exist
     const birthDatePath = path.join(evolveDir, '.birth_date');
     if (!fs.existsSync(birthDatePath)) {
-      const today = new Date().toISOString().split('T')[0];
-      fs.writeFileSync(birthDatePath, today + '\n');
+      fs.writeFileSync(birthDatePath, localCalendarDate() + '\n');
     }
 
     // Set executable permissions on scripts

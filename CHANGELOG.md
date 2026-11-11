@@ -57,6 +57,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- **Day count and ledger leftovers** (#147):
+  - `code-evolve status` prints the same day as `code-evolve proof` in every state. Before the
+    first cycle it used to print 0 from `.evolve/DAY_COUNT` while `proof` counted from the birth
+    date.
+  - `init` records the birth date on the local calendar, the one the engine counts from. It used
+    to write the UTC date, so a project set up east of UTC in the early morning started on Day 1,
+    and one set up west of UTC in the evening got a negative day for a few hours. The engine now
+    writes Day 0 for a birth date that is still in the future.
+  - `proof` keeps the text you add under a requirement in `REQUIREMENTS.md` (notes, your own
+    `- **Field**: value` lines, sub-headings) when it rewrites the ledger; it is written back
+    below the requirement's fields. A field left empty is no longer read back as the line below it.
+  - A reverted session that created `.evolve/LEARNINGS.md` and left it uncommitted keeps it in
+    the revert commit only. It used to be stashed as well, and `git stash pop` then refused
+    because the file already existed.
 - A push that git reports as done without sending the cycle's branch (a `remote.<name>.push`
   mapping or a `push.default` that leaves it out) now ends the cycle as not pushed, with exit
   status 4 (#145).

@@ -58,6 +58,51 @@ describe('writeLedger', () => {
     expect(fs.readFileSync(ledgerPath, 'utf8')).toMatch(/^# Requirements Ledger\n/);
   });
 
+  it("keeps the text a user wrote under a requirement, with its own fields and headings", () => {
+    const ledger = [
+      '# Requirements Ledger',
+      '',
+      '## REQ-0001: first',
+      '- **Source**: manual',
+      '- **Status**: open',
+      '- **Owner**: the payments team',
+      '',
+      'Reproduce with `npm run slow-test`; see the 2026-10 incident notes.',
+      '',
+      '## REQ-0002: second',
+      '- **Status**: open',
+      '',
+      '### Follow-up',
+      'Ask before waiving this one.',
+      '',
+    ].join('\n');
+    fs.writeFileSync(ledgerPath, ledger);
+    const requirements = readLedger();
+    expect(requirements[0].notes).toBe('- **Owner**: the payments team\n\nReproduce with `npm run slow-test`; see the 2026-10 incident notes.');
+    writeLedger(requirements.map((requirement) => ({ ...requirement, status: 'satisfied' as const })));
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written).toContain(
+      '- **Status**: satisfied\n\n- **Owner**: the payments team\n\nReproduce with `npm run slow-test`; see the 2026-10 incident notes.\n\n## REQ-0002: second\n',
+    );
+    expect(written.endsWith('- **Status**: satisfied\n\n### Follow-up\nAsk before waiving this one.\n')).toBe(true);
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
+  });
+
+  it('moves a note written between two fields below them, and keeps a requirement without notes as it was', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Source**: manual\nflaky on Windows only\n- **Status**: regressed\n\n## REQ-0002: second\n- **Status**: open\n');
+    const requirements = readLedger();
+    expect(requirements[1].notes).toBeUndefined();
+    writeLedger(requirements);
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written).toContain('- **Status**: regressed\n\nflaky on Windows only\n\n## REQ-0002: second\n');
+    expect(written.endsWith('## REQ-0002: second\n- **Source**: \n- **Severity**: high\n- **Scope**: *\n- **Obligations**: []\n- **Evidence**: (none yet)\n- **Status**: open\n')).toBe(true);
+    // An empty field used to be read back as the line below it.
+    expect(readLedger()[1].source).toBe('');
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
+  });
+
   it('leaves the header in place when the last requirement is removed', () => {
     fs.writeFileSync(ledgerPath, template());
     writeLedger([]);

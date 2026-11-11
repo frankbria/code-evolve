@@ -21,9 +21,14 @@ export interface Req {
   satisfiedBy?: string;
   waiverReason?: string;
   waiverExpires?: string;
+  /** Whatever else the block holds (a user's own text or extra fields), kept across rewrites. */
+  notes?: string;
 }
 
 // ── Ledger parse/serialize ─────────────────────────────────────────────────────
+
+const LEDGER_FIELD_LINE =
+  /^\s*(?:[-*]\s+)?\*\*(Source|Severity|Scope|Obligations|Evidence|Status|Satisfied by|Waiver reason|Waiver expires)\*\*:(.*)$/;
 
 export function parseRequirements(content: string): Req[] {
   const reqs: Req[] = [];
@@ -40,10 +45,16 @@ export function parseRequirements(content: string): Req[] {
     const id = idMatch[1];
     const title = idMatch[2].trim();
 
-    const get = (field: string): string => {
-      const m = body.match(new RegExp(`\\*\\*${field}\\*\\*:\\s*(.+)`));
-      return m ? m[1].trim() : '';
-    };
+    // First value of each field; every other line is the user's and is kept as notes.
+    const fields = new Map<string, string>();
+    const noteLines: string[] = [];
+    for (const line of body.split('\n')) {
+      const field = line.match(LEDGER_FIELD_LINE);
+      if (!field) noteLines.push(line);
+      else if (!fields.has(field[1])) fields.set(field[1], field[2].trim());
+    }
+    const get = (field: string): string => fields.get(field) ?? '';
+    const notes = noteLines.join('\n').replace(/^(\s*\n)+/, '').trimEnd();
 
     const scopeRaw = get('Scope');
     const scope = scopeRaw
@@ -79,6 +90,7 @@ export function parseRequirements(content: string): Req[] {
       satisfiedBy: get('Satisfied by') || undefined,
       waiverReason: get('Waiver reason') || undefined,
       waiverExpires: get('Waiver expires') || undefined,
+      ...(notes ? { notes } : {}),
     });
   }
 
@@ -115,6 +127,7 @@ export function serializeRequirements(reqs: Req[], header = ''): string {
     if (req.satisfiedBy) lines.push(`- **Satisfied by**: ${req.satisfiedBy}`);
     if (req.waiverReason) lines.push(`- **Waiver reason**: ${req.waiverReason}`);
     if (req.waiverExpires) lines.push(`- **Waiver expires**: ${req.waiverExpires}`);
+    if (req.notes) lines.push('', req.notes);
     return lines.join('\n');
   });
 

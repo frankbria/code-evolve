@@ -667,6 +667,9 @@ if date -j &>/dev/null; then
 else
     DAY=$(( ($(date +%s) - $(date -d "$BIRTH_DATE" +%s)) / 86400 ))
 fi
+# A birth date after today (a clock that was set back, or a date written in another time zone)
+# is the first day, as `code-evolve status` and `proof` count it.
+[ "$DAY" -ge 0 ] || DAY=0
 echo "$DAY" > "$EVOLVE_DIR/DAY_COUNT"
 
 echo "=== Day $DAY ($DATE $SESSION_TIME) ==="
@@ -1268,6 +1271,11 @@ revert_session_and_capture_req() {
     if [ -f "$PROTECTED_SNAPSHOT/untracked_at_start" ]; then
         local session_files=() session_file
         while IFS= read -r session_file; do
+            # A kept file the session created is put back and committed below. Stashed as well,
+            # it would be in two places and `git stash pop` would refuse to overwrite it.
+            for kept_name in LEARNINGS.md DAY_COUNT; do
+                [ "$session_file" -ef "$EVOLVE_DIR/$kept_name" ] && continue 2
+            done
             session_files+=("$session_file")
         done < <(git -c core.quotePath=false ls-files --others --exclude-standard -- "$PROJECT_DIR" | sort \
             | comm -13 "$PROTECTED_SNAPSHOT/untracked_at_start" -)
