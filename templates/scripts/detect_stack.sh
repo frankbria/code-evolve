@@ -8,7 +8,7 @@
 # Supports nested layouts: if no stack marker at root, scans immediate subdirectories.
 # When any are found, outputs {"stack":"monorepo","substacks":[...]}; each substack's
 # commands run in its "dir". Next to a root project, the folders listed in
-# ../nested-projects.txt are its "substacks" and other folders with checks are "unverified".
+# ../nested-projects.txt are its "substacks" and other folders with a stack marker are "unverified".
 
 set -euo pipefail
 
@@ -310,7 +310,8 @@ detect_single_stack() {
 NESTED_LIST="$SCRIPTS_DIR/../nested-projects.txt"
 
 # listed_nested_dirs — the list's directories, one per line: no comments, no surrounding
-# blanks, no leading ./ or trailing /, and nothing that points outside the project.
+# blanks, no leading ./ or trailing /, and no absolute path or .. component (a symlink the
+# user lists is followed wherever it leads).
 listed_nested_dirs() {
     local line
     [ -f "$NESTED_LIST" ] || return 0
@@ -372,19 +373,30 @@ EOF
     exit 0
 fi
 
-# Next to a root project, a folder with checks of its own that is not on the list is not
+# Next to a root project, a folder that looks like a project and is not on the list is not
 # verified. It is reported so that the engine can say so; folders git ignores (build output)
-# are left out.
+# are left out. Only marker files are looked at: full detection runs the folder's own
+# interpreter (.venv/bin/python), and nobody offered these folders for that.
+has_project_marker() {
+    local marker
+    for marker in Cargo.toml deno.json deno.jsonc package.json pyproject.toml requirements.txt go.mod \
+        pom.xml build.gradle build.gradle.kts settings.gradle settings.gradle.kts Gemfile composer.json \
+        CMakeLists.txt Makefile; do
+        [ ! -f "$1/$marker" ] || return 0
+    done
+    compgen -G "$1/*.sln" >/dev/null || compgen -G "$1/*.csproj" >/dev/null
+}
 if [ "$ROOT_STACK" != "unknown" ]; then
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
         SUBDIR_NAME=$(basename "$subdir")
-        json_safe_name "$SUBDIR_NAME" || continue
+        # The root project's JSON never carried directory names before, so only plain ones go
+        # in: a name the JSON reader rejects (bytes that are not UTF-8) would lose every check.
+        case "$SUBDIR_NAME" in *[!A-Za-z0-9._@+\ -]*) continue ;; esac
         case "$SUBSTACK_DIRS" in *$'\n'"$SUBDIR_NAME"$'\n'*) continue ;; esac
         ! git -C "$PROJECT_DIR" check-ignore -q -- "$SUBDIR_NAME" 2>/dev/null || continue
-        detect_single_stack "$subdir"
-        [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ] || continue
-        UNVERIFIED="${UNVERIFIED:+$UNVERIFIED,}{\"dir\":\"$SUBDIR_NAME\",\"stack\":\"$STACK\"}"
+        has_project_marker "$subdir" || continue
+        UNVERIFIED="${UNVERIFIED:+$UNVERIFIED,}\"$SUBDIR_NAME\""
     done
 fi
 

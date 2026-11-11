@@ -423,7 +423,7 @@ api
 services/worker
 ```
 
-Listed projects get the baseline check, the cycle prompt, verification and the CI workflow, each in its own directory, in addition to the root project. A session that starts with a folder on the list keeps verifying it even if the list changes during the session. When a session starts and when it is verified, the engine names nested projects that have checks and are not listed (`Not verified: examples/ (make)`); folders git ignores are left out. Without a root project the file is optional: it adds projects deeper than one level.
+Listed projects get the baseline check, the cycle prompt, verification and the CI workflow, each in its own directory, in addition to the root project. A session that starts with a folder on the list keeps verifying it even if the list changes during the session. When a session starts and when it is verified, the engine names nested folders that have a stack marker and are not listed (`Not verified: examples/`), without running anything in them; folders git ignores are left out. Without a root project the file is optional: it adds projects deeper than one level.
 
 ## Local vs. Cloud
 

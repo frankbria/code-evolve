@@ -11,8 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.evolve/nested-projects.txt` (one per line) and the baseline check, the cycle prompt,
   verification and the installed CI workflow run each one's build, test and lint in its own
   directory, in addition to the root project. Nothing changes without the file: the root project
-  alone is verified, and the engine now names the nested projects with checks that it does not
-  verify (`Not verified: api/ (python)`). Without a root project, the list adds projects deeper
+  alone is verified, and the engine now names the nested folders with a stack marker that it does
+  not verify (`Not verified: api/`), without running anything in them. Without a root project, the list adds projects deeper
   than one level. `detect_stack.sh` reports listed projects as `substacks` and the unlisted ones
   as `unverified` (#152).
 - **Release workflow**: pushing a `v<version>` tag publishes that version to npm with provenance and

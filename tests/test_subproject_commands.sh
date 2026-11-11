@@ -121,13 +121,13 @@ ran_in() { [ "$(sort -u "$1" 2>/dev/null | tr '\n' ' ')" = "$2" ]; }
 engine prepare > "$stub_dir/prepare.log" 2>&1 || bad "prepare failed (root + nested fixture): $(tail -3 "$stub_dir/prepare.log")"
 ran_in "$stub_dir/mixed-test-dirs" "$mixed_dir " \
     && ok "without a list, the baseline runs the root project only" || bad "baseline ran in: $(cat "$stub_dir/mixed-test-dirs" 2>/dev/null)"
-grep -q "Not verified: api/ (javascript), examples/ (javascript)" "$stub_dir/prepare.log" && grep -q "nested-projects.txt" "$stub_dir/prepare.log" \
+grep -q "Not verified: api/, examples/" "$stub_dir/prepare.log" && grep -q "nested-projects.txt" "$stub_dir/prepare.log" \
     && ok "prepare names the nested projects it does not verify and how to list them" || bad "prepare notice: $(grep -n "Not verified" "$stub_dir/prepare.log")"
 rm -f "$stub_dir/mixed-test-dirs"
 verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?
 [ "$verify_status" -eq 0 ] && ran_in "$stub_dir/mixed-test-dirs" "$mixed_dir " \
     && ok "without a list, verification runs the root project only and passes" || bad "verify exited $verify_status, ran in: $(cat "$stub_dir/mixed-test-dirs" 2>/dev/null)"
-grep -q "Not verified: api/ (javascript), examples/ (javascript)" "$stub_dir/verify.log" \
+grep -q "Not verified: api/, examples/" "$stub_dir/verify.log" \
     && ok "verify names them too" || bad "verify notice: $(grep -n "Not verified" "$stub_dir/verify.log")"
 
 echo "api" > .evolve/nested-projects.txt
@@ -138,7 +138,7 @@ ran_in "$stub_dir/mixed-test-dirs" "$mixed_dir $mixed_dir/api " && ran_in "$stub
     && ok "listed: the baseline runs the root project and api/" || bad "baseline ran in: $(cat "$stub_dir/mixed-test-dirs" 2>/dev/null)"
 grep -q "api build OK" "$stub_dir/prepare.log" && grep -q "Build OK" "$stub_dir/prepare.log" \
     && ok "listed: both baseline builds are reported" || bad "baseline report: $(grep -in "build" "$stub_dir/prepare.log")"
-grep -q "Not verified: examples/ (javascript)" "$stub_dir/prepare.log" \
+grep -q "Not verified: examples/\." "$stub_dir/prepare.log" \
     && ok "listed: only the unlisted folder is named" || bad "prepare notice: $(grep -n "Not verified" "$stub_dir/prepare.log")"
 grep -qF -- '- Test: `npm run test`' .evolve/run/PROMPT.md && grep -qF 'cd ./api && npm run test' .evolve/run/PROMPT.md \
     && ! grep -qF 'cd ./examples' .evolve/run/PROMPT.md \
@@ -158,6 +158,8 @@ verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?
 verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?
 [ "$verify_status" -ne 0 ] && grep -q "broken-api-test" .evolve/run/ERRORS.md 2>/dev/null \
     && ok "listed: emptying the list during the session keeps api/ verified" || bad "verify exited $verify_status after the list was emptied"
+grep -q "Not verified: examples/\." "$stub_dir/verify.log" \
+    && ok "listed: a folder that is still verified is not named as unverified" || bad "verify notice after the list was emptied: $(grep -n "Not verified" "$stub_dir/verify.log")"
 # A folder listed during the session is verified from then on.
 echo "examples" > .evolve/nested-projects.txt
 recording_package api api "true"
@@ -172,6 +174,8 @@ printf '{"name":"piped","scripts":{"build":"pwd >> %s/pipe-dirs","test":"pwd >> 
 touch 'a|b/marker'
 git add -A && git commit -qm "baseline"
 engine prepare > "$stub_dir/prepare.log" 2>&1 || bad "prepare failed (| fixture): $(tail -3 "$stub_dir/prepare.log")"
+grep -qF "cd './a|b' && npm run test" .evolve/run/PROMPT.md \
+    && ok "a directory with | in its name: the prompt quotes it for the shell" || bad "| prompt: $(grep -n "npm run" .evolve/run/PROMPT.md)"
 ran_in "$stub_dir/pipe-dirs" "$pipe_dir/a|b " && grep -qF 'a|b build OK' "$stub_dir/prepare.log" && grep -qF 'a|b tests OK' "$stub_dir/prepare.log" \
     && ok "a directory with | in its name: the baseline runs in it" || bad "| baseline ran in: $(cat "$stub_dir/pipe-dirs" 2>/dev/null); $(grep -n "OK\|issues" "$stub_dir/prepare.log")"
 rm -f "$stub_dir/pipe-dirs"

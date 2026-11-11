@@ -141,7 +141,11 @@ listing() { echo "$1" | python3 -c "import sys,json; print(','.join(e if isinsta
 MIXED=$(mktemp -d)
 install_engine "$MIXED"
 echo '{"scripts":{"build":"x","test":"y"}}' > "$MIXED/package.json"
-mkdir -p "$MIXED/api" "$MIXED/examples" "$MIXED/site" "$MIXED/services/worker" "$MIXED/plain"
+mkdir -p "$MIXED/api" "$MIXED/examples/.venv/bin" "$MIXED/site" "$MIXED/services/worker" "$MIXED/plain"
+# A folder nobody listed must not have its own interpreter run just to be named.
+printf '[project]\nname = "examples"\n' > "$MIXED/examples/pyproject.toml"
+printf '#!/bin/sh\ntouch "%s/interpreter-ran"\n' "$MIXED" > "$MIXED/examples/.venv/bin/python"
+chmod +x "$MIXED/examples/.venv/bin/python"
 echo '<project/>' > "$MIXED/api/pom.xml"
 printf 'all:\n' > "$MIXED/examples/Makefile"
 echo '<html></html>' > "$MIXED/site/index.html"
@@ -149,7 +153,8 @@ echo '{}' > "$MIXED/services/worker/deno.json"
 JR=$(installed_detect "$MIXED")
 check "root + nested, no list: the root project is reported as before" "$(field "$JR" stack)|$(field "$JR" build)" "javascript|npm run build"
 check "root + nested, no list: no nested project is verified" "$(listing "$JR" substacks dir)" ""
-check "root + nested, no list: folders with their own checks are named as unverified" "$(listing "$JR" unverified dir)" "api,examples"
+check "root + nested, no list: folders with a stack marker are named as unverified" "$(listing "$JR" unverified dir)" "api,examples"
+check "root + nested, no list: naming a folder does not run its interpreter" "$([ -e "$MIXED/interpreter-ran" ] && echo ran || echo "not run")" "not run"
 
 printf '# verified next to the root project\n\napi/\n  services/worker  \r\n./examples\nplain\nmissing\n' > "$MIXED/.evolve/nested-projects.txt"
 JR=$(installed_detect "$MIXED")
@@ -159,7 +164,11 @@ check "listed: a substack carries its own commands" \
   "$(echo "$JR" | python3 -c "import sys,json; s=json.load(sys.stdin)['substacks'][0]; print(s['stack'], s['build'], s['test'], sep='|')")" "java|mvn compile|mvn test"
 check "listed: nothing listed is left unverified" "$(listing "$JR" unverified dir)" ""
 
-printf 'api\napi/\n/etc\n../outside\napi/../..\n.\n' > "$MIXED/.evolve/nested-projects.txt"
+# Real projects at each place an entry could escape to, so only the filter keeps them out.
+OUTSIDE="$(dirname "$MIXED")/outside-$(basename "$MIXED")"
+mkdir "$OUTSIDE"
+echo '<project/>' > "$OUTSIDE/pom.xml"
+printf 'api\napi/\n%s\n../%s\napi/../../%s\n.\n' "$OUTSIDE" "$(basename "$OUTSIDE")" "$(basename "$OUTSIDE")" > "$MIXED/.evolve/nested-projects.txt"
 JR=$(installed_detect "$MIXED")
 check "listed: duplicates count once; paths outside the project are ignored" "$(listing "$JR" substacks dir)" "api"
 check "listed: the rest is still named as unverified" "$(listing "$JR" unverified dir)" "examples"
@@ -168,7 +177,7 @@ git -C "$MIXED" init -q
 echo 'examples/' > "$MIXED/.gitignore"
 JR=$(installed_detect "$MIXED")
 check "unverified: a folder git ignores is not named" "$(listing "$JR" unverified dir)" ""
-rm -rf "$MIXED"
+rm -rf "$MIXED" "$OUTSIDE"
 
 # Without a root project every folder one level down counts, and the list adds deeper ones.
 DEEP=$(mktemp -d)

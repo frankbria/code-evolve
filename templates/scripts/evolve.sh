@@ -260,11 +260,13 @@ for s in json.load(sys.stdin):
 # Says which nested projects of <detect_stack JSON> are not verified, and how to change that.
 # Next to a root project only the listed folders are: scanning them all would run commands in
 # folders nobody offered for verification (examples, a frontend without its dependencies).
+# A folder the session started with is still verified, whatever detection says now.
 report_unverified_projects() {
     local unverified
-    unverified=$(echo "$1" | python3 -c "
-import sys, json
-print(', '.join(f\"{entry['dir']}/ ({entry['stack']})\" for entry in json.load(sys.stdin).get('unverified', [])))" 2>/dev/null || echo "")
+    unverified=$(echo "$1" | VERIFIED="${SUBSTACKS_JSON:-[]}" python3 -c "
+import sys, json, os
+verified = {entry.get('dir') for entry in json.loads(os.environ['VERIFIED'])}
+print(', '.join(name + '/' for name in json.load(sys.stdin).get('unverified', []) if name not in verified))" 2>/dev/null || echo "")
     [ -n "$unverified" ] || return 0
     echo "  Not verified: $unverified. To verify a nested project next to the root project,"
     echo "  add its directory to $EVOLVE_DIR/nested-projects.txt (one per line)."
@@ -1073,14 +1075,15 @@ echo ""
 # The prompt's commands for every substack, each with the directory it runs in.
 substack_verify_lines() {
     echo "$SUBSTACKS_JSON" | PROJECT_DIR="$PROJECT_DIR" python3 -c "
-import sys, json, os
+import sys, json, os, shlex
 pd = os.environ['PROJECT_DIR']
 for s in json.load(sys.stdin):
-    d = s['dir']
-    print(f\"### {s['name']} (in {pd}/{d}/)\")
-    if s['build']: print(f\"- Build: \`cd {pd}/{d} && {s['build']}\`\")
-    if s['test']:  print(f\"- Test:  \`cd {pd}/{d} && {s['test']}\`\")
-    if s['lint']:  print(f\"- Lint:  \`cd {pd}/{d} && {s['lint']}\`\")
+    # Quoted for the shell: the agent runs these lines as they are, and a name may hold | or a space.
+    d = shlex.quote(pd + '/' + s['dir'])
+    print(f\"### {s['name']} (in {pd}/{s['dir']}/)\")
+    if s['build']: print(f\"- Build: \`cd {d} && {s['build']}\`\")
+    if s['test']:  print(f\"- Test:  \`cd {d} && {s['test']}\`\")
+    if s['lint']:  print(f\"- Lint:  \`cd {d} && {s['lint']}\`\")
     print()
 " 2>/dev/null
 }
