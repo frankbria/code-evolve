@@ -69,12 +69,54 @@ def is_test_function(node):
     return isinstance(node, FUNCTIONS) and node.name.startswith("test")
 
 
+def bound_names(statement):
+    """The names a statement binds in its scope: by def, class, import or assignment."""
+    if isinstance(statement, FUNCTIONS + (ast.ClassDef,)):
+        return [statement.name]
+    if isinstance(statement, (ast.Import, ast.ImportFrom)):
+        return [alias.asname or alias.name.split(".")[0] for alias in statement.names]
+    if isinstance(statement, ast.Assign):
+        targets = statement.targets
+    elif isinstance(statement, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor)):
+        targets = [statement.target]
+    elif isinstance(statement, (ast.With, ast.AsyncWith)):
+        targets = [item.optional_vars for item in statement.items if item.optional_vars]
+    else:
+        return []
+    return [
+        node.id for target in targets for node in ast.walk(target) if isinstance(node, ast.Name)
+    ]
+
+
+def binding_sources(statements):
+    """What binds each name: the thing an import names, else the binding statement itself.
+    Importing the same thing twice (unittest and unittest.mock, or in try and except) is one
+    source; a name with several may stand for any of them."""
+    sources = {}
+    for statement in statements:
+        imported = {}
+        if isinstance(statement, ast.Import):
+            imported = {
+                alias.asname or alias.name.split(".")[0]: alias.name if alias.asname else alias.name.split(".")[0]
+                for alias in statement.names
+            }
+        elif isinstance(statement, ast.ImportFrom) and statement.level == 0:
+            imported = {
+                alias.asname or alias.name: "%s.%s" % (statement.module, alias.name)
+                for alias in statement.names
+            }
+        for name in bound_names(statement):
+            sources.setdefault(name, set()).add(imported.get(name, id(statement)))
+    return sources
+
+
 def may_hold_tests(node, test_free):
     """False only when a class that is not a TestCase is known to give pytest nothing to
-    collect: no test method, no Test* class inside that may hold one, and every base a class
-    of the same file known the same way. A base from elsewhere may bring tests along."""
+    collect: nothing named test* in its body (a method, or a function assigned to the name),
+    no Test* class inside that may hold one, and every base a class of the same file known
+    the same way. A base from elsewhere may bring tests along."""
     return any(
-        is_test_function(statement)
+        any(name.startswith("test") for name in bound_names(statement))
         or (
             isinstance(statement, ast.ClassDef)
             and statement.name.startswith("Test")
@@ -97,25 +139,6 @@ def imports_pytest(tree):
     return False
 
 
-def bound_names(statement):
-    """The names a module-level statement binds: by def, class, import or assignment."""
-    if isinstance(statement, FUNCTIONS + (ast.ClassDef,)):
-        return {statement.name}
-    if isinstance(statement, (ast.Import, ast.ImportFrom)):
-        return {alias.asname or alias.name.split(".")[0] for alias in statement.names}
-    if isinstance(statement, ast.Assign):
-        targets = statement.targets
-    elif isinstance(statement, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor)):
-        targets = [statement.target]
-    elif isinstance(statement, (ast.With, ast.AsyncWith)):
-        targets = [item.optional_vars for item in statement.items if item.optional_vars]
-    else:
-        return set()
-    return {
-        node.id for target in targets for node in ast.walk(target) if isinstance(node, ast.Name)
-    }
-
-
 def unittest_module(node):
     """The name a base's module is reached through: `ut` for ut.TestCase and ut.case.TestCase."""
     if isinstance(node, ast.Attribute) and node.attr == "case":
@@ -135,28 +158,29 @@ def classify(tree):
     # shortcut: names are followed inside one file only, so a Test* class whose base is
     # imported from the project's own module keeps pytest, TestCase or not. Resolve imports
     # across files if such suites need the unittest fallback.
-    for statement in scope_statements(tree.body):
-        names = bound_names(statement)
-        # A load_tests hook decides itself what unittest loads from the module or package.
-        if "load_tests" in names:
-            return "pytest"
-        # Whatever a name stood for, it now stands for what this statement binds.
-        unittest_modules -= names
-        test_cases -= names
-        test_free -= names
+    statements = list(scope_statements(tree.body))
+    sources = binding_sources(statements)
+    # A load_tests hook decides itself what unittest loads from the module or package.
+    if "load_tests" in sources:
+        return "pytest"
+
+    def trust(names, name):
+        # A name bound to two things (in two branches, or again later) may stand for either.
+        if len(sources[name]) == 1:
+            names.add(name)
+
+    for statement in statements:
         if isinstance(statement, ast.Import):
             for alias in statement.names:
                 if alias.name == "unittest":
-                    unittest_modules.add(alias.asname or "unittest")
+                    trust(unittest_modules, alias.asname or "unittest")
                 elif alias.name.startswith("unittest.") and alias.asname is None:
-                    unittest_modules.add("unittest")
+                    trust(unittest_modules, "unittest")
         elif isinstance(statement, ast.ImportFrom):
             if statement.module == "unittest" and statement.level == 0:
-                test_cases.update(
-                    alias.asname or alias.name
-                    for alias in statement.names
-                    if alias.name in UNITTEST_BASES
-                )
+                for alias in statement.names:
+                    if alias.name in UNITTEST_BASES:
+                        trust(test_cases, alias.asname or alias.name)
             # pytest collects a test function a module imports as if it were defined there.
             if any((alias.asname or alias.name).startswith("test") for alias in statement.names):
                 return "pytest"
@@ -173,10 +197,10 @@ def classify(tree):
                 for base in statement.bases
             )
             if derives:
-                test_cases.add(statement.name)
+                trust(test_cases, statement.name)
                 kind = "unittest"
             elif not may_hold_tests(statement, test_free):
-                test_free.add(statement.name)
+                trust(test_free, statement.name)
             elif statement.name.startswith("Test"):
                 # pytest collects it by its name; unittest does not.
                 return "pytest"

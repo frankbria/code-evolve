@@ -260,6 +260,10 @@ parsed_as "a Test class on a project class named TestCase keeps pytest" "pytest"
     'from unittest import TestCase\n\n\nclass TestCase:\n    pass\n\n\nclass TestRegression(TestCase):\n    def test_failure(self):\n        assert False\n'
 parsed_as "a Test class on a TestCase name that was assigned something else keeps pytest" "pytest" \
     'from unittest import TestCase as Base\n\nBase = object\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a TestCase name bound to something else in another branch keeps pytest" "pytest" \
+    'import sys\n\nif sys.argv:\n    Base = object\nelse:\n    from unittest import TestCase as Base\n\n\nclass TestRegression(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a function assigned to a test name in a Test class keeps pytest" "pytest" \
+    'def failure(self):\n    assert False\n\n\nclass TestRegression:\n    test_failure = failure\n'
 parsed_as "a load_tests hook in a test file keeps pytest" "pytest" \
     'import unittest\n\n\nclass SkippedTest(unittest.TestCase):\n    def test_failure(self):\n        self.fail()\n\n\ndef load_tests(loader, tests, pattern):\n    return unittest.TestSuite()\n'
 parsed_as "a pytest class nested in a Test class keeps pytest" "pytest" \
@@ -280,6 +284,8 @@ parsed_as "a Test class on a TestCase of the same file runs unittest" "$UNITTEST
     'import unittest as ut\n\n\nclass Shared(ut.TestCase):\n    pass\n\n\nclass TestDerived(Shared):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a TestCase named through unittest.case runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass TestLong(unittest.case.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "unittest imported twice, with unittest.mock and in try/except, runs unittest" "$UNITTEST" \
+    'import unittest\nimport unittest.mock\n\ntry:\n    from unittest import IsolatedAsyncioTestCase\nexcept ImportError:\n    from unittest import IsolatedAsyncioTestCase\n\n\nclass TestMocked(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(unittest.mock.Mock())\n\n\nclass TestAsync(IsolatedAsyncioTestCase):\n    async def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a mixin holding the tests of a TestCase runs unittest" "$UNITTEST" \
     'import unittest\n\n\nclass GreetingChecks:\n    def test_passes(self):\n        self.assertTrue(True)\n\n\nclass MixedTest(GreetingChecks, unittest.TestCase):\n    pass\n'
 parsed_as "a Test-named helper class with no test in it or its bases runs unittest" "$UNITTEST" \
