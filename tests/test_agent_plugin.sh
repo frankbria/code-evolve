@@ -1,6 +1,7 @@
 #!/bin/bash
 # Test (#84): plugins/code-evolve/plugin.json is a valid Agent Plugins 1.0 manifest for Codex and other
 # clients, within OpenAI's listing limits, and scripts/pack-codex-plugin zips exactly the plugin directory.
+# Test (#100): `pack-codex-plugin --directory` builds the copy for OpenAI's public directory, without hooks.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,6 +20,10 @@ check "author has only name, email or url" "$(manifest 'Object.keys(m.author).fi
 check "homepage, repository and license are strings" "$(manifest '[m.homepage,m.repository,m.license].every(v => typeof v === "string")')" "true"
 check "displayName is at most 30 characters" "$(manifest 'ui.displayName.length <= 30')" "true"
 check "shortDescription is at most 30 characters" "$(manifest 'ui.shortDescription.length <= 30')" "true"
+check "longDescription is at most 4000 characters" "$(manifest 'ui.longDescription.length <= 4000')" "true"
+check "developerName is at most 80 characters" "$(manifest 'ui.developerName.length >= 1 && ui.developerName.length <= 80')" "true"
+check "every listing URL is HTTPS, at most 1024 characters, without credentials" \
+    "$(manifest '["websiteURL","supportURL","privacyPolicyURL","termsOfServiceURL"].filter(k => k in ui && !(ui[k].length <= 1024 && new URL(ui[k]).protocol === "https:" && !new URL(ui[k]).username))')" "[]"
 check "defaultPrompt has 1 to 3 single-line prompts of at most 128 characters" \
     "$(manifest 'ui.defaultPrompt.length >= 1 && ui.defaultPrompt.length <= 3 && ui.defaultPrompt.every(p => p.length <= 128 && !/\n/.test(p))')" "true"
 check "category is a supported listing category" \
@@ -47,6 +52,41 @@ for required in code-evolve/plugin.json code-evolve/skills/evolve-setup/SKILL.md
     check "the ZIP contains $required" "$(printf '%s\n' "$listed" | grep -cx "$required")" "1"
 done
 check "the ZIP has no dependency directories" "$(printf '%s\n' "$listed" | grep -cE '(^|/)node_modules/' || true)" "0"
+
+
+# The public directory takes no plugin with lifecycle hooks or app references, so its upload copy is the
+# committed plugin without them and is otherwise byte-identical.
+repository_state() { git -C "$ROOT" count-objects -v; sha1sum < "$(git -C "$ROOT" rev-parse --absolute-git-dir)/index"; }
+# Stale timestamps are what make a plain `git status` rewrite the index.
+find "$PLUGIN_DIR" -type f -exec touch {} +
+state_before="$(repository_state)"
+"$ROOT/scripts/pack-codex-plugin" --directory "$work/directory.zip" >/dev/null 2>"$work/notes"
+directory_listed="$(unzip -Z1 "$work/directory.zip" | grep -v '/$' | sort)"
+check "the directory ZIP holds the committed plugin files except hooks/" "$directory_listed" "$(printf '%s\n' "$committed" | grep -v '^code-evolve/hooks/')"
+check "the directory ZIP has no hook or app file" "$(printf '%s\n' "$directory_listed" | grep -cE '(^|/)(hooks/|\.app\.json$)' || true)" "0"
+mkdir "$work/full" "$work/directory"
+unzip -q "$work/plugin.zip" -d "$work/full"
+unzip -q "$work/directory.zip" -d "$work/directory"
+# These two expect the plugin to ship hooks on purpose: with nothing to strip they would prove nothing.
+check "only plugin.json and hooks/ differ from the full ZIP" \
+    "$(diff -rq "$work/full" "$work/directory" | sed "s#$work/##g" | sort)" \
+    "$(printf '%s\n' 'Files full/code-evolve/plugin.json and directory/code-evolve/plugin.json differ' 'Only in full/code-evolve: hooks')"
+check "the directory manifest drops only the hooks declaration" \
+    "$(node -e "const [full, copy] = ['full','directory'].map(d => require('$work/' + d + '/code-evolve/plugin.json')); const had = 'hooks' in full.extensions['com.openai']; delete full.extensions['com.openai'].hooks; console.log(had && JSON.stringify(full) === JSON.stringify(copy))")" "true"
+check "the directory manifest declares no hooks or apps" \
+    "$(node -e "const m = require('$work/directory/code-evolve/plugin.json'); console.log(JSON.stringify(['hooks','apps'].filter(k => k in m || k in m.extensions['com.openai'])))")" "[]"
+missing_pages="$(manifest '["websiteURL","supportURL","privacyPolicyURL","termsOfServiceURL"].filter(k => !ui[k]).join(", ")' | tr -d '"')"
+check "it names exactly the listing pages that are not in the manifest yet" \
+    "$(sed -n 's/^Note: the listing has no \(.*\) yet;.*/\1/p' "$work/notes")" "$missing_pages"
+check "building it leaves the repository's objects and index as they were" "$(repository_state)" "$state_before"
+default_output="dist/code-evolve-plugin-$(manifest 'm.version' | tr -d '"')-directory.zip"
+check "the default output name marks the directory copy" "$("$ROOT/scripts/pack-codex-plugin" --directory 2>/dev/null)" "$default_output"
+# The npm package ships dist/, so the copy must not stay there.
+rm -f "$ROOT/$default_output"
+"$ROOT/scripts/pack-codex-plugin" "$work/late.zip" --directory >/dev/null 2>&1
+check "--directory after the output path still builds the hook-free copy" "$(unzip -Z1 "$work/late.zip" | grep -c '/hooks/' || true)" "0"
+check "a second output path is refused" "$("$ROOT/scripts/pack-codex-plugin" --directory "$work/a.zip" "$work/b.zip" >/dev/null 2>&1; echo $?)" "2"
+check "an unknown option is refused" "$("$ROOT/scripts/pack-codex-plugin" --public "$work/x.zip" >/dev/null 2>&1; echo $?)" "2"
 
 echo "---"
 echo "passed: $pass  failed: $fail"

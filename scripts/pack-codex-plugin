@@ -1,22 +1,59 @@
 #!/bin/bash
 # Build the Agent Plugins ZIP (Codex and other clients) from exactly the committed plugins/code-evolve/.
-# Usage: scripts/pack-codex-plugin [output.zip]   default: dist/code-evolve-plugin-<version>.zip
+# Usage: scripts/pack-codex-plugin [--directory] [output.zip]   (a relative output is taken from the repository root)
+#   default output: dist/code-evolve-plugin-<version>.zip
+#   --directory: the upload copy for OpenAI's public plugin directory, which takes no plugin with
+#     lifecycle hooks or app references: the same commit without hooks/, .app.json and their manifest
+#     keys. Default output: dist/code-evolve-plugin-<version>-directory.zip
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 PLUGIN_DIR="plugins/code-evolve"
+usage() { echo "Usage: scripts/pack-codex-plugin [--directory] [output.zip]" >&2; exit 2; }
+suffix=""
+output=""
+for argument in "$@"; do
+    case "$argument" in
+        --directory) suffix="-directory" ;;
+        -*) usage ;;
+        *) [ -z "$output" ] || usage; output="$argument" ;;
+    esac
+done
 version="$(node -p "require('./$PLUGIN_DIR/plugin.json').version")"
-output="${1:-dist/code-evolve-plugin-$version.zip}"
+output="${output:-dist/code-evolve-plugin-$version$suffix.zip}"
 
 if git ls-files -s -- "$PLUGIN_DIR" | grep -q '^120000'; then
     echo "Error: $PLUGIN_DIR contains a symlink; plugin archives must not." >&2
     exit 1
 fi
 # Archiving the commit, not the working tree, keeps untracked files, dependency dirs and local secrets out.
-if [ -n "$(git status --porcelain -- "$PLUGIN_DIR")" ]; then
+# Without optional locks, so that looking does not rewrite the index.
+if [ -n "$(git --no-optional-locks status --porcelain -- "$PLUGIN_DIR")" ]; then
     echo "Warning: $PLUGIN_DIR has uncommitted changes; the archive holds the committed version only." >&2
 fi
 
+tree="HEAD:$PLUGIN_DIR"
+if [ -n "$suffix" ]; then
+    # A scratch index and object store turn the edited copy into a git tree, so this archive also comes
+    # from the commit and the repository gains no objects.
+    scratch="$(mktemp -d)"; trap 'rm -rf "$scratch"' EXIT
+    GIT_ALTERNATE_OBJECT_DIRECTORIES="$(git rev-parse --path-format=absolute --git-path objects)"
+    mkdir "$scratch/objects"
+    export GIT_INDEX_FILE="$scratch/index" GIT_OBJECT_DIRECTORY="$scratch/objects" GIT_ALTERNATE_OBJECT_DIRECTORIES
+    git read-tree "$tree"
+    git ls-files -z -- hooks .app.json | git update-index -z --force-remove --stdin
+    manifest="$(git show "$tree/plugin.json" | node -e '
+        const manifest = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        const openai = manifest.extensions["com.openai"];
+        for (const key of ["hooks", "apps"]) { delete manifest[key]; delete openai[key]; }
+        const missing = ["websiteURL", "supportURL", "privacyPolicyURL", "termsOfServiceURL"].filter(key => !openai.interface[key]);
+        if (missing.length) console.error(`Note: the listing has no ${missing.join(", ")} yet; add each published HTTPS page to plugin.json before the upload.`);
+        process.stdout.write(JSON.stringify(manifest, null, 2) + "\n");
+    ' | git hash-object -w --stdin)"
+    git update-index --cacheinfo "100644,$manifest,plugin.json"
+    tree="$(git write-tree)"
+fi
+
 mkdir -p "$(dirname "$output")"
-git archive --format=zip --prefix=code-evolve/ -o "$output" "HEAD:$PLUGIN_DIR"
+git archive --format=zip --prefix=code-evolve/ -o "$output" "$tree"
 echo "$output"
