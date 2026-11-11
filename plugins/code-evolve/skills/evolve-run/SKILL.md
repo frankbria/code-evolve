@@ -82,7 +82,7 @@ then commits, rebases the session onto anything the remote gained meanwhile, tag
 Exit status 4 means the cycle is committed here but was not pushed: finalize ends with
 "NOT pushed" and names the reason above it ("Sync failed" when the remote's new commits conflict
 with this session's, "Push failed" when the remote refused the push or the push settings left the
-branch out). Issue comments are posted only for a cycle that was pushed. The session is closed
+branch out). Issue comments are posted only for a cycle whose branch reached a remote. The session is closed
 either way, so do not run finalize again.
 
 ## 5. Report

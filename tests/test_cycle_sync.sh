@@ -165,9 +165,19 @@ new_project start-dirty
 new_pushed_remote origin
 push_from_elsewhere "$PWD-origin.git" package.json '{"name":"demo","scripts":{"build":"true","test":"true","lint":"true"}}'
 printf '{"name":"edited","scripts":{"build":"true","test":"true"}}\n' > package.json
+# With autoStash git would set the edit aside, fail to put it back and still report success.
+git config merge.autoStash true; git config rebase.autoStash true
 start_session
-[ "$prepare_status" -eq 0 ] && grep -q '"edited"' package.json && grep -q "Could not bring $branch up to date with origin: error: " "$prepare_log" \
+[ "$prepare_status" -eq 0 ] && [ "$(cat package.json)" = '{"name":"edited","scripts":{"build":"true","test":"true"}}' ] \
+    && grep -q "Could not bring $branch up to date with origin: error: " "$prepare_log" && [ -z "$(git stash list)" ] \
     && ok "uncommitted edits the upstream would overwrite are kept, with git's reason" || bad "dirty: exit $prepare_status, $(grep -i "could not" "$prepare_log")"
+rm -rf .evolve/run
+# The same with a commit of this clone's own, where the update is a rebase.
+git commit -q --allow-empty -m "local, never pushed"
+start_session
+[ "$prepare_status" -eq 0 ] && [ "$(cat package.json)" = '{"name":"edited","scripts":{"build":"true","test":"true"}}' ] \
+    && grep -q "Could not bring $branch up to date with origin: " "$prepare_log" && [ -z "$(git stash list)" ] && [ ! -d .git/rebase-merge ] \
+    && ok "a rebase at the start does not stash the edits either" || bad "dirty rebase: exit $prepare_status, $(grep -i "could not" "$prepare_log"); $(git status -sb | head -3)"
 rm -rf .evolve/run
 
 # ── The remote cannot be reached at the start ──
@@ -179,7 +189,7 @@ start_session
     && ok "an unreachable remote is reported and the cycle starts from the local branch" || bad "unreachable: exit $prepare_status, $(grep -i "fetch" "$prepare_log")"
 rm -rf .evolve/run
 
-# ── A branch pushed to a fork is not brought up to date with its upstream ──
+# ── A branch pushed to a fork: fast-forwarded when it is only behind, never rebased ──
 new_project start-fork
 new_pushed_remote upstream
 git init -q --bare "$PWD-origin.git"; git remote add origin "$PWD-origin.git"
@@ -187,8 +197,17 @@ git config "branch.$branch.pushRemote" origin
 git config push.default current
 push_from_elsewhere "$PWD-upstream.git" theirs.txt
 start_session
-[ "$prepare_status" -eq 0 ] && [ ! -f theirs.txt ] && ! grep -qi "up to date\|could not" "$prepare_log" \
-    && ok "a branch that pushes to a fork is left alone at the start" || bad "fork: $(tail -4 "$prepare_log")"
+[ "$prepare_status" -eq 0 ] && [ "$(git rev-parse HEAD)" = "$elsewhere_sha" ] && grep -q "Brought $branch up to date with 1 new commit(s) from upstream" "$prepare_log" \
+    && ok "a branch that pushes to a fork and is only behind its upstream is fast-forwarded" || bad "fork: $(tail -4 "$prepare_log")"
+finish_session ours.txt
+[ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] \
+    && ok "the fork takes that cycle" || bad "fork push: exit $finalize_status, $(tail -4 "$finalize_log")"
+fork_head="$(git rev-parse HEAD)"
+push_from_elsewhere "$PWD-upstream.git" more-of-theirs.txt
+start_session
+[ "$prepare_status" -eq 0 ] && [ "$(git rev-parse HEAD)" = "$fork_head" ] && [ ! -f more-of-theirs.txt ] && [ -z "$(git for-each-ref refs/code-evolve)" ] \
+    && grep -q "Could not bring $branch up to date with upstream: it has commits of its own and is pushed somewhere else" "$prepare_log" \
+    && ok "with commits of its own it is not rebased, and prepare says why" || bad "fork, diverged: $(grep -i "could not\|up to date" "$prepare_log")"
 rm -rf .evolve/run
 
 # ── A repository with no commits and an upstream (a clone of an empty repository) ──
@@ -280,6 +299,16 @@ rm -f "$work_dir/gh-calls.log"
 finish_session refused.txt
 [ "$finalize_status" -eq 4 ] && [ ! -e "$work_dir/gh-calls.log" ] && grep -q "Issue responses not posted" "$finalize_log" \
     && ok "a cycle that was not pushed posts no issue comment and closes nothing" || bad "exit $finalize_status, gh calls: $(cat "$work_dir/gh-calls.log" 2>&1)"
+# Neither does one whose push was skipped: with several remotes and none chosen, its commits are on no remote.
+new_project issue-comment-push-skipped
+git init -q --bare "$PWD-alpha.git"; git remote add alpha "$PWD-alpha.git"
+git init -q --bare "$PWD-beta.git"; git remote add beta "$PWD-beta.git"
+start_session
+printf 'issue_number: 9\nstatus: fixed\ncomment: Fixed.\n' > .evolve/ISSUE_RESPONSE.md
+rm -f "$work_dir/gh-calls.log"
+finish_session only.txt
+[ "$finalize_status" -eq 0 ] && grep -q "Push skipped" "$finalize_log" && [ ! -e "$work_dir/gh-calls.log" ] && grep -q "Issue responses not posted" "$finalize_log" \
+    && ok "a cycle whose push was skipped posts no issue comment" || bad "exit $finalize_status, gh calls: $(cat "$work_dir/gh-calls.log" 2>&1)"
 
 # ── A session that contains a merge commit keeps it through the sync ──
 new_project merge-commit
@@ -340,8 +369,10 @@ for name in one two; do
 done
 [ "$landed" = true ] && ok "each worktree's session is rebased onto its own upstream and pushed" \
     || bad "worktrees: $(git ls-remote origin 'refs/heads/wt-*'); $(tail -4 "$work_dir/finalize-wt-one.log")"
-[ -z "$(git for-each-ref refs/code-evolve)" ] && [ "$(git ls-remote --tags origin 'day0-*' | grep -vc '\^{}')" -eq 2 ] \
-    && ok "no sync ref is left, and each session has its own tag on the remote" || bad "refs: $(git for-each-ref refs/code-evolve); tags: $(git ls-remote --tags origin)"
+# Both sessions ask for the same tag name in the same instant; the engine accepts that one of them
+# may then go untagged, so only one tag is certain.
+[ -z "$(git for-each-ref refs/code-evolve)" ] && [ "$(git ls-remote --tags origin 'day0-*' | grep -vc '\^{}')" -ge 1 ] \
+    && ok "no sync ref is left, and the remote has a session tag" || bad "refs: $(git for-each-ref refs/code-evolve); tags: $(git ls-remote --tags origin)"
 
 cd /
 echo "----"

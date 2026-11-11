@@ -550,22 +550,24 @@ write_sync_attributes() { # <file>
 # shortcut: a push that lands between the fetch before the push and the push itself is not retried, it fails the cycle
 # (status 4) and the next cycle pushes both; add a retry if schedulers finishing in the same second become common.
 sync_with_upstream() { # <start|finalize>
-    local moment="$1" remote merge_ref fetch_from push_urls output conflicts new_commits synced=true
+    local moment="$1" remote merge_ref fetch_from push_urls output conflicts new_commits synced=true pushes_to_upstream=true
     remote=$(git config --get "branch.$SESSION_BRANCH.remote")
     merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
     # "." is git's name for this repository itself: a branch tracking a local branch has nothing to fetch.
     [ "$remote" != "." ] || return 0
-    # Only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping, rebasing
-    # onto the upstream would rewrite commits the push destination already has, and it would refuse them.
-    # Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
+    # A rebase only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping,
+    # rebasing onto the upstream would rewrite commits the push destination already has, and it would refuse
+    # them. Neither name resolves for an upstream given as a URL, which has no push mapping to differ by.
+    # Such a branch can still be fast-forwarded at the start of a cycle: that rewrites nothing.
     [ "$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null || true)" \
-        = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || return 0
+        = "$(git rev-parse -q --symbolic-full-name '@{upstream}' 2>/dev/null || true)" ] || pushes_to_upstream=false
+    [ "$pushes_to_upstream" = true ] || [ "$moment" = start ] || return 0
     # A remote whose push URL is written differently from its fetch URL may push to another repository,
     # and that one decides whether the push is a fast-forward. The branch is read through the push URL
     # then, which is right for both cases: no guess whether two URLs name one repository.
     fetch_from="$remote"
     push_urls=$(git remote get-url --push --all "$remote" 2>/dev/null || true)
-    if [ "$push_urls" != "$(git remote get-url --all "$remote" 2>/dev/null || true)" ] \
+    if [ "$pushes_to_upstream" = true ] && [ "$push_urls" != "$(git remote get-url --all "$remote" 2>/dev/null || true)" ] \
         && [ "$(printf '%s\n' "$push_urls" | grep -c .)" -eq 1 ]; then
         fetch_from="$push_urls"
     fi
@@ -581,20 +583,27 @@ sync_with_upstream() { # <start|finalize>
     fi
     new_commits=$(git rev-list --count "HEAD..$SYNC_REF")
     if [ "$new_commits" -eq 0 ]; then
-        git update-ref -d "$SYNC_REF"
+        git update-ref -d "$SYNC_REF" || true
         return 0
     fi
     if [ "$moment" = start ] && git merge-base --is-ancestor HEAD "$SYNC_REF"; then
         # Nothing of this clone's own to replay. A fast-forward also leaves uncommitted edits alone
         # unless the new commits touch the same files, where a rebase refuses any edit at all.
-        output=$(git merge -q --ff-only "$SYNC_REF" 2>&1) || synced=false
+        # autoStash off, here and below: git would set the edits aside, and when they do not fit the new
+        # commits it leaves conflict markers in the file and still reports success.
+        output=$(git -c merge.autoStash=false merge -q --ff-only "$SYNC_REF" 2>&1) || synced=false
+    elif [ "$pushes_to_upstream" = false ]; then
+        git update-ref -d "$SYNC_REF" || true
+        echo "  Could not bring $SESSION_BRANCH up to date with $remote: it has commits of its own and is pushed somewhere else, so a rebase would rewrite commits that destination already has."
+        echo "  This cycle starts from the local branch."
+        return 1
     else
         write_sync_attributes "$RUN_TMP/sync-attributes"
         output=$(git -c core.attributesFile="$RUN_TMP/sync-attributes" -c merge.code-evolve-session.driver='cp %B %A' \
-            rebase --rebase-merges "$SYNC_REF" 2>&1) || synced=false
+            -c rebase.autoStash=false rebase --rebase-merges "$SYNC_REF" 2>&1) || synced=false
     fi
     if [ "$synced" = true ]; then
-        git update-ref -d "$SYNC_REF"
+        git update-ref -d "$SYNC_REF" || true
         if [ "$moment" = start ]; then
             echo "  Brought $SESSION_BRANCH up to date with $new_commits new commit(s) from $remote."
         else
@@ -604,7 +613,7 @@ sync_with_upstream() { # <start|finalize>
     fi
     conflicts=$(git diff --name-only --diff-filter=U | paste -sd ' ' - || true)
     git rebase --abort 2>/dev/null || true
-    git update-ref -d "$SYNC_REF"
+    git update-ref -d "$SYNC_REF" || true
     [ -n "$conflicts" ] || printf '%s\n' "$output"
     if [ "$moment" = start ]; then
         if [ -n "$conflicts" ]; then
@@ -612,7 +621,11 @@ sync_with_upstream() { # <start|finalize>
         else
             echo "  Could not bring $SESSION_BRANCH up to date with $remote: $(git_failure_reason "$output")"
         fi
-        echo "  This cycle starts from the local branch. Resolve with: git pull --rebase && git push"
+        if [ "$pushes_to_upstream" = true ]; then
+            echo "  This cycle starts from the local branch. Resolve with: git pull --rebase && git push"
+        else
+            echo "  This cycle starts from the local branch."
+        fi
         return 1
     fi
     if [ -n "$conflicts" ]; then
@@ -1578,10 +1591,12 @@ push_or_report() { # <label> <git push arguments...>
 # ' ' updated, '*' new, '+' forced, '=' already there.
 push_branch_or_report() { # <git push arguments...>
     push_or_report "Push" --porcelain "$@" || return 1
+    # A mirror pushed from a detached HEAD: there is no branch to look for.
     [ -n "$SESSION_BRANCH" ] || return 0
     if printf '%s\n' "$PUSH_OUTPUT" | awk -F '\t' -v branch="refs/heads/$SESSION_BRANCH" '
         $1 ~ /^[ *+=]$/ { split($2, refs, ":"); if (refs[1] == branch || refs[1] == "HEAD") sent = 1 }
         END { exit !sent }'; then
+        SESSION_ON_REMOTE=true
         return 0
     fi
     echo "  Push failed: git sent nothing for $SESSION_BRANCH; the push settings (remote.<name>.push, push.default) leave it out."
@@ -1641,6 +1656,9 @@ push_session() {
 }
 
 SESSION_PUSHED=true
+# True once the session's branch went to a remote. A push that was skipped (no remote, several remotes
+# and none chosen, a detached HEAD) is not a failure, but its commits are on no remote either.
+SESSION_ON_REMOTE=false
 if branch_has_upstream && ! sync_with_upstream finalize; then SESSION_PUSHED=false; fi
 
 # Tagged after the sync so the tag names the commit that is pushed. Two schedulers that start in the
@@ -1699,9 +1717,9 @@ Commit: $(git rev-parse --short HEAD)" || true
     fi
 }
 
-if [ -f "$ISSUE_RESPONSES" ] && [ "$SESSION_PUSHED" != true ]; then
-    # A comment would say "fixed", and close the issue, for commits the remote does not have.
-    echo "  Issue responses not posted: this cycle's commits are not on the remote."
+if [ -f "$ISSUE_RESPONSES" ] && [ "$SESSION_ON_REMOTE" != true ]; then
+    # A comment would say "fixed", and close the issue, for commits no remote has.
+    echo "  Issue responses not posted: this cycle's commits are not on a remote."
 elif [ -f "$ISSUE_RESPONSES" ]; then
     echo ""
     echo "-> Posting issue responses..."
