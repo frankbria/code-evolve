@@ -48,7 +48,7 @@ export function parseRequirements(content: string): Req[] {
     // First value of each field; every other line is the user's and is kept as notes.
     const fields = new Map<string, string>();
     const noteLines: string[] = [];
-    for (const line of body.split('\n')) {
+    for (const line of body.split(/\r?\n/)) {
       const field = line.match(LEDGER_FIELD_LINE);
       if (!field) noteLines.push(line);
       else if (!fields.has(field[1])) fields.set(field[1], field[2].trim());

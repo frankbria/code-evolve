@@ -103,6 +103,19 @@ describe('writeLedger', () => {
     expect(fs.readFileSync(ledgerPath, 'utf8')).toBe(written);
   });
 
+  it('reads the fields and notes of a ledger saved with Windows line endings', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\r\n- **Severity**: low\r\n- **Status**: regressed\r\n\r\nseen on the build server\r\n');
+    expect(readLedger()).toEqual([
+      { ...firstRequirement, source: '', severity: 'low', scope: [], obligations: [], evidence: '', status: 'regressed', notes: 'seen on the build server' },
+    ]);
+  });
+
+  it('takes the first value of a field that is written twice', () => {
+    fs.writeFileSync(ledgerPath, '## REQ-0001: first\n- **Status**: satisfied\n- **Status**: open\n');
+    expect(readLedger()[0].status).toBe('satisfied');
+    expect(readLedger()[0].notes).toBeUndefined();
+  });
+
   it('leaves the header in place when the last requirement is removed', () => {
     fs.writeFileSync(ledgerPath, template());
     writeLedger([]);
