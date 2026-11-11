@@ -126,6 +126,9 @@ printf '[project]\nname = "suffixed"\nversion = "0.1.0"\n' > "$suffixed/pyprojec
 write_unittest "$suffixed/tests/greeting_test.py"
 J=$(detect_in "$suffixed")
 check "TestCase classes in *_test.py files keep pytest" "$(field "$J" test)" "pytest"
+write_unittest "$suffixed/tests/test_greeting.py"
+J=$(detect_in "$suffixed")
+check "a *_test.py file next to a test_*.py TestCase keeps pytest" "$(field "$J" test)" "pytest"
 
 # A tests/ folder that holds no tests does not become the start directory.
 beside="$(new_fixture beside)"
@@ -151,6 +154,16 @@ check "tests both in a plain tests/ folder and beside the code keep pytest" "$(f
 rm "$nested/test_beside.py"
 J=$(detect_in "$nested")
 check "the same project with every test in tests/ runs unittest" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+
+# pytest classes, and file names unittest cannot import, would be skipped the same way.
+printf 'class TestRegression:\n    def test_failure(self):\n        assert False\n' >> "$nested/tests/test_greeting.py"
+J=$(detect_in "$nested")
+check "a pytest class next to a TestCase keeps pytest" "$(field "$J" test)" "pytest"
+dashed="$(new_fixture dashed)"
+printf '[project]\nname = "dashed"\nversion = "0.1.0"\n' > "$dashed/pyproject.toml"
+write_unittest "$dashed/tests/test-regression.py"
+J=$(detect_in "$dashed")
+check "a test file name unittest cannot import keeps pytest" "$(field "$J" test)" "pytest"
 
 # ── A project .venv is preferred, so a scheduled run uses what an in-session run used ──
 venv="$(new_fixture venv)"

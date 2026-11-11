@@ -31,25 +31,40 @@ python_tool() {
 # Directories that hold no project tests: the engine, agent CLIs, and installed packages.
 PYTHON_SKIPPED_DIRS=(.git .evolve .claude .agents .venv venv node_modules)
 
-# python_test_files <dir> <pattern> <file glob>... — true when a project file with one of the
-# names has a line matching the pattern. Searched from inside the project: grep would skip a
-# project directory itself named "venv".
-python_test_files() {
-    local dir="$1" pattern="$2" options=() name
-    shift 2
+# python_test_grep <dir> <grep flags> <pattern> <file glob>... — grep the project's files with
+# one of the names. Run from inside the project: grep would skip a project directory itself
+# named "venv".
+python_test_grep() {
+    local dir="$1" flags="$2" pattern="$3" options=() name
+    shift 3
     for name in "$@"; do options+=("--include=$name"); done
     for name in "${PYTHON_SKIPPED_DIRS[@]}"; do options+=("--exclude-dir=$name"); done
-    (cd "$dir" && grep -rlqE "${options[@]}" "$pattern" .) 2>/dev/null
+    (cd "$dir" && grep -rE "$flags" "${options[@]}" "$pattern" .) 2>/dev/null
+}
+
+# python_test_files <dir> <pattern> <file glob>... — true when such a file has a matching line.
+python_test_files() {
+    local dir="$1"
+    shift
+    python_test_grep "$dir" -lq "$@"
+}
+
+# unittest_module_count — counts the file paths on stdin that unittest discovery would load:
+# test*.py whose name is a valid module name (it skips the others without a word).
+unittest_module_count() {
+    grep -cE '(^|/)test[A-Za-z0-9_]*\.py$' || true
 }
 
 # python_unittest_command <dir> <python> — prints the unittest command when it runs the whole
-# suite: only TestCase classes, all in files discovery will open. Prints nothing otherwise,
+# suite: only TestCase classes, all in files discovery will load. Prints nothing otherwise,
 # because a suite unittest would run in part (or not at all) must not pass as verified.
 python_unittest_command() {
     local dir="$1" python="$2" start_directory="" prunes=() name all_count seen_count
     python_test_files "$dir" '^[[:space:]]*class[[:space:]].*TestCase' 'test*.py' || return 0
     python_test_files "$dir" '^(async[[:space:]]+)?def[[:space:]]+test' 'test*.py' '*_test.py' && return 0
     python_test_files "$dir" '' '*_test.py' && return 0
+    # A Test* class that is not a TestCase is a pytest class.
+    python_test_grep "$dir" -h '^[[:space:]]*class[[:space:]]+Test' 'test*.py' | grep -qv 'TestCase' && return 0
 
     # Discovery only enters packages, so a plain tests/ folder is named as the start instead.
     if [ ! -f "$dir/tests/__init__.py" ] && compgen -G "$dir/tests/test*.py" >/dev/null; then
@@ -60,11 +75,11 @@ python_unittest_command() {
     # shortcut: counts only the start directory and a tests/ package directly under it; deeper
     # packages fall back to pytest. Walk __init__.py chains if such a layout needs unittest.
     if [ -n "$start_directory" ]; then
-        seen_count=$(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | wc -l)
+        seen_count=$(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)
     else
-        seen_count=$(cd "$dir" && find . -maxdepth 1 -type f -name 'test*.py' | wc -l)
+        seen_count=$(cd "$dir" && find . -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)
         if [ -f "$dir/tests/__init__.py" ]; then
-            seen_count=$((seen_count + $(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | wc -l)))
+            seen_count=$((seen_count + $(cd "$dir" && find tests -maxdepth 1 -type f -name 'test*.py' | unittest_module_count)))
         fi
     fi
     [ "$all_count" -eq "$seen_count" ] || return 0
