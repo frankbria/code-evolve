@@ -149,8 +149,9 @@ if the user explicitly asks you to.
 
 The Claude prompts name the skill file instead of `/evolve-run` on purpose: `evolve-run` can only be
 started by the user, and a scheduled prompt that says `/evolve-run` reaches Claude as plain text.
-Prefer one scheduler per repository: the engine does not pull before it pushes, so when two
-schedulers work from separate clones, the one that pushes second is rejected.
+Prefer one scheduler per repository. Two schedulers working from separate clones both land (the
+engine rebases a cycle onto what the remote gained before it pushes), but when both change the same
+lines the later cycle is not pushed and ends with exit status 4.
 
 ## 6. Finish
 

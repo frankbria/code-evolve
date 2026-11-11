@@ -53,6 +53,11 @@ YML=$(cat "$D/.github/workflows/evolve.yml" 2>/dev/null || echo "")
 has   "claude: installs claude-code"  "$YML" "npm install -g @anthropic-ai/claude-code"
 has   "claude: uses ANTHROPIC_API_KEY" "$YML" "ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}"
 has   "claude: sets AGENT=claude"     "$YML" "AGENT: claude"
+# (#137) A cycle that could not be pushed (engine status 4) is not retried with a new session; the run fails instead.
+has   "claude: first retry skips a cycle that was not pushed"  "$YML" "if: steps.attempt1.outcome == 'failure' && steps.attempt1.outputs.status != '4'"
+has   "claude: second retry skips a cycle that was not pushed" "$YML" "steps.attempt2.outcome == 'failure' && steps.attempt2.outputs.status != '4'"
+has   "claude: the run fails when a cycle was not pushed"      "$YML" "if: steps.attempt1.outputs.status == '4' || steps.attempt2.outputs.status == '4'"
+check "claude: both retried attempts record the engine's status" "$(grep -c 'echo "status=$status" >> "$GITHUB_OUTPUT"' <<<"$YML")" "2"
 rm -rf "$D"
 
 # ── opencode: installs opencode CLI, provider keys present ──

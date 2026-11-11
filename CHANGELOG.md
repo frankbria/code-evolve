@@ -34,6 +34,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed push first (#93).
 
 ### Fixed
+- Two schedulers working from separate clones (a cloud task or GitHub Actions next to a cron job)
+  no longer lose a cycle. Before it pushes, the engine fetches the branch's upstream and rebases the
+  session onto what the remote gained, keeping both cycles' journal entries. When the two cycles
+  changed the same lines, the rebase is undone and the session's commits stay on the local branch
+  (#137).
+- A cycle whose push fails is no longer reported as a success: `evolve.sh` (and `code-evolve run`)
+  exit with status 4 and end with "committed locally but NOT pushed". The `evolve.yml` workflow
+  fails the run instead of starting a new session as a retry, and the session tag is no longer
+  pushed when the branch was refused. This includes a branch whose upstream has a different name,
+  which git refuses to push by default (#137).
+- Two sessions that start in the same minute no longer share one tag: the later one is tagged
+  `day<N>-<HH>-<MM>-2` (#137).
 - A project that lives in one subdirectory (`app/package.json`, nothing at the root) now has its
   build, test and lint run in that subdirectory, in the baseline check, verification, the cycle
   prompt and the `evolve-ci.yml` workflow. They ran at the project root before and failed.
