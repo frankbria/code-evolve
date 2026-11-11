@@ -187,6 +187,23 @@ JR=$(installed_detect "$MIXED")
 check "unverified: a name with | is named too" "$(listing "$JR" unverified dir)" "a|b,examples"
 rm -rf "$MIXED/a|b"
 
+# A name that is not valid UTF-8 would make every reader of the JSON fail, and the root
+# project would lose its checks with it: such a folder is skipped, listed or not.
+LATIN1_NAME="caf"$'\xe9'
+if mkdir "$MIXED/$LATIN1_NAME" "$MIXED/also-$LATIN1_NAME" 2>/dev/null; then
+    mkdir "$MIXED/café" "$MIXED/señor"
+    for name in "$LATIN1_NAME" "also-$LATIN1_NAME" café señor; do echo '<project/>' > "$MIXED/$name/pom.xml"; done
+    printf 'api\n%s\ncafé\n' "$LATIN1_NAME" > "$MIXED/.evolve/nested-projects.txt"
+    JR=$(installed_detect "$MIXED")
+    check "a name that is not UTF-8: the output still parses and the root keeps its commands" "$(field "$JR" stack)|$(field "$JR" test)" "javascript|npm run test"
+    check "a name that is not UTF-8: skipped when listed; a UTF-8 name is verified" "$(listing "$JR" substacks dir)" "api,café"
+    check "a name that is not UTF-8: not named either; a UTF-8 name is" "$(listing "$JR" unverified dir)" "examples,señor"
+    rm -rf "$MIXED/$LATIN1_NAME" "$MIXED/also-$LATIN1_NAME" "$MIXED/café" "$MIXED/señor"
+    printf 'api\n' > "$MIXED/.evolve/nested-projects.txt"
+else
+    echo "  skip: this file system refuses names that are not UTF-8"
+fi
+
 git -C "$MIXED" init -q
 echo 'examples/' > "$MIXED/.gitignore"
 JR=$(installed_detect "$MIXED")

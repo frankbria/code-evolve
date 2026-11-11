@@ -319,7 +319,9 @@ SCAN_NESTED="${DETECT_STACK_NESTED:-1}"
 listed_nested_dirs() {
     local line
     [ "$SCAN_NESTED" != "0" ] && [ -f "$NESTED_LIST" ] || return 0
-    while IFS= read -r line || [ -n "$line" ]; do
+    # Read byte by byte: in a UTF-8 locale, a line ending in a byte that is not UTF-8 would
+    # take the newline and the next line with it.
+    while IFS= LC_ALL=C read -r line || [ -n "$line" ]; do
         line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s|^\(\./\)*||; s|/*$||')
         case "/$line/" in //|/'#'*|//*|*/../*|*/./*) continue ;; esac
         echo "$line"
@@ -327,9 +329,16 @@ listed_nested_dirs() {
 }
 
 # json_safe_name <name> — a name goes into the JSON unescaped; one that would break it is not
-# worth losing the whole detection over.
+# worth losing the whole detection over. Bytes that are not UTF-8 break it too: every reader
+# of the output would fail and the project would be left with no checks at all.
 json_safe_name() {
     case "$1" in *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;; esac
+    printable_ascii_name "$1" || printf '%s' "$1" | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8")' 2>/dev/null
+}
+# printable_ascii_name <name> — the common case, decided without starting python.
+printable_ascii_name() {
+    local LC_ALL=C
+    case "$1" in *[!\ -~]*) return 1 ;; esac
 }
 
 SUBSTACKS=""
@@ -357,7 +366,7 @@ if [ "$ROOT_STACK" = "unknown" ]; then
         add_substack "$(basename "$subdir")"
     done
 fi
-while IFS= read -r listed_dir; do
+while IFS= LC_ALL=C read -r listed_dir; do
     add_substack "$listed_dir"
 done < <(listed_nested_dirs)
 
@@ -390,19 +399,11 @@ has_project_marker() {
     done
     compgen -G "$1/*.sln" >/dev/null || compgen -G "$1/*.csproj" >/dev/null
 }
-# printable_ascii_name <name> — the root project's JSON never carried directory names before,
-# and one the JSON reader rejects (bytes that are not UTF-8) would lose every check.
-# shortcut: a folder with a non-ASCII name is not named in the notice; check for valid UTF-8
-# instead if such folders turn out to matter.
-printable_ascii_name() {
-    local LC_ALL=C
-    case "$1" in *[!\ -~]*) return 1 ;; esac
-}
 if [ "$ROOT_STACK" != "unknown" ] && [ "$SCAN_NESTED" != "0" ]; then
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
         SUBDIR_NAME=$(basename "$subdir")
-        json_safe_name "$SUBDIR_NAME" && printable_ascii_name "$SUBDIR_NAME" || continue
+        json_safe_name "$SUBDIR_NAME" || continue
         case "$SUBSTACK_DIRS" in *$'\n'"$SUBDIR_NAME"$'\n'*) continue ;; esac
         ! git -C "$PROJECT_DIR" check-ignore -q -- "$SUBDIR_NAME" 2>/dev/null || continue
         has_project_marker "$subdir" || continue
