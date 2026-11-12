@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-11-12
+
+The first release published with the 0.3.0 changes below. The release run for the `v0.3.0` tag
+failed in its tests before publishing, so 0.3.0 never reached npm or GitHub releases.
+
+### Fixed
+- **Release workflow test job**: it now installs ruff and deno the way the pull request CI does;
+  without them the shell tests fail on CI and the release stops before publishing (#95).
+
 ## [0.3.0] — 2026-11-12
 
 ### Added
@@ -276,6 +285,7 @@ Initial npm release. Core evolution engine: `init`/`run`/`start`/`stop`/`status`
 install, local cron + CI execution, multi-agent backend architecture
 (claude/codex/opencode/ollama), and the `vision` interview.
 
-[0.3.0]: https://github.com/frankbria/code-evolve/releases/tag/v0.3.0
+[0.3.1]: https://github.com/frankbria/code-evolve/releases/tag/v0.3.1
+[0.3.0]: https://github.com/frankbria/code-evolve/tree/v0.3.0
 [0.2.0]: https://github.com/frankbria/code-evolve/releases/tag/v0.2.0
 [0.1.0]: https://github.com/frankbria/code-evolve/releases/tag/v0.1.0

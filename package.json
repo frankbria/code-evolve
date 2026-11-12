@@ -1,6 +1,6 @@
 {
   "name": "code-evolve",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Turn any project into a self-evolving codebase — autonomous build-and-improve cycles driven by Claude Code, Codex, OpenCode, or Ollama.",
   "keywords": [
     "ai",
