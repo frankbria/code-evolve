@@ -47,7 +47,7 @@ Otherwise someone is there, and the steps below apply as written. When nobody ca
 If `.evolve/` does not exist, run:
 
 ```bash
-npx -y code-evolve@0.3.0 init --yes --agent <your agent>
+npx -y code-evolve@0.3.1 init --yes --agent <your agent>
 ```
 
 `init --yes` never prompts and is safe to re-run: on an existing install it refreshes the engine
