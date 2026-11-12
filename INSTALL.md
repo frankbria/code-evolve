@@ -172,9 +172,13 @@ writes a journal entry (`.evolve/JOURNAL.md`), and commits.
 
 A release is a pushed `v<version>` tag. The **Release** workflow (`.github/workflows/release.yml`)
 then checks the tag against `package.json`, runs the type check and the tests, and, in a second job
-that alone holds the publish rights, publishes the package to npm with provenance and creates the
-GitHub release with the plugin ZIP
-(`code-evolve-plugin-<version>.zip`) attached. Only `dist/`, `templates/` and `plugins/` are shipped
+that alone holds the publish rights, stages the package on npm with provenance (`npm stage publish`)
+and creates the GitHub release with the plugin ZIP
+(`code-evolve-plugin-<version>.zip`) attached. A staged version is not installable until a
+maintainer approves it with 2FA: on npmjs.com open the package's **Staged Packages** tab, review the
+version and choose **Approve**, or run `npm stage approve <stage-id>` (`npm stage list code-evolve`
+shows the id). The workflow never runs a direct `npm publish`, so it works with a trusted publisher
+that allows staged publishing only. Only `dist/`, `templates/` and `plugins/` are shipped
 (see the `files` field in `package.json`).
 
 ```bash
@@ -194,12 +198,18 @@ release that cannot publish leaves setup falling back to `@latest` until it is r
 
 - **Trusted publishing (recommended, no secret):** package settings → Trusted Publisher → GitHub
   Actions, with organization or user `frankbria`, repository `code-evolve`, workflow filename
-  `release.yml`, and no environment. Renaming the workflow file breaks this until the setting is updated.
+  `release.yml`, and no environment. Staged publishing (`npm stage publish`) is always allowed;
+  direct publishing does not need to be. npm marks a new trusted publisher as unvalidated until its
+  first successful publish, and drops it if that does not happen within 2 days, so push the first
+  tag soon after saving it. Renaming the workflow file breaks this until the setting is updated.
 - **A token:** create a granular access token that can publish `code-evolve` and save it as the
   `NPM_TOKEN` repository secret. The workflow uses it when it is set.
 
-If the workflow fails part-way, fix the cause and re-run the job: a version that is already on npm
-is not published again, and an existing release only gets the ZIP re-attached.
+The publish job creates the GitHub release before it stages the version on npm. If the workflow
+fails part-way, fix the cause and re-run the job: an existing release only gets the ZIP re-attached,
+and a version that is already on npm is not submitted again. npm gives the workflow's trusted-publisher
+token no way to see staged versions, so a re-run while the version still waits for approval repairs
+the release and then fails at the stage step; approve the staged version on npmjs.com instead.
 
 To test the tarball locally before publishing:
 

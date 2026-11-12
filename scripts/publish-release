@@ -1,7 +1,10 @@
 #!/bin/bash
-# What the release workflow runs for a pushed v<version> tag: put that version on npm, then create the
-# GitHub release with the plugin ZIP attached. Safe to re-run after a partial failure: a version that
-# is already on npm is not published again, and an existing release only gets the ZIP re-attached.
+# What the release workflow runs for a pushed v<version> tag: create the GitHub release with the plugin
+# ZIP attached, then stage that version on npm (npm's staged publishing: it goes live only once a
+# maintainer approves it with 2FA). The release comes first because npm gives the workflow's trusted
+# publisher token no way to look up a staged version: a re-run while the version waits for approval
+# still repairs the release, then fails at the stage step and says so. A version already on npm is
+# not submitted again, and an existing release only gets the ZIP re-attached.
 # Usage: scripts/publish-release <tag>   needs npm auth (trusted publishing or NODE_AUTH_TOKEN) and GH_TOKEN
 set -euo pipefail
 
@@ -11,16 +14,22 @@ node scripts/sync-plugin-version.js --check --tag "$tag"
 package="$(node -p "require('./package.json').name")"
 version="${tag#v}"
 
-if [ "$(npm view "$package@$version" version 2>/dev/null)" = "$version" ]; then
-    echo "$package@$version is already on npm; not publishing it again."
-else
-    npm publish --provenance --access public
-fi
-
 # Not into dist/: the npm package ships that directory.
 archive="$(scripts/pack-codex-plugin "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/code-evolve-plugin-$version.zip")"
 if gh release view "$tag" >/dev/null 2>&1; then
     gh release upload "$tag" "$archive" --clobber
 else
     gh release create "$tag" "$archive" --title "$tag" --generate-notes --verify-tag
+fi
+
+# A trusted publisher may be limited to staged publishing, and `npm stage publish` is always allowed,
+# so the workflow never publishes directly: a maintainer approves the staged version on npmjs.com.
+if [ "$(npm view "$package@$version" version 2>/dev/null)" = "$version" ]; then
+    echo "$package@$version is already on npm; not publishing it again."
+elif npm stage publish --provenance --access public; then
+    echo "$package@$version is staged. Approve it on npmjs.com (Staged Packages) or with npm stage approve."
+else
+    echo "Staging $package@$version failed. If an earlier run already staged it, nothing is lost:" >&2
+    echo "approve it on npmjs.com (Staged Packages). The GitHub release $tag is in place." >&2
+    exit 1
 fi
