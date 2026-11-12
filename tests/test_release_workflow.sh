@@ -22,8 +22,7 @@ case "$1" in
     stage)
         case "$2" in
             publish) [ ! -f "$STUB_STATE/publish-fails" ] && [ ! -f "$STUB_STATE/staged" ] ;;
-            view) [ -f "$STUB_STATE/staged" ] ;;
-            *) exit 1 ;;
+            *) exit 1 ;;  # a trusted publisher's token can run no other stage subcommand
         esac ;;
 esac
 STUB
@@ -67,9 +66,10 @@ echo "0.0.1" > "$work/state/published"; rm "$work/state/released"
 check "another version on npm does not count as published" "$(publish_release "v$VERSION"; calls '^npm stage publish')" "$(printf '0\n1')"
 
 rm -f "$work/state/published"; touch "$work/state/staged"
-check "a re-run while the version waits for approval succeeds" "$(publish_release "v$VERSION")" "0"
-check "the re-run says it was already staged" "$(grep -c 'was already staged' "$work/out")" "1"
-check "the re-run still creates the GitHub release" "$(calls '^gh release create')" "1"
+check "a re-run while the version waits for approval fails at the stage step" "$(publish_release "v$VERSION")" "1"
+check "the re-run says an earlier staging may need approval" "$(grep -c 'If an earlier run already staged it' "$work/out")" "1"
+check "the re-run still creates the GitHub release first" "$(calls '^gh release create')" "1"
+check "the re-run uses no stage subcommand but publish" "$(calls '^npm stage' ) $(calls '^npm stage publish')" "1 1"
 
 rm -rf "$work/state"; mkdir "$work/state"
 check "a tag for another version is refused" "$(publish_release "v99.0.0")" "1"
@@ -77,8 +77,9 @@ check "the refusal names the tag" "$(grep -c 'release tag v99.0.0 does not match
 check "nothing is staged or released for a wrong tag" "$(calls '^npm stage\|^npm publish\|^gh release')" "0"
 
 touch "$work/state/publish-fails"
-check "a failed publish fails the release" "$([ "$(publish_release "v$VERSION")" -ne 0 ] && echo failed || echo passed)" "failed"
-check "no GitHub release is created after a failed publish" "$(calls '^gh release')" "0"
+check "a failed staging fails the release" "$([ "$(publish_release "v$VERSION")" -ne 0 ] && echo failed || echo passed)" "failed"
+check "the GitHub release is created before staging, so a re-run can repair it" \
+    "$([ "$(grep -n '^gh release create' "$work/log" | cut -d: -f1)" -lt "$(grep -n '^npm stage publish' "$work/log" | cut -d: -f1)" ] && echo yes || echo no)" "yes"
 
 # release.yml: only version tags trigger it, it can mint the OIDC token npm needs, and it tests before publishing.
 line_of() { grep -n -- "$1" "$WORKFLOW" | head -1 | cut -d: -f1; }

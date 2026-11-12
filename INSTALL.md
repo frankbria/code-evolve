@@ -205,8 +205,11 @@ release that cannot publish leaves setup falling back to `@latest` until it is r
 - **A token:** create a granular access token that can publish `code-evolve` and save it as the
   `NPM_TOKEN` repository secret. The workflow uses it when it is set.
 
-If the workflow fails part-way, fix the cause and re-run the job: a version that is already on npm
-or already staged is not submitted again, and an existing release only gets the ZIP re-attached.
+The publish job creates the GitHub release before it stages the version on npm. If the workflow
+fails part-way, fix the cause and re-run the job: an existing release only gets the ZIP re-attached,
+and a version that is already on npm is not submitted again. npm gives the workflow's trusted-publisher
+token no way to see staged versions, so a re-run while the version still waits for approval repairs
+the release and then fails at the stage step; approve the staged version on npmjs.com instead.
 
 To test the tarball locally before publishing:
 

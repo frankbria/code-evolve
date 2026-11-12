@@ -19,8 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`npm stage publish`, live once a maintainer approves it with 2FA) and creates the GitHub release
   with the plugin ZIP attached (`.github/workflows/release.yml`, `scripts/publish-release`). It
   never publishes directly, so a trusted publisher limited to staged publishing works. It refuses a
-  tag that does not match `package.json`, and a re-run after a partial failure does not submit the
-  version twice. Maintainer steps are in [INSTALL.md](INSTALL.md) (#95).
+  tag that does not match `package.json`, and a re-run after a partial failure repairs the GitHub
+  release without submitting a version that is already on npm. Maintainer steps are in [INSTALL.md](INSTALL.md) (#95).
 - **Upload copy for OpenAI's public plugin directory**: `scripts/pack-codex-plugin --directory`
   builds the plugin ZIP without the hooks and without their entry in `plugin.json`, because the
   directory does not take plugins with lifecycle hooks. It names the listing pages the manifest
