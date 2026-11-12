@@ -63,7 +63,7 @@ code-evolve/                  # npm package source
 ├── scripts/                  # Repo tooling: sync-plugin-version.js (npm version hook; --check for CI), pack-codex-plugin (plugin ZIP; `--directory` for the hook-free copy for OpenAI's public directory), publish-release (run by release.yml)
 ├── docs/                     # STATUS.md, PROOF9.md, demos/ (live acceptance records)
 ├── dist/                     # Compiled output (gitignored; built on publish)
-└── .github/workflows/        # CI for this package; release.yml publishes on a pushed v<version> tag
+└── .github/workflows/        # CI for this package; release.yml stages a release on npm for a pushed v<version> tag
 ```
 
 ## Commands

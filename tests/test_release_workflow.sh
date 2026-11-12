@@ -18,7 +18,13 @@ cat > "$work/bin/npm" <<'STUB'
 echo "npm $*" >> "$STUB_LOG"
 case "$1" in
     view) [ -f "$STUB_STATE/published" ] && cat "$STUB_STATE/published"; exit 0 ;;
-    publish) [ ! -f "$STUB_STATE/publish-fails" ] ;;
+    publish) exit 1 ;;  # the workflow must never publish directly (a stage-only trusted publisher refuses it)
+    stage)
+        case "$2" in
+            publish) [ ! -f "$STUB_STATE/publish-fails" ] && [ ! -f "$STUB_STATE/staged" ] ;;
+            view) [ -f "$STUB_STATE/staged" ] ;;
+            *) exit 1 ;;
+        esac ;;
 esac
 STUB
 cat > "$work/bin/gh" <<'STUB'
@@ -42,7 +48,9 @@ rm -f "$ROOT"/dist/*.zip
 
 mkdir "$work/state"
 check "a first release succeeds" "$(publish_release "v$VERSION")" "0"
-check "it publishes to npm with provenance" "$(calls '^npm publish --provenance --access public$')" "1"
+check "it stages the version on npm with provenance" "$(calls '^npm stage publish --provenance --access public$')" "1"
+check "it never publishes directly" "$(calls '^npm publish')" "0"
+check "it says the staged version waits for approval" "$(grep -c 'Approve it on npmjs.com' "$work/out")" "1"
 check "it creates the GitHub release for the tag with the plugin ZIP" \
     "$(calls "^gh release create v$VERSION $archive --title v$VERSION --generate-notes --verify-tag\$")" "1"
 check "the plugin ZIP was built" "$([ -s "$archive" ] && echo yes || echo no)" "yes"
@@ -51,17 +59,22 @@ check "the plugin ZIP is kept out of dist/, which the npm package ships" "$(ls "
 
 echo "$VERSION" > "$work/state/published"; touch "$work/state/released"
 check "a re-run after a finished release succeeds" "$(publish_release "v$VERSION")" "0"
-check "a version already on npm is not published again" "$(calls '^npm publish')" "0"
+check "a version already on npm is not staged again" "$(calls '^npm stage publish')" "0"
 check "an existing release gets the ZIP re-attached" "$(calls "^gh release upload v$VERSION $archive --clobber\$")" "1"
 check "an existing release is not created again" "$(calls '^gh release create')" "0"
 
 echo "0.0.1" > "$work/state/published"; rm "$work/state/released"
-check "another version on npm does not count as published" "$(publish_release "v$VERSION"; calls '^npm publish')" "$(printf '0\n1')"
+check "another version on npm does not count as published" "$(publish_release "v$VERSION"; calls '^npm stage publish')" "$(printf '0\n1')"
+
+rm -f "$work/state/published"; touch "$work/state/staged"
+check "a re-run while the version waits for approval succeeds" "$(publish_release "v$VERSION")" "0"
+check "the re-run says it was already staged" "$(grep -c 'was already staged' "$work/out")" "1"
+check "the re-run still creates the GitHub release" "$(calls '^gh release create')" "1"
 
 rm -rf "$work/state"; mkdir "$work/state"
 check "a tag for another version is refused" "$(publish_release "v99.0.0")" "1"
 check "the refusal names the tag" "$(grep -c 'release tag v99.0.0 does not match' "$work/out")" "1"
-check "nothing is published or released for a wrong tag" "$(calls '^npm publish\|^gh release')" "0"
+check "nothing is staged or released for a wrong tag" "$(calls '^npm stage\|^npm publish\|^gh release')" "0"
 
 touch "$work/state/publish-fails"
 check "a failed publish fails the release" "$([ "$(publish_release "v$VERSION")" -ne 0 ] && echo failed || echo passed)" "failed"
@@ -80,6 +93,7 @@ check "only the publish job may create the GitHub release" \
 check "the publish job waits for the tests" "$(grep -c '^    needs: test$' <<<"$publish_job")" "1"
 check "the publish job runs no dependency install scripts" "$(grep -c 'run: npm ci' <<<"$publish_job") $(grep -c 'run: npm ci --ignore-scripts$' <<<"$publish_job")" "1 1"
 check "no job leaves the repository token in the checkout" "$(grep -c 'uses: actions/checkout' "$WORKFLOW") $(grep -c 'persist-credentials: false' "$WORKFLOW")" "2 2"
+check "the publish job uses an npm with staged publishing" "$(grep -c 'npm install -g npm@^11.15.0' <<<"$publish_job")" "1"
 check "it publishes through scripts/publish-release" "$(grep -c 'scripts/publish-release "\$GITHUB_REF_NAME"' "$WORKFLOW")" "1"
 check "it checks the tag before installing anything" \
     "$([ "$(line_of 'sync-plugin-version.js --check --tag "\$GITHUB_REF_NAME"')" -lt "$(line_of 'npm ci')" ] && echo yes || echo no)" "yes"

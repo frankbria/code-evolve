@@ -1,7 +1,8 @@
 name: Release
 
-# Pushing a v<version> tag (`npm version` creates it) publishes that version to npm with provenance
-# and creates the GitHub release with the plugin ZIP attached. See INSTALL.md, "For maintainers".
+# Pushing a v<version> tag (`npm version` creates it) stages that version on npm with provenance
+# (`npm stage publish`; it goes live once a maintainer approves it on npmjs.com with 2FA) and creates
+# the GitHub release with the plugin ZIP attached. See INSTALL.md, "For maintainers".
 # npm auth is trusted publishing (OIDC): on npmjs.com the package names this repository and this
 # file name (release.yml) as its trusted publisher. An NPM_TOKEN repository secret is used instead
 # when one is set.
@@ -64,6 +65,10 @@ jobs:
           # Trusted publishing needs npm 11.5.1 or later, which Node 24 ships.
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      # Staged publishing needs npm 11.15.0 or later; Node 24 may ship an older npm 11.
+      - name: Use npm 11.15.0 or later
+        run: npm install -g npm@^11.15.0 && npm --version
 
       # The publish builds the package (prepublishOnly), which needs the compiler but no install scripts.
       - name: Install dependencies without running their scripts
