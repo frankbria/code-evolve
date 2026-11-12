@@ -42,6 +42,15 @@ jobs:
       - name: Type check
         run: npm run lint
 
+      # The same tools ci.yml installs: on CI, tests/test_python_stack.sh fails when it cannot run them for real.
+      - name: Install ruff
+        run: pipx install ruff
+
+      - name: Install deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Build and test
         run: npm test
 

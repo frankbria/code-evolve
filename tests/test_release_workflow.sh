@@ -102,6 +102,12 @@ check "the setup skill falls back when its pinned version is not on npm" \
     "$(grep -c 'code-evolve@latest' "$ROOT/plugins/code-evolve/skills/evolve-setup/SKILL.md" | sed 's/^[1-9][0-9]*$/yes/')" "yes"
 check "it runs the tests before publishing" \
     "$([ "$(line_of 'run: npm test')" -lt "$(line_of 'scripts/publish-release')" ] && echo yes || echo no)" "yes"
+# The shell tests need real ruff and deno on CI, so the release's test job installs what ci.yml does.
+test_job="$(sed -n '/^  test:/,/^  publish:/p' "$WORKFLOW")"
+for tool_step in 'run: pipx install ruff' 'uses: denoland/setup-deno@v2'; do
+    check "the release tests get the tool CI installs: $tool_step" \
+        "$(grep -c -- "$tool_step" "$ROOT/.github/workflows/ci.yml") $(grep -c -- "$tool_step" <<<"$test_job")" "1 1"
+done
 check "CI fails a pull request whose versions drifted" \
     "$(grep -c 'run: node scripts/sync-plugin-version.js --check$' "$ROOT/.github/workflows/ci.yml")" "1"
 # npm's trusted publisher is configured with this file name; renaming it breaks publishing.
