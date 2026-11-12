@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "code-evolve",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status.",
   "author": {
     "name": "Frank Bria",
