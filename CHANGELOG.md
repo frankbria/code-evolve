@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Cycle sync** (#162): a push that loses a race to another scheduler is synced and pushed once
+  more; a project `.gitattributes` merge rule for the engine's state files no longer wins during
+  the sync (git 2.41+); two journal entries with an identical heading stay two entries; a rebased
+  session keeps the larger `DAY_COUNT`; a session tag whose name is taken, here or on the remote,
+  takes the next free suffix.
 - **Python test detection** (#160): `uv run` / `poetry run` is used for pytest or ruff only when the
   lock installs the tool by default (not only through an optional extra or an optional group);
   a `TestCase` base imported from another file of the project is followed; tests attached at run

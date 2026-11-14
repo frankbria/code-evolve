@@ -644,18 +644,61 @@ git_failure_reason() { # <git output>
 
 # Two cycles always change the same lines of the engine's own state files, so a plain rebase would
 # stop on them every time. For the rebase only: the journal and learnings keep both cycles'
-# entries, and the files each cycle rewrites take this session's version (%B is the commit being
-# replayed). Passed as a throwaway attributes file so the repository's configuration is untouched.
+# entries, DAY_COUNT keeps the larger day, and the files each cycle rewrites take this session's
+# version (%B is the commit being replayed). Passed as a throwaway attributes file so the
+# repository's configuration is untouched.
 write_sync_attributes() { # <file>
     local name path
     for name in JOURNAL.md LEARNINGS.md LAST_VERIFY.md DAY_COUNT; do
         path=$(git ls-files --full-name -- "$EVOLVE_DIR/$name")
         [ -n "$path" ] || continue
         case "$name" in
-            JOURNAL.md|LEARNINGS.md) printf '"%s" merge=union\n' "$path" ;;
+            JOURNAL.md|LEARNINGS.md) printf '"%s" merge=code-evolve-entries\n' "$path" ;;
+            DAY_COUNT) printf '"%s" merge=code-evolve-day\n' "$path" ;;
             *) printf '"%s" merge=code-evolve-session\n' "$path" ;;
         esac
     done > "$1"
+}
+
+# The union merge, except that two entries added under one heading line stay two entries (git's
+# own union merge folds the shared heading and puts both texts under it): the headings each side
+# added get a side-specific suffix for the merge and lose it again.
+write_entries_merge_driver() { # <file>
+    cat > "$1" <<'DRIVER'
+#!/bin/sh
+# <ancestor> <ours> <theirs>: leaves the result in <ours>
+work=$(mktemp -d) || exit 1
+# Suffixes no entry already ends with: they carry this run's own temporary directory name.
+ours=" {ours $work}" theirs=" {theirs $work}"
+mark() { awk -v base="$1" -v suffix="$2" 'FILENAME == base { known[$0] = 1; next } /^## / && !($0 in known) { $0 = $0 suffix } { print }' "$1" "$3"; }
+mark "$1" "$ours" "$2" > "$work/ours" && mark "$1" "$theirs" "$3" > "$work/theirs" \
+    && git merge-file --union "$work/ours" "$1" "$work/theirs" \
+    && awk -v ours="$ours" -v theirs="$theirs" '{
+        for (i = 1; i <= 2; i++) {
+            suffix = (i == 1) ? ours : theirs
+            if (length($0) >= length(suffix) && substr($0, length($0) - length(suffix) + 1) == suffix) $0 = substr($0, 1, length($0) - length(suffix))
+        }
+        print
+    }' "$work/ours" > "$2"
+status=$?
+rm -rf "$work"
+exit $status
+DRIVER
+}
+
+# A project's own .gitattributes beats the attributes file above. git 2.41 and later can read the
+# attributes from a tree instead of the work tree, so the engine's lines go at the end of the
+# upstream's .gitattributes in a tree built for this rebase (no file of the repository is touched).
+# Prints nothing when that fails or git is older, and the rebase then runs on the attributes file alone.
+build_sync_attributes_tree() { # <attributes file>
+    (
+        export GIT_INDEX_FILE="$RUN_TMP/sync-index"
+        rm -f "$GIT_INDEX_FILE"
+        git read-tree "$SYNC_REF" \
+            && blob=$({ git cat-file blob "$SYNC_REF:.gitattributes" 2>/dev/null || true; echo; cat "$1"; } | git hash-object -w --stdin) \
+            && git update-index --add --cacheinfo "100644,$blob,.gitattributes" \
+            && git write-tree
+    ) 2>/dev/null || true
 }
 
 # Another scheduler working from its own clone may have pushed; git would refuse this clone's push
@@ -664,10 +707,8 @@ write_sync_attributes() { # <file>
 # state, and again before the push ("finalize"), for what arrived during the session. A rebase
 # that fails is undone, so the commits stay on the local branch. Fails only when the branch cannot
 # be pushed as it is.
-# shortcut: a push that lands between the fetch before the push and the push itself is not retried, it fails the cycle
-# (status 4) and the next cycle pushes both; add a retry if schedulers finishing in the same second become common.
 sync_with_upstream() { # <start|finalize>
-    local moment="$1" remote merge_ref fetch_from push_urls output conflicts new_commits synced=true pushes_to_upstream=true
+    local moment="$1" remote merge_ref fetch_from push_urls output conflicts new_commits attributes_tree synced=true pushes_to_upstream=true
     remote=$(git config --get "branch.$SESSION_BRANCH.remote")
     merge_ref=$(git config --get "branch.$SESSION_BRANCH.merge")
     # A rebase only when the push goes where the upstream is. With a fork (pushRemote) or a push mapping,
@@ -716,7 +757,13 @@ sync_with_upstream() { # <start|finalize>
         return 1
     else
         write_sync_attributes "$RUN_TMP/sync-attributes"
-        output=$(git -c core.attributesFile="$RUN_TMP/sync-attributes" -c merge.code-evolve-session.driver='cp %B %A' \
+        write_entries_merge_driver "$RUN_TMP/entries-merge.sh"
+        attributes_tree=$(build_sync_attributes_tree "$RUN_TMP/sync-attributes")
+        # A driver's command line is run by a shell, so the script's path is quoted for it.
+        output=$(env ${attributes_tree:+"GIT_ATTR_SOURCE=$attributes_tree"} git -c core.attributesFile="$RUN_TMP/sync-attributes" \
+            -c merge.code-evolve-session.driver='cp %B %A' \
+            -c merge.code-evolve-day.driver='[ "$(cat %B)" -gt "$(cat %A)" ] 2>/dev/null && cp %B %A || true' \
+            -c "merge.code-evolve-entries.driver=sh $(printf '%q' "$RUN_TMP/entries-merge.sh") %O %A %B" \
             -c rebase.autoStash=false rebase --rebase-merges "$SYNC_REF" 2>&1) || synced=false
     fi
     if [ "$synced" = true ]; then
@@ -1793,6 +1840,18 @@ push_branch_or_report() { # <git push arguments...>
     return 1
 }
 
+# Pushes the tags. The remote can already hold a different tag of the session's name, from a clone
+# whose commits this one never fetched; the session then takes the next free name.
+push_tags() { # <remote, optional>
+    until push_or_report "Tag push" "$@" --tags; do
+        [ "$TAG_CREATED" = true ] && printf '%s\n' "$PUSH_OUTPUT" | grep -qF "$TAG_NAME (already exists)" || return 1
+        echo "  The remote has another tag named $TAG_NAME; trying the next free name."
+        git tag -d "$TAG_NAME" >/dev/null 2>&1 || true
+        TAG_SERIAL=$(( ${TAG_SERIAL:-1} + 1 ))
+        tag_session
+    done
+}
+
 # A branch that was never pushed has no upstream, and a bare `git push` refuses it while the tag
 # push goes through. Such a branch is pushed with its upstream set: to the remote git is configured
 # to push to (branch.<name>.pushRemote, remote.pushDefault, branch.<name>.remote), else origin, else the only remote.
@@ -1803,7 +1862,7 @@ push_session() {
     # Checked before the list of remotes: an upstream can name a URL or a path instead of a remote.
     if branch_has_upstream; then
         push_branch_or_report || return 1
-        push_or_report "Tag push" --tags || true
+        push_tags || true
         return 0
     fi
     remote=""
@@ -1842,7 +1901,7 @@ push_session() {
     else
         push_branch_or_report -u "$remote" HEAD || return 1
     fi
-    push_or_report "Tag push" "$remote" --tags || true
+    push_tags "$remote" || true
 }
 
 SESSION_PUSHED=true
@@ -1851,25 +1910,44 @@ SESSION_PUSHED=true
 SESSION_ON_REMOTE=false
 if branch_has_upstream && ! sync_with_upstream finalize; then SESSION_PUSHED=false; fi
 
-# Tagged after the sync so the tag names the commit that is pushed. Two schedulers that start in the
-# same minute ask for the same name; the later one takes a numbered name instead of the other's tag.
+# Tagged after the sync so the tag names the commit that is pushed. Another scheduler (or a linked
+# worktree, in the same instant) can ask for the same name: git decides who gets it, and the others
+# take the next free numbered name.
 TAG_BASE="day${DAY}-$(echo "$SESSION_TIME" | tr ':' '-')"
-TAG_NAME="$TAG_BASE"
-TAG_SERIAL=1
-while git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; do
-    TAG_SERIAL=$((TAG_SERIAL + 1))
-    TAG_NAME="$TAG_BASE-$TAG_SERIAL"
-done
-# Another worktree of this repository can take the name between the check and here; its tag is not this session's to remove.
+TAG_SERIAL=""
 TAG_CREATED=false
-if git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null; then
-    TAG_CREATED=true
-    echo "  Tagged: $TAG_NAME"
-else
+tag_session() {
+    TAG_CREATED=false
+    while :; do
+        TAG_NAME="$TAG_BASE${TAG_SERIAL:+-$TAG_SERIAL}"
+        if git tag "$TAG_NAME" -m "Day $DAY evolution ($SESSION_TIME)" 2>/dev/null; then
+            TAG_CREATED=true
+            echo "  Tagged: $TAG_NAME"
+            return 0
+        fi
+        # Only a name that is taken moves on to the next; any other refusal would refuse them all.
+        git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null || break
+        TAG_SERIAL=$(( ${TAG_SERIAL:-1} + 1 ))
+    done
     echo "  Could not create tag $TAG_NAME; the session is not tagged."
-fi
+}
+tag_session
 
-if [ "$SESSION_PUSHED" = true ] && ! push_session; then SESSION_PUSHED=false; fi
+# The push can lose a race against another scheduler that pushed after the fetch of the sync above:
+# one more sync and push settles it. The tag is moved onto the rebased commit.
+push_session_retrying_a_lost_race() {
+    push_session && return 0
+    # Only the session branch's own porcelain line counts: another ref the push configuration sends may be the one refused.
+    branch_has_upstream && printf '%s\n' "$PUSH_OUTPUT" | grep -F "${TAB}refs/heads/$SESSION_BRANCH:" \
+        | grep -qE '\((fetch first|non-fast-forward|incorrect old value provided|failed to update ref)\)' || return 1
+    echo "  The remote moved during the push; syncing again."
+    if [ "$TAG_CREATED" = true ]; then git tag -d "$TAG_NAME" >/dev/null 2>&1 || true; fi
+    sync_with_upstream finalize || return 1
+    tag_session
+    push_session
+}
+
+if [ "$SESSION_PUSHED" = true ] && ! push_session_retrying_a_lost_race; then SESSION_PUSHED=false; fi
 if [ "$SESSION_PUSHED" != true ] && [ "$TAG_CREATED" = true ]; then
     # The commits may still be rebased before they reach the remote; a tag kept here would later be
     # pushed pointing at a commit that is on no branch. The cycle that pushes them tags them.
