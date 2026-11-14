@@ -21,6 +21,10 @@ UNITTEST_MODULES = {"unittest", "unittest.case", "unittest.async_case"}
 MODULE_FILE = re.compile(r"[_a-z]\w*\.py\Z", re.IGNORECASE)
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 UNREADABLE = (OSError, SyntaxError, ValueError, RecursionError)
+# unittest never calls these pytest hooks on a TestCase.
+CLASS_HOOKS = {"setup_class", "teardown_class", "setup_method", "teardown_method"}
+# A chain of base classes across files is followed this far.
+MAX_BASE_FILES = 10
 # Module-level names that make the two runners behave differently.
 RUNNER_HOOKS = {
     "load_tests",
@@ -170,10 +174,9 @@ def names_a_test(name):
     return name.startswith(("test", "Test")) and name not in UNITTEST_BASES
 
 
-def star_import_brings_tests(statement, directories):
-    """True when `from module import *` reads a file of the project that binds a name pytest
-    looks at or a load_tests hook, has a star import of its own, or cannot be parsed. A module
-    found nowhere in `directories` is an installed one and brings none."""
+def project_module_path(statement, directories):
+    """The file of the project that `from module import ...` reads, or None when the module is
+    found nowhere in `directories`: an installed one."""
     relative = (statement.module or "").replace(".", os.sep)
     if statement.level:
         # `from ..module`: one package up from the file's own for each further dot.
@@ -187,16 +190,42 @@ def star_import_brings_tests(statement, directories):
             os.path.join(directory, relative, "__init__.py"),
         ):
             if os.path.isfile(path):
-                try:
-                    statements = scope_statements(parse(path).body)
-                    return any(
-                        names_a_test(name) or name == "*" or name in RUNNER_HOOKS
-                        for imported in statements
-                        for name in bound_names(imported)
-                    )
-                except UNREADABLE:
-                    return True
-    return False
+                return path
+    return None
+
+
+def star_import_brings_tests(statement, directories):
+    """True when `from module import *` reads a file of the project that binds a name pytest
+    looks at or a load_tests hook, has a star import of its own, or cannot be parsed. A module
+    found nowhere in `directories` is an installed one and brings none."""
+    path = project_module_path(statement, directories)
+    if path is None:
+        return False
+    try:
+        return any(
+            names_a_test(name) or name == "*" or name in RUNNER_HOOKS
+            for imported in scope_statements(parse(path).body)
+            for name in bound_names(imported)
+        )
+    except UNREADABLE:
+        return True
+
+
+def imported_test_cases(statement, directories, visited):
+    """The names `from module import Name` brings in that the project's file defines as
+    unittest TestCase classes. Nothing when the file is not found, not readable, or already
+    being read (an import cycle)."""
+    path = project_module_path(statement, directories)
+    if path is None or path in visited or len(visited) >= MAX_BASE_FILES:
+        return set()
+    found = set()
+    try:
+        classify(
+            parse(path), [os.path.dirname(path)] + directories[1:], found, visited + (path,)
+        )
+    except UNREADABLE:
+        return set()
+    return {alias.asname or alias.name for alias in statement.names if alias.name in found}
 
 
 def parse(path):
@@ -204,24 +233,91 @@ def parse(path):
         return ast.parse(source.read(), filename=path)
 
 
-def classify(tree, directories):
+# Values a test_* name can hold that are test data, never a test: literals and displays.
+DATA_VALUES = (
+    ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.Set, ast.JoinedStr,
+    ast.ListComp, ast.DictComp, ast.SetComp,
+)
+
+
+def is_callable_value(node):
+    """Anything but a literal may be callable (a name, a lambda, a partial, a factory's result),
+    and pytest collects a callable test_* name, so only test data is left out."""
+    return node is not None and not isinstance(node, DATA_VALUES)
+
+
+def attaches_test(statement, test_cases):
+    """True for a module-level statement that gives pytest a test the def and class syntax
+    does not show, on anything but a TestCase of the file (unittest sees those too)."""
+    if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        names = bound_names(statement)
+        return (
+            # A class made by a call is collected under the name it is assigned to.
+            any(name.startswith("Test") for name in names)
+            or (
+                any(name.startswith("test") for name in names)
+                and is_callable_value(statement.value)
+            )
+            or any(
+                isinstance(target, ast.Attribute)
+                and target.attr.startswith("test")
+                and not is_known(target.value, test_cases)
+                for target in targets
+            )
+        )
+    call = statement.value if isinstance(statement, ast.Expr) else None
+    return (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "setattr"
+        and len(call.args) >= 2
+        and not is_known(call.args[0], test_cases)
+        # A name computed at run time may well start with test.
+        and (
+            not isinstance(call.args[1], ast.Constant)
+            or str(call.args[1].value).startswith("test")
+        )
+    )
+
+
+def is_known(node, test_cases):
+    return isinstance(node, ast.Name) and node.id in test_cases
+
+
+def marks_class_as_test(statement):
+    """`__test__ = True` in a class body: pytest collects the class whatever it is named."""
+    return any(
+        isinstance(inner, (ast.Assign, ast.AnnAssign))
+        and "__test__" in bound_names(inner)
+        and isinstance(inner.value, ast.Constant)
+        and inner.value.value is True
+        for inner in scope_statements(statement.body)
+    )
+
+
+def classify(tree, directories, test_cases=None, visited=()):
     """'pytest' when the file holds a test only pytest collects, 'unittest' when it defines a
     unittest.TestCase class and no such test, else 'neither'. `directories` are where a
-    module the file imports may be: the file's own first."""
+    module the file imports may be: the file's own first. The names of the file's TestCase
+    classes are added to `test_cases`; `visited` holds the files being read to resolve bases."""
     if imports_pytest(tree):
         return "pytest"
     unittest_modules = set()
-    test_cases = set()
+    test_cases = set() if test_cases is None else test_cases
     test_free = {"object"}
     kind = "neither"
-    # shortcut: names are followed inside one file only, so a Test* class whose base is
-    # imported from the project's own module keeps pytest, TestCase or not. Resolve imports
-    # across files if such suites need the unittest fallback.
     statements = list(scope_statements(tree.body))
     sources = binding_sources(tree, statements)
     # A load_tests hook decides itself what unittest loads from the module or package, and
     # only pytest calls its own setup and teardown hooks.
     if RUNNER_HOOKS & sources.keys():
+        return "pytest"
+    # `(test_x := ...)` binds a name from inside an expression, which no statement shows.
+    if any(
+        isinstance(node, ast.NamedExpr) and node.target.id.startswith(("test", "Test"))
+        for node in ast.walk(tree)
+    ):
         return "pytest"
 
     def trust(names, name):
@@ -234,6 +330,8 @@ def classify(tree, directories):
             for alias in statement.names:
                 if alias.name == "unittest":
                     trust(unittest_modules, alias.asname or "unittest")
+                elif alias.name in UNITTEST_MODULES and alias.asname:
+                    trust(unittest_modules, alias.asname)
                 elif alias.name.startswith("unittest.") and alias.asname is None:
                     trust(unittest_modules, "unittest")
         elif isinstance(statement, ast.ImportFrom):
@@ -241,22 +339,24 @@ def classify(tree, directories):
                 for alias in statement.names:
                     if alias.name in UNITTEST_BASES:
                         trust(test_cases, alias.asname or alias.name)
+                    elif statement.module == "unittest" and alias.name in ("case", "async_case"):
+                        trust(unittest_modules, alias.asname or alias.name)
             # pytest collects a test function or Test* class a module imports as if it were
             # defined there.
             elif any(names_a_test(alias.asname or alias.name) for alias in statement.names):
                 return "pytest"
+            elif statement.names[0].name != "*":
+                for name in imported_test_cases(statement, directories, visited):
+                    trust(test_cases, name)
             elif statement.names[0].name == "*" and star_import_brings_tests(
                 statement, directories
             ):
                 return "pytest"
-        elif is_test_function(statement):
-            return "pytest"
-        elif isinstance(statement, (ast.Assign, ast.AnnAssign)) and any(
-            name.startswith("Test") for name in bound_names(statement)
-        ):
-            # A class made by a call is collected under the name it is assigned to.
+        elif is_test_function(statement) or attaches_test(statement, test_cases):
             return "pytest"
         elif isinstance(statement, ast.ClassDef):
+            if marks_class_as_test(statement):
+                return "pytest"
             derives = any(
                 (isinstance(base, ast.Name) and base.id in test_cases)
                 or (
@@ -267,7 +367,14 @@ def classify(tree, directories):
                 for base in statement.bases
             )
             if derives:
-                trust(test_cases, statement.name)
+                if CLASS_HOOKS & {
+                    name for inner in scope_statements(statement.body) for name in bound_names(inner)
+                }:
+                    return "pytest"
+                # A decorator may return something other than the class, so a decorated one is
+                # not trusted as a base (its own tests are still unittest's).
+                if not statement.decorator_list:
+                    trust(test_cases, statement.name)
                 kind = "unittest"
             elif not may_hold_tests(statement, test_free):
                 trust(test_free, statement.name)

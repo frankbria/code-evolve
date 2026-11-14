@@ -116,16 +116,109 @@ python_commands() {
     python_ruff_commands "$(python_tool "$dir" ruff)"
 }
 
+# lock_installs_tool <dir> <lock file> <tool> — true when `uv sync` / `poetry install` puts the
+# tool in the environment: the lock reaches it from the root project's own dependencies or its
+# default groups, not only from an optional extra or an optional group. Python 3.11+ reads the
+# TOML; where it cannot, a `name = "<tool>"` line in the lock is taken as enough.
+lock_installs_tool() {
+    local status=0
+    python3 -I - "$1" "$2" "$3" <<'PY' 2>/dev/null || status=$?
+import os
+import re
+import sys
+
+try:
+    import tomllib
+except ImportError:
+    sys.exit(2)
+
+project_dir, lock_name, tool = sys.argv[1:4]
+
+
+def read(name):
+    path = os.path.join(project_dir, name)
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "rb") as source:
+        return tomllib.load(source)
+
+
+def normalized(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def uv_installs():
+    packages = {}
+    for package in read(lock_name).get("package", []):
+        packages.setdefault(normalized(package["name"]), []).append(package)
+    uv_settings = read("pyproject.toml").get("tool", {}).get("uv", {})
+    default_groups = uv_settings.get("default-groups", ["dev"])
+    pending = []
+    found_root = False
+    for versions in packages.values():
+        for package in versions:
+            source = package.get("source", {})
+            if "." not in (source.get("editable"), source.get("virtual")):
+                continue
+            found_root = True
+            pending += package.get("dependencies", [])
+            for group, dependencies in package.get("dev-dependencies", {}).items():
+                if default_groups == "all" or group in default_groups:
+                    pending += dependencies
+    if not found_root:
+        sys.exit(2)
+    reached = set()
+    while pending:
+        dependency = pending.pop()
+        name = normalized(dependency["name"])
+        extras = tuple(dependency.get("extra", []))
+        if (name, extras) in reached:
+            continue
+        reached.add((name, extras))
+        for package in packages.get(name, []):
+            pending += package.get("dependencies", [])
+            for extra in extras:
+                pending += package.get("optional-dependencies", {}).get(extra, [])
+    return any(name == tool for name, _ in reached)
+
+
+def poetry_installs():
+    groups = read("pyproject.toml").get("tool", {}).get("poetry", {}).get("group", {})
+    optional_groups = {name for name, settings in groups.items() if settings.get("optional")}
+    for package in read(lock_name).get("package", []):
+        if normalized(package["name"]) != tool or package.get("optional"):
+            continue
+        # poetry.lock 2.x lists a package's groups; older locks only a category, main or dev.
+        listed = package.get("groups") or [package.get("category", "main")]
+        # A "dev" of an old lock is any group, so it only counts out when all of them are optional.
+        all_optional = bool(groups) and set(groups) <= optional_groups
+        if any(group not in optional_groups and not (group == "dev" and all_optional) for group in listed):
+            return True
+    return False
+
+
+try:
+    installs = uv_installs() if lock_name == "uv.lock" else poetry_installs()
+except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError):
+    # A lock or pyproject.toml this code cannot follow falls back to the plain name check.
+    sys.exit(2)
+sys.exit(0 if installs else 1)
+PY
+    case $status in
+        0) return 0 ;;
+        1) return 1 ;;
+    esac
+    grep -qx "name = \"$3\"" "$1/$2"
+}
+
 # python_locked_commands <dir> <runner> <lock file> — for uv and poetry projects. The runner
-# only finds a tool the lock file names, so the others are chosen as for any Python project.
-# shortcut: a tool the lock names only for an optional extra or a group that is not installed
-# by default still gets the runner's command, as every tool did before; decide from the lock's
-# dependency groups if such projects need the fallback.
+# only finds a tool the lock file installs by default, so the others are chosen as for any
+# Python project.
 python_locked_commands() {
-    local dir="$1" runner="$2" lock="$1/$3" pytest="" ruff
-    grep -qx 'name = "pytest"' "$lock" && pytest="$runner pytest"
+    local dir="$1" runner="$2" lock="$3" pytest="" ruff
+    lock_installs_tool "$dir" "$lock" pytest && pytest="$runner pytest"
     TEST_CMD=$(python_test_command "$dir" "$pytest" "$runner pytest" "$runner python")
-    if grep -qx 'name = "ruff"' "$lock"; then
+    if lock_installs_tool "$dir" "$lock" ruff; then
         ruff="$runner ruff"
     else
         ruff=$(python_tool "$dir" ruff)
