@@ -94,8 +94,9 @@ rm -f "$stub_dir/list-fails"
 
 # On a machine without crontab at all (e.g. a CI-only container), stop and eject must still work.
 mkdir app4 && (cd app4 && git init -q && node "$CLI" init --agent claude </dev/null >/dev/null 2>&1)
-node_only_path="$(dirname "$(command -v node)")"
-[ ! -x "$node_only_path/crontab" ] || bad "test setup: node dir unexpectedly contains crontab"
+# A directory holding only node: node's own directory can also hold crontab (node in /usr/bin).
+node_only_path="$stub_dir/node-only"
+mkdir -p "$node_only_path" && ln -s "$(command -v node)" "$node_only_path/node"
 stop_status=0; (cd app4 && env -i PATH="$node_only_path" HOME="$HOME" node "$CLI" stop >/dev/null 2>&1) || stop_status=$?
 eject_status=0; (cd app4 && env -i PATH="$node_only_path" HOME="$HOME" node "$CLI" eject --yes >/dev/null 2>&1) || eject_status=$?
 [ "$stop_status" -eq 0 ] && [ "$eject_status" -eq 0 ] && [ ! -d app4/.evolve ] \
