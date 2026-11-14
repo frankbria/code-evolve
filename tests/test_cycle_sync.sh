@@ -52,7 +52,7 @@ new_pushed_remote() { # <remote name>
     git remote add "$1" "$PWD-$1.git"
     git push -q -u "$1" "$branch"
 }
-engine() { env -i PATH="$agentless_path" HOME="$HOME" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+engine() { env -i PATH="$agentless_path" HOME="$HOME" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 ${engine_tmpdir:+"TMPDIR=$engine_tmpdir"} \
     EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude bash .evolve/scripts/evolve.sh "$@"; }
 start_session() {
     prepare_log="$work_dir/prepare-$(basename "$PWD").log"
@@ -81,6 +81,20 @@ push_from_elsewhere() { # <remote url> <file> [content]
     elsewhere_sha="$(git -C "$clone" rev-parse HEAD)"
     rm -rf "$clone"
 }
+# Someone else's journal entry on top of the remote's journal.
+push_entry_from_elsewhere() { # <remote url> <heading> <text>
+    local clone="$work_dir/elsewhere-$RANDOM"
+    git clone -q "$1" "$clone"
+    { head -1 "$clone/.evolve/JOURNAL.md"; printf '\n## %s\n\n%s\n' "$2" "$3"; tail -n +2 "$clone/.evolve/JOURNAL.md"; } > "$work_dir/journal-elsewhere"
+    cp "$work_dir/journal-elsewhere" "$clone/.evolve/JOURNAL.md"
+    git -C "$clone" add .evolve/JOURNAL.md
+    git -C "$clone" -c user.email=other@example.com -c user.name=other commit -qm "someone else: journal entry"
+    git -C "$clone" push -q origin "HEAD:$branch"
+    elsewhere_sha="$(git -C "$clone" rev-parse HEAD)"
+    rm -rf "$clone"
+}
+# The journal's entries as "heading|text|" groups, to compare in one line.
+journal_entries() { grep -A2 '^## Day 0: ' .evolve/JOURNAL.md | grep -v '^$\|^--$' | tr '\n' '|'; }
 
 # ── A clone that is behind its upstream starts the cycle from the upstream's state ──
 new_project behind
@@ -356,6 +370,147 @@ finish_session ours.txt
 grep -q "no rebases on this machine" "$finalize_log" && grep -q "^  Sync failed: " "$finalize_log" && ! grep -q "change the same lines" "$finalize_log" \
     && ok "git's own output is shown, and it is not called a conflict" || bad "log: $(grep -i "sync\|rebase" "$finalize_log")"
 
+# ── Two cycles that each wrote a journal entry: both stay, even under an identical heading line ──
+new_project journal-entries
+new_pushed_remote origin
+start_session
+push_entry_from_elsewhere "$PWD-origin.git" "Day 0: their entry" "Their text"
+finish_session ours.txt
+[ "$finalize_status" -eq 0 ] && [ "$(journal_entries)" = "## Day 0: their entry|Their text|## Day 0: entry for ours.txt|Added ours.txt.|" ] \
+    && ok "two cycles' journal entries both survive the sync" || bad "journal: exit $finalize_status, $(journal_entries)"
+new_project journal-same-heading
+printf '\nA note of mine that ends with {ours}\n' >> .evolve/JOURNAL.md && git commit -qam "a note"
+new_pushed_remote origin
+start_session
+push_entry_from_elsewhere "$PWD-origin.git" "Day 0: entry for ours.txt" "Their text"
+finish_session ours.txt
+[ "$finalize_status" -eq 0 ] && [ "$(journal_entries)" = "## Day 0: entry for ours.txt|Their text|## Day 0: entry for ours.txt|Added ours.txt.|" ] \
+    && ok "two entries with an identical heading line stay two entries" || bad "same heading: exit $finalize_status, $(journal_entries)"
+! grep -q '{ours /\|{theirs /' .evolve/JOURNAL.md && ok "the merge leaves no marker in the journal" || bad "markers: $(head -12 .evolve/JOURNAL.md)"
+grep -qxF "A note of mine that ends with {ours}" .evolve/JOURNAL.md \
+    && ok "a line that already ended with the marker's text is kept as it was" || bad "note: $(grep -F "A note of mine" .evolve/JOURNAL.md)"
+
+# ── A project's own merge rule for the engine's state files does not win over the engine's ──
+# The override reads attributes from a tree (GIT_ATTR_SOURCE), which git 2.41 added.
+git_version=$(git --version | sed 's/[^0-9.]*\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/')
+if [ "${git_version%%.*}" -gt 2 ] || { [ "${git_version%%.*}" -eq 2 ] && [ "${git_version#*.}" -ge 41 ]; }; then
+new_project project-merge-rule
+printf '.evolve/JOURNAL.md merge=binary\n.evolve/DAY_COUNT merge=binary\n' > .gitattributes
+git add .gitattributes && git commit -qm "the project's merge rules"
+new_pushed_remote origin
+start_session
+push_entry_from_elsewhere "$PWD-origin.git" "Day 0: their entry" "Their text"
+finish_session ours.txt
+[ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && [ "$(journal_entries)" = "## Day 0: their entry|Their text|## Day 0: entry for ours.txt|Added ours.txt.|" ] \
+    && ok "a project's merge=binary rule on the journal does not make two cycles conflict" || bad "project rule: exit $finalize_status, $(tail -3 "$finalize_log")"
+[ -z "$(git config --get-regexp '^merge\.' || true)" ] && [ ! -e .git/info/attributes ] && [ "$(cat .gitattributes | wc -l)" -eq 2 ] \
+    && ok "the repository's configuration and attributes are untouched" || bad "config: $(git config --list --local | grep -i merge)"
+else
+    echo "  skip: a project's merge rule test needs git 2.41 or later (have $git_version)"
+fi
+
+# ── A session rebased onto newer cycles never takes the day count back ──
+new_project day-count
+new_pushed_remote origin
+start_session
+push_from_elsewhere "$PWD-origin.git" .evolve/DAY_COUNT 99
+echo 5 > .evolve/DAY_COUNT && git commit -qam "Day 5: day count"
+finish_session ours.txt
+[ "$finalize_status" -eq 0 ] && [ "$(cat .evolve/DAY_COUNT)" = 99 ] && [ "$(git show "$(remote_branch_sha origin):.evolve/DAY_COUNT")" = 99 ] \
+    && ok "DAY_COUNT keeps the larger day when the session is rebased" || bad "day count: exit $finalize_status, $(cat .evolve/DAY_COUNT), $(tail -3 "$finalize_log")"
+# And the session's own day when that is the larger one.
+start_session
+push_from_elsewhere "$PWD-origin.git" .evolve/DAY_COUNT 100
+echo 150 > .evolve/DAY_COUNT && git commit -qam "Day 150: day count"
+finish_session more.txt
+[ "$finalize_status" -eq 0 ] && [ "$(cat .evolve/DAY_COUNT)" = 150 ] \
+    && ok "and takes the session's day when that is larger" || bad "day count: exit $finalize_status, $(cat .evolve/DAY_COUNT)"
+
+# ── A repository whose path (and temporary directory) contains a space ──
+mkdir "$work_dir/tmp with space"
+engine_tmpdir="$work_dir/tmp with space"
+new_project "spaced path"
+new_pushed_remote origin
+start_session
+push_entry_from_elsewhere "$PWD-origin.git" "Day 0: their entry" "Their text"
+push_from_elsewhere "$PWD-origin.git" .evolve/DAY_COUNT 99
+echo 5 > .evolve/DAY_COUNT && git commit -qam "Day 5: day count"
+finish_session ours.txt
+[ "$finalize_status" -eq 0 ] && [ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && [ "$(cat .evolve/DAY_COUNT)" = 99 ] \
+    && [ "$(journal_entries)" = "## Day 0: their entry|Their text|## Day 0: entry for ours.txt|Added ours.txt.|" ] \
+    && ok "the sync's merge drivers work in a repository path with a space" || bad "spaced path: exit $finalize_status, $(tail -3 "$finalize_log")"
+unset engine_tmpdir
+
+# ── A push that loses a race against another scheduler is synced and tried once more ──
+new_project push-race
+new_pushed_remote origin
+start_session
+cat > .git/hooks/pre-push <<HOOK
+#!/bin/sh
+# The first push (and only that one) is overtaken: someone else pushes after git read the remote's branch.
+[ -e "$work_dir/raced" ] && exit 0
+touch "$work_dir/raced"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
+git clone -q "$PWD-origin.git" "$work_dir/racer"
+echo raced > "$work_dir/racer/raced.txt"
+git -C "$work_dir/racer" add raced.txt
+git -C "$work_dir/racer" -c user.email=other@example.com -c user.name=other commit -qm "someone else: raced.txt"
+git -C "$work_dir/racer" push -q origin "HEAD:$branch"
+exit 0
+HOOK
+chmod +x .git/hooks/pre-push
+finish_session ours.txt
+remote_head="$(remote_branch_sha origin)"
+[ "$finalize_status" -eq 0 ] && [ -e "$work_dir/raced" ] && [ "$remote_head" = "$(git rev-parse HEAD)" ] \
+    && git cat-file -e "$remote_head:raced.txt" && git cat-file -e "$remote_head:ours.txt" \
+    && ok "a lost push race ends pushed, with both commits on the remote" || bad "race: exit $finalize_status, $(tail -8 "$finalize_log")"
+grep -q "The remote moved during the push" "$finalize_log" \
+    && [ "$(git ls-remote origin "refs/tags/day0-*^{}" | cut -f1)" = "$remote_head" ] \
+    && ok "the session's tag is on the pushed commit" || bad "race tag: $(git ls-remote origin 'refs/tags/*'); $(grep -i "tag" "$finalize_log")"
+rm -rf "$work_dir/racer"
+# A refusal that is not a lost race is not retried.
+new_project push-refused
+new_pushed_remote origin
+printf '#!/bin/sh\necho "policy says no" >&2\nexit 1\n' > "$PWD-origin.git/hooks/pre-receive"; chmod +x "$PWD-origin.git/hooks/pre-receive"
+run_session held-back.txt
+[ "$finalize_status" -eq 4 ] && ! grep -q "The remote moved" "$finalize_log" && ok "a push the remote refuses on policy is not retried" || bad "refused: $(tail -4 "$finalize_log")"
+
+# Another ref the push configuration sends is refused while the session's branch goes through:
+# not a lost race, so no second sync.
+new_project other-ref-refused
+new_pushed_remote origin
+git branch side && git push -q origin side
+side_clone="$work_dir/side-elsewhere"
+git clone -q -b side "$PWD-origin.git" "$side_clone"
+git -C "$side_clone" -c user.email=other@example.com -c user.name=other commit -q --allow-empty -m "side moves on"
+git -C "$side_clone" push -q origin side
+git config --add remote.origin.push "refs/heads/$branch:refs/heads/$branch"
+git config --add remote.origin.push refs/heads/side:refs/heads/side
+run_session ours-other-ref.txt
+[ "$(remote_branch_sha origin)" = "$(git rev-parse HEAD)" ] && ! grep -q "The remote moved" "$finalize_log" \
+    && ok "a refused ref other than the session's branch is not taken for a lost race" || bad "other ref: $(tail -6 "$finalize_log")"
+
+# ── The session's tag name is taken: only on the remote, then also on this repository ──
+date_binary="$(command -v date)"
+printf '#!/bin/bash\nif [ "$*" = "+%%H:%%M" ]; then echo 12:34; else exec "%s" "$@"; fi\n' "$date_binary" > "$tools_dir/date"
+chmod +x "$tools_dir/date"
+new_project tag-taken
+new_pushed_remote origin
+# Another clone's session tag, on a commit of a branch this one never fetches.
+other_commit="$(git -C "$PWD-origin.git" -c user.email=other@example.com -c user.name=other commit-tree -m "another clone" "$branch^{tree}")"
+git -C "$PWD-origin.git" tag day0-12-34 "$other_commit"
+run_session first.txt
+[ "$finalize_status" -eq 0 ] && [ "$(git ls-remote origin 'refs/tags/day0-12-34-2^{}' | cut -f1)" = "$(git rev-parse HEAD)" ] \
+    && ok "a tag name only the remote has (another clone's) is replaced by the next free one" || bad "remote tag: exit $finalize_status, $(grep -i "tag" "$finalize_log"); $(git ls-remote --tags origin)"
+run_session second.txt
+[ "$finalize_status" -eq 0 ] && [ "$(git ls-remote origin 'refs/tags/day0-12-34-3^{}' | cut -f1)" = "$(git rev-parse HEAD)" ] \
+    && ok "a name taken both here and on the remote moves on again" || bad "second tag: exit $finalize_status, $(grep -i "tag" "$finalize_log")"
+for serial in $(seq 4 30); do git tag "day0-12-34-$serial" HEAD; done
+run_session third.txt
+[ "$finalize_status" -eq 0 ] && [ "$(git rev-parse -q --verify 'refs/tags/day0-12-34-31^{}')" = "$(git rev-parse HEAD)" ] \
+    && ok "a session takes the next free name however many are taken" || bad "many tags: exit $finalize_status, $(grep -i "tag" "$finalize_log")"
+rm -f "$tools_dir/date"
+
 # ── Two linked worktrees of one repository finalize at the same time ──
 new_project worktrees
 new_pushed_remote origin
@@ -385,10 +540,9 @@ for name in one two; do
 done
 [ "$landed" = true ] && ok "each worktree's session is rebased onto its own upstream and pushed" \
     || bad "worktrees: $(git ls-remote origin 'refs/heads/wt-*'); $(tail -4 "$work_dir/finalize-wt-one.log")"
-# Both sessions ask for the same tag name in the same instant; the engine accepts that one of them
-# may then go untagged, so only one tag is certain.
-[ -z "$(git for-each-ref refs/code-evolve)" ] && [ "$(git ls-remote --tags origin 'day0-*' | grep -vc '\^{}')" -ge 1 ] \
-    && ok "no sync ref is left, and the remote has a session tag" || bad "refs: $(git for-each-ref refs/code-evolve); tags: $(git ls-remote --tags origin)"
+# Both sessions ask for the same tag name in the same instant; each ends up with a tag of its own.
+[ -z "$(git for-each-ref refs/code-evolve)" ] && [ "$(git ls-remote --tags origin 'day0-*' | grep -vc '\^{}')" -eq 2 ] \
+    && ok "no sync ref is left, and the remote has a tag for each session" || bad "refs: $(git for-each-ref refs/code-evolve); tags: $(git ls-remote --tags origin)"
 
 cd /
 echo "----"
