@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Day count and ledger** (#164): `status` and `proof` count today's day from the birth date
+  between cycles, so a waiver lapses on its day without a cycle; the day follows the local
+  calendar across clock changes (engine and CLI); a `## REQ-NNNN:` line inside a fenced example
+  stays part of its requirement for both the CLI and the engine's next REQ number; the ledger
+  template asks for fenced, not indented, examples. The macOS CI job also runs the day-count test.
 - **Cycle sync** (#162): a push that loses a race to another scheduler is synced and pushed once
   more; a project `.gitattributes` merge rule for the engine's state files no longer wins during
   the sync (git 2.41+); two journal entries with an identical heading stay two entries; a rebased

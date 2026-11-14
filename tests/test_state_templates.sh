@@ -26,6 +26,19 @@ ledger="$work_dir/ledger.md"
 cp "$ROOT/templates/state/REQUIREMENTS.md" "$ledger"
 printf '\n## REQ-0001: a\n\n## REQ-0004: b\n' >> "$ledger"
 check "next REQ is max + 1, not count + 1" "$(next_req_number "$ledger")" "0005"
+# A longer fence is not closed by a shorter one or by one of the other kind.
+cat >> "$ledger" <<'LEDGER'
+
+````markdown
+## REQ-0009: a heading in a fenced example
+```
+## REQ-0008: still inside the example
+~~~
+````
+LEDGER
+check "a REQ heading inside a fenced example is not a REQ" "$(next_req_number "$ledger")" "0005"
+printf '\n## REQ-0006: after the example\n' >> "$ledger"
+check "a heading after the fenced example counts again" "$(next_req_number "$ledger")" "0007"
 check "missing ledger starts at 0001" "$(next_req_number "$work_dir/missing.md")" "0001"
 
 eval "$(sed -n '/^count_lines_matching()/,/^}/p' "$ENGINE")"

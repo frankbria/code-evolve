@@ -59,22 +59,31 @@ export function localCalendarDate(date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** The evolution day as the engine counts it: whole days since the birth date, 0 on the first. */
+/** Calendar days from one YYYY-MM-DD to another, whatever the length of the days between (a clock change makes one 23 or 25 hours). */
+function calendarDaysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * The evolution day as the engine counts it: calendar days since the birth date, 0 on the first.
+ * Counted from the birth date whenever there is one, so it is today's day between cycles too;
+ * DAY_COUNT only stands in for a missing or unreadable birth date.
+ */
 export function currentDay(): number {
   try {
-    const dayCountPath = evolveFile('DAY_COUNT');
-    if (fs.existsSync(dayCountPath)) {
-      const n = parseInt(fs.readFileSync(dayCountPath, 'utf8').trim(), 10);
-      // 0 is also what init installs before any cycle has run, so it is checked against the birth date.
-      if (n > 0) return n;
-    }
     const birthPath = evolveFile('.birth_date');
     if (fs.existsSync(birthPath)) {
       const recorded = fs.readFileSync(birthPath, 'utf8').trim();
-      // The engine reads a bare date as local midnight; JavaScript would read it as UTC.
+      // The engine reads a bare date as a day on the local calendar; JavaScript would read it as UTC.
       const birth = new Date(/^\d{4}-\d{2}-\d{2}$/.test(recorded) ? `${recorded}T00:00:00` : recorded);
-      const elapsed = Math.floor((Date.now() - birth.getTime()) / 86_400_000);
-      return Math.max(0, elapsed);
+      if (!Number.isNaN(birth.getTime())) {
+        return Math.max(0, calendarDaysBetween(localCalendarDate(birth), localCalendarDate()));
+      }
+    }
+    const dayCountPath = evolveFile('DAY_COUNT');
+    if (fs.existsSync(dayCountPath)) {
+      const n = parseInt(fs.readFileSync(dayCountPath, 'utf8').trim(), 10);
+      if (n > 0) return n;
     }
   } catch { /* ignore */ }
   return 0;

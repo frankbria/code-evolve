@@ -27,4 +27,7 @@ and are NOT committed to git (ephemeral audit trail).
 
 Your own text is kept when `code-evolve proof` rewrites this file: anything above the first
 requirement stays there, and anything under a requirement is written back below its fields.
+Put examples and code in a requirement's notes in fenced blocks (three or more backticks or tildes),
+not indented ones: a line in a fenced block is never read as a field or as a new requirement,
+while an indented block gets no such protection.
 -->

@@ -292,7 +292,7 @@ my-project/
 │   ├── IDENTITY.md        ← agent constitution (protected)
 │   ├── JOURNAL.md         ← the agent's memory
 │   ├── LEARNINGS.md       ← cached research
-│   └── DAY_COUNT          ← evolution counter
+│   └── DAY_COUNT          ← day of the last cycle (calendar days since .birth_date)
 ├── src/                   ← the agent builds this
 ├── tests/                 ← the agent writes these
 └── .github/workflows/

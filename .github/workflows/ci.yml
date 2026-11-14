@@ -83,3 +83,6 @@ jobs:
           bash --version | head -1
           find --version 2>/dev/null | grep -m1 . || echo "find has no --version (BSD find)"
           bash tests/test_protected_paths.sh
+
+      - name: Day count test with the system bash and BSD userland
+        run: bash tests/test_day_count.sh

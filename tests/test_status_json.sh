@@ -35,12 +35,15 @@ rm -rf .evolve/run
 check "no run dir: neither pending nor abandoned" \
     "$(status_field '[v.pendingSession, v.abandonedSession]')" "[false,false]"
 
-printf '\n## REQ-0004: d\n- **Status**: waived\n- **Waiver expires**: Day 0\n\n## REQ-0005: e\n- **Status**: waived\n- **Waiver expires**: Day 99\n' >> .evolve/REQUIREMENTS.md
-echo 3 > .evolve/DAY_COUNT
+printf '\n## REQ-0004: d\n- **Status**: waived\n- **Waiver expires**: Day 2\n\n## REQ-0005: e\n- **Status**: waived\n- **Waiver expires**: Day 99\n' >> .evolve/REQUIREMENTS.md
+# Day 3 from the birth date, though the last cycle (DAY_COUNT) was Day 1: the Day 2 waiver has lapsed.
+echo 1 > .evolve/DAY_COUNT
+set_birth_date() { node -e "const b=new Date();b.setDate(b.getDate()-$1);const p=n=>String(n).padStart(2,'0');require('fs').writeFileSync('.evolve/.birth_date',b.getFullYear()+'-'+p(b.getMonth()+1)+'-'+p(b.getDate())+'\n')"; }
+set_birth_date 3
 check "an expired waiver counts as open; a live one as waived" "$(status_field 'v.requirements')" '{"open":2,"regressed":1,"satisfied":1,"waived":1}'
 # Same day as `proof`: without DAY_COUNT the day comes from the birth date (10 days ago -> Day 10).
 rm .evolve/DAY_COUNT
-node -e "require('fs').writeFileSync('.evolve/.birth_date', new Date(Date.now() - 10 * 86400000).toISOString())"
+set_birth_date 10
 sed -i 's/Waiver expires\*\*: Day 99/Waiver expires**: Day 5/' .evolve/REQUIREMENTS.md
 check "waiver expiry uses the birth-date day when DAY_COUNT is missing" "$(status_field 'v.requirements')" '{"open":3,"regressed":1,"satisfied":1,"waived":0}'
 
