@@ -24,7 +24,8 @@ prompt=$(cat)
 stage=$(grep -oE 'git add -A --pathspec-file-nul --pathspec-from-file="[^"]+"' <<<"$prompt" | head -1)
 [ -n "$stage" ] || { echo "stub: no commit command in the prompt" >&2; exit 1; }
 echo "feature" > feature.txt
-eval "$stage" && git commit -qm "Day 0: add the feature"
+# From a subdirectory: the prompt sends the agent into substack folders, and its excludes must still hold.
+mkdir -p src && cd src && eval "$stage" && git commit -qm "Day 0: add the feature"
 STUB
 printf '#!/bin/bash\nexit 1\n' > "$stub_dir/gh"
 chmod +x "$stub_dir/claude" "$stub_dir/gh"
@@ -79,7 +80,7 @@ echo "mine too" > "my notes.txt"
 engine > "$stub_dir/cycle.log" 2>&1 || bad "cycle failed: $(tail -3 "$stub_dir/cycle.log")"
 feature_sha=$(git log --format=%H --grep="add the feature" | head -1)
 [ -n "$feature_sha" ] && [ "$(committed_files "$feature_sha")" = "feature.txt" ] \
-    && ok "the first feature commit holds only the feature" || bad "feature commit files: $(committed_files "${feature_sha:-HEAD}" | tr '\n' ' ')"
+    && ok "the first feature commit holds only the feature, staged from a subdirectory" || bad "feature commit files: $(committed_files "${feature_sha:-HEAD}" | tr '\n' ' ')"
 # (#156) Files the user had untracked before the session are theirs: no session commit takes them.
 [ "$(git status --porcelain -- notes.txt "my notes.txt")" = "$(printf '?? "my notes.txt"\n?? notes.txt')" ] \
     && [ -z "$(git log --format= --name-only | grep -F "notes.txt")" ] \
@@ -208,6 +209,16 @@ engine prepare > "$stub_dir/merging.log" 2>&1 || true
     && [ -z "$(git diff --cached --name-only -- .evolve)" ] && ! grep -q "could not commit the code-evolve install" "$stub_dir/merging.log" \
     && ok "an unfinished merge is left alone: nothing staged or committed, the conflict stays unresolved" \
     || bad "merging: commits $(setup_commits), AGENTS.md '$(git status --porcelain -- AGENTS.md)'"
+
+# A merge with no conflict left, not yet committed, is the user's to conclude too.
+new_repository pending_merge
+git checkout -q -b other && echo "theirs" > theirs.txt && git add theirs.txt && git commit -qm "theirs"
+git checkout -q - && git merge --no-commit --no-ff other >/dev/null 2>&1
+install
+engine prepare > "$stub_dir/pending.log" 2>&1 || true
+[ "$(setup_commits)" = "0" ] && git rev-parse -q --verify MERGE_HEAD >/dev/null && [ "$(git status --porcelain -- theirs.txt)" = "A  theirs.txt" ] \
+    && ok "a pending merge without conflicts is left alone: no setup commit concludes it" \
+    || bad "pending merge: commits $(setup_commits), MERGE_HEAD $(git rev-parse -q --verify MERGE_HEAD || echo gone), theirs.txt '$(git status --porcelain -- theirs.txt)'"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

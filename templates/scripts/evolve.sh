@@ -1040,9 +1040,13 @@ commit_new_install() {
     # An install the user keeps out of git (or outside the repository) stays out, with everything that came with it.
     # A merge in progress is the user's to finish: adding a conflicted file would mark it resolved.
     [ -z "$(git ls-files -u)" ] || return 0
+    # So is one with no conflict left: a commit now would conclude it without the merged changes.
+    for operation_head in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+        ! git rev-parse -q --verify "$operation_head" >/dev/null || return 0
+    done
     git add -- "$EVOLVE_DIR" 2>/dev/null || return 0
     ! git diff --cached --quiet -- "$EVOLVE_DIR" || return 0
-    local install_paths=("$EVOLVE_DIR") candidates=() partial_paths=() partial_entries=() candidate committed current refusal part
+    local install_paths=("$EVOLVE_DIR") candidates=() partial_paths=() partial_entries=() candidate committed current refusal part operation_head
     # init marks its skills in the frontmatter; a mention of the marker in a skill's text is not one.
     for candidate in .claude/skills/*/SKILL.md .agents/skills/*/SKILL.md; do
         [ -f "$candidate" ] || continue
@@ -1120,8 +1124,9 @@ snapshot_protected_paths
 git -c core.quotePath=false ls-files --others --exclude-standard -- "$PROJECT_DIR" | sort > "$PROTECTED_SNAPSHOT/untracked_at_start"
 # Files that were untracked before the session are the user's: the session's commits stage through
 # this pathspec (the whole repository except those files), so none of them is committed or pushed.
-{ printf ':/\0'; git ls-files -z --others --exclude-standard -- "$PROJECT_DIR" | while IFS= read -r -d '' untracked_path; do
-    printf ':(exclude,literal)%s\0' "$untracked_path"; done; } > "$PROTECTED_SNAPSHOT/commit-pathspec"
+# Paths from the repository root, so the agent's command excludes them from any directory it runs in.
+{ printf ':/\0'; git ls-files -z --full-name --others --exclude-standard -- "$PROJECT_DIR" | while IFS= read -r -d '' untracked_path; do
+    printf ':(top,exclude,literal)%s\0' "$untracked_path"; done; } > "$PROTECTED_SNAPSHOT/commit-pathspec"
 echo "-> Starting evolution session..."
 echo ""
 
