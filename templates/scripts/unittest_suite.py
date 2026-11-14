@@ -413,6 +413,9 @@ def classify(tree, directories, test_cases=None, visited=()):
                     for base in statement.bases
                 ):
                     trust(test_cases, statement.name)
+                    # A local subclass of an imported TestCase is followed by the same check.
+                    if any(isinstance(base, ast.Name) and base.id in imported_cases for base in statement.bases):
+                        imported_cases.add(statement.name)
                 kind = "unittest"
             elif not may_hold_tests(statement, test_free):
                 trust(test_free, statement.name)

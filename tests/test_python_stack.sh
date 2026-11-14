@@ -410,6 +410,8 @@ parsed_as "a base that two files of the project could provide keeps pytest" "pyt
 rm -f "$parsed/ambiguous.py"
 parsed_as "test attributes attached by unpacking keep pytest" "pytest" \
     "${ATTACH}class TestDynamic:\n    pass\n\n\nTestDynamic.test_a, TestDynamic.test_b = failure, failure\n"
+parsed_as "a decorated Test class on a local subclass of another file's TestCase keeps pytest" "pytest" \
+    'from basecase import SharedBase\n\n\ndef replaced(cls):\n    return cls\n\n\nclass Intermediate(SharedBase):\n    pass\n\n\n@replaced\nclass TestDerived(Intermediate):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a decorated Test class on another file's TestCase keeps pytest" "pytest" \
     'from basecase import SharedBase\n\n\ndef replaced(cls):\n    return cls\n\n\n@replaced\nclass TestDerived(SharedBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a pytest setup_class on a TestCase keeps pytest" "pytest" \
