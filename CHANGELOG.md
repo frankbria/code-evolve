@@ -7,6 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **`evolve-setup`** no longer compares `engineVersion` itself before installing: the version it
+  installs (0.3.1) has init's own refusal to put an older engine over a newer one, so the skill
+  only passes that refusal on and tells the user to update the plugin (#158).
 - **Setup commit with a shared file you also edited**: when `AGENTS.md`, `CLAUDE.md` or
   `.gitignore` has uncommitted edits of your own, the first cycle's setup commit now takes init's
   part of it (its section, its ignore lines) and leaves your edits uncommitted, instead of leaving
