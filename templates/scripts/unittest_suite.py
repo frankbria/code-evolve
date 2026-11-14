@@ -274,10 +274,13 @@ def attaches_test(statement, test_cases):
                 )
             )
             or any(
-                isinstance(target, ast.Attribute)
-                and target.attr.startswith("test")
-                and not is_known(target.value, test_cases)
+                isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Store)
+                and node.attr.startswith("test")
+                and not is_known(node.value, test_cases)
                 for target in targets
+                # `X.test_a, X.test_b = ...` stores to attributes inside an unpacking target.
+                for node in ast.walk(target)
             )
         )
     call = statement.value if isinstance(statement, ast.Expr) else None
@@ -323,6 +326,8 @@ def classify(tree, directories, test_cases=None, visited=()):
     # Classes of this file, and those that bring pytest's class hooks (their own or a base's).
     local_classes = set()
     hooked = set()
+    # TestCase names this file trusts only because another file of the project defines them.
+    imported_cases = set()
     kind = "neither"
     statements = list(scope_statements(tree.body))
     sources = binding_sources(tree, statements)
@@ -365,6 +370,7 @@ def classify(tree, directories, test_cases=None, visited=()):
             elif statement.names[0].name != "*":
                 for name in imported_test_cases(statement, directories, visited):
                     trust(test_cases, name)
+                    imported_cases.add(name)
             elif statement.names[0].name == "*" and star_import_brings_tests(
                 statement, directories
             ):
@@ -391,6 +397,12 @@ def classify(tree, directories, test_cases=None, visited=()):
             if derives:
                 # unittest never calls pytest's class hooks, the class's own or a mixin's.
                 if statement.name in hooked:
+                    return "pytest"
+                # A decorator may turn it into a plain class pytest collects by name; on a base
+                # from another file that is followed only by this check, so keep pytest.
+                if statement.decorator_list and any(
+                    isinstance(base, ast.Name) and base.id in imported_cases for base in statement.bases
+                ):
                     return "pytest"
                 # Trusted as a base only when everything it is made of is known: a decorator may
                 # return something else, and a mixin from elsewhere may bring hooks (its own tests

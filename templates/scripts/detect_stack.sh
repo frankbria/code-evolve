@@ -201,7 +201,8 @@ def poetry_installs():
 
 try:
     installs = uv_installs() if lock_name == "uv.lock" else poetry_installs()
-except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError):
+# ValueError covers a TOML syntax error and a lock that is not UTF-8.
+except (OSError, ValueError, KeyError, TypeError, AttributeError):
     # A lock or pyproject.toml this code cannot follow falls back to the plain name check.
     sys.exit(2)
 sys.exit(0 if installs else 1)

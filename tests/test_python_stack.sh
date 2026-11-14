@@ -408,6 +408,10 @@ printf 'class Base:\n    def test_failure(self):\n        assert False\n' > "$pa
 parsed_as "a base that two files of the project could provide keeps pytest" "pytest" \
     'from ambiguous import Base\n\n\nclass TestDerived(Base):\n    pass\n'
 rm -f "$parsed/ambiguous.py"
+parsed_as "test attributes attached by unpacking keep pytest" "pytest" \
+    "${ATTACH}class TestDynamic:\n    pass\n\n\nTestDynamic.test_a, TestDynamic.test_b = failure, failure\n"
+parsed_as "a decorated Test class on another file's TestCase keeps pytest" "pytest" \
+    'from basecase import SharedBase\n\n\ndef replaced(cls):\n    return cls\n\n\n@replaced\nclass TestDerived(SharedBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a pytest setup_class on a TestCase keeps pytest" "pytest" \
     'import unittest\n\n\nclass SetupTest(unittest.TestCase):\n    @classmethod\n    def setup_class(cls):\n        assert False\n\n    def test_passes(self):\n        pass\n'
 parsed_as "a pytest teardown_method on a TestCase keeps pytest" "pytest" \
@@ -638,6 +642,8 @@ lock_case "uv, default-groups names the group of pytest, not the group of ruff" 
     "$UV_ROOT"'\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes no
 lock_case "uv, default-groups in uv.toml wins over pyproject.toml" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = ["dev"]\n' \
     "$UV_ROOT"'\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes no 'default-groups = ["test"]\n'
+lock_case "poetry, a lock that is not UTF-8 falls back to the lock naming the tools" poetry.lock "$PROJECT" \
+    '[[package]]\nname = "pytest"\nversion = "8.0.0"\ndescription = "caf\xe9"\ngroups = ["docs"]\n\n[[package]]\nname = "ruff"\nversion = "0.1.0"\ngroups = ["docs"]\n' yes yes
 lock_case "uv, default-groups = all" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = "all"\n' \
     "$UV_ROOT"'\n[package.dev-dependencies]\ndocs = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes yes
 lock_case "uv, pytest in a group that is not a default" uv.lock "$PROJECT" \
