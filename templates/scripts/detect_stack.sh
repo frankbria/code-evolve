@@ -151,7 +151,9 @@ def uv_installs():
     packages = {}
     for package in read(lock_name).get("package", []):
         packages.setdefault(normalized(package["name"]), []).append(package)
+    # uv.toml takes precedence over [tool.uv] in pyproject.toml.
     uv_settings = read("pyproject.toml").get("tool", {}).get("uv", {})
+    uv_settings.update(read("uv.toml"))
     default_groups = uv_settings.get("default-groups", ["dev"])
     pending = []
     found_root = False

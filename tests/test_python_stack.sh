@@ -393,6 +393,21 @@ parsed_as "a lowercase test name only annotated runs unittest" "$UNITTEST" \
 printf 'import unittest\n\n\ndef replaced(cls):\n    return object\n\n\n@replaced\nclass DecoratedBase(unittest.TestCase):\n    pass\n' > "$parsed/tests/decorated.py"
 parsed_as "a Test class on a decorated TestCase from another file keeps pytest" "pytest" \
     'from decorated import DecoratedBase\n\n\nclass TestDerived(DecoratedBase):\n    def test_failure(self):\n        assert False\n'
+parsed_as "test names bound by unpacking keep pytest" "pytest" \
+    'def _make(n):\n    return lambda: None\n\n\ntest_one, test_two = _make(1), _make(2)\n'
+parsed_as "a TestCase with a mixin holding pytest's setup_method keeps pytest" "pytest" \
+    'import unittest\n\n\nclass HookMixin:\n    def setup_method(self, method):\n        assert False\n\n\nclass MixedTest(HookMixin, unittest.TestCase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass HookMixin:\n    def setup_method(self, method):\n        assert False\n\n\nclass HookedBase(HookMixin, unittest.TestCase):\n    pass\n' > "$parsed/tests/hooked.py"
+parsed_as "a Test class on another file's TestCase whose mixin holds a pytest hook keeps pytest" "pytest" \
+    'from hooked import HookedBase\n\n\nclass TestDerived(HookedBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\nfrom installed_helpers import Mixin\n\n\nclass MixedBase(Mixin, unittest.TestCase):\n    pass\n' > "$parsed/tests/mixed_base.py"
+parsed_as "a Test class on another file's TestCase with a mixin from elsewhere keeps pytest" "pytest" \
+    'from mixed_base import MixedBase\n\n\nclass TestDerived(MixedBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass Base(unittest.TestCase):\n    pass\n' > "$parsed/tests/ambiguous.py"
+printf 'class Base:\n    def test_failure(self):\n        assert False\n' > "$parsed/ambiguous.py"
+parsed_as "a base that two files of the project could provide keeps pytest" "pytest" \
+    'from ambiguous import Base\n\n\nclass TestDerived(Base):\n    pass\n'
+rm -f "$parsed/ambiguous.py"
 parsed_as "a pytest setup_class on a TestCase keeps pytest" "pytest" \
     'import unittest\n\n\nclass SetupTest(unittest.TestCase):\n    @classmethod\n    def setup_class(cls):\n        assert False\n\n    def test_passes(self):\n        pass\n'
 parsed_as "a pytest teardown_method on a TestCase keeps pytest" "pytest" \
@@ -595,6 +610,7 @@ lock_case() {
     local dir runner="uv run" want_test want_lint
     dir="$(new_fixture lock_case)"; rm -rf "$dir"; dir="$(new_fixture lock_case)"
     printf '%b' "$3" > "$dir/pyproject.toml"; printf '%b' "$4" > "$dir/$2"
+    [ -z "${7:-}" ] || printf '%b' "$7" > "$dir/uv.toml"
     write_unittest "$dir/tests/test_greeting.py"
     [ "$2" = "poetry.lock" ] && runner="poetry run"
     want_test="$runner python -m unittest discover -s tests"; [ "$5" = yes ] && want_test="$runner pytest"
@@ -620,6 +636,8 @@ lock_case "uv, pytest in a dependency's optional extra that is not requested" uv
     "$UV_ROOT"'dependencies = [{ name = "plugin" }]\n\n'"$(uv_package pytest)"'[[package]]\nname = "plugin"\nversion = "1.0.0"\n\n[package.optional-dependencies]\ntest = [{ name = "pytest" }]\n\n' no no
 lock_case "uv, default-groups names the group of pytest, not the group of ruff" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = ["test"]\n' \
     "$UV_ROOT"'\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes no
+lock_case "uv, default-groups in uv.toml wins over pyproject.toml" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = ["dev"]\n' \
+    "$UV_ROOT"'\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes no 'default-groups = ["test"]\n'
 lock_case "uv, default-groups = all" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = "all"\n' \
     "$UV_ROOT"'\n[package.dev-dependencies]\ndocs = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes yes
 lock_case "uv, pytest in a group that is not a default" uv.lock "$PROJECT" \

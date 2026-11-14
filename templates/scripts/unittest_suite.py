@@ -174,9 +174,9 @@ def names_a_test(name):
     return name.startswith(("test", "Test")) and name not in UNITTEST_BASES
 
 
-def project_module_path(statement, directories):
-    """The file of the project that `from module import ...` reads, or None when the module is
-    found nowhere in `directories`: an installed one."""
+def project_module_paths(statement, directories):
+    """The files of the project that `from module import ...` may read, nearest first; none when
+    the module is found nowhere in `directories` (an installed one)."""
     relative = (statement.module or "").replace(".", os.sep)
     if statement.level:
         # `from ..module`: one package up from the file's own for each further dot.
@@ -184,14 +184,20 @@ def project_module_path(statement, directories):
         for _ in range(statement.level - 1):
             package = os.path.dirname(package)
         directories = [package]
+    paths = []
     for directory in directories:
         for path in (
             os.path.join(directory, relative + ".py"),
             os.path.join(directory, relative, "__init__.py"),
         ):
-            if os.path.isfile(path):
-                return path
-    return None
+            if os.path.isfile(path) and os.path.realpath(path) not in map(os.path.realpath, paths):
+                paths.append(path)
+    return paths
+
+
+def project_module_path(statement, directories):
+    paths = project_module_paths(statement, directories)
+    return paths[0] if paths else None
 
 
 def star_import_brings_tests(statement, directories):
@@ -215,14 +221,18 @@ def imported_test_cases(statement, directories, visited):
     """The names `from module import Name` brings in that the project's file defines as
     unittest TestCase classes. Nothing when the file is not found, not readable, or already
     being read (an import cycle)."""
-    path = project_module_path(statement, directories)
-    if path is None or path in visited or len(visited) >= MAX_BASE_FILES:
+    paths = project_module_paths(statement, directories)
+    # Two files the import could read: which one Python takes depends on sys.path at run time.
+    if len(paths) != 1 or paths[0] in visited or len(visited) >= MAX_BASE_FILES:
         return set()
+    path = paths[0]
     found = set()
     try:
-        classify(
+        # A file that holds a test only pytest runs may also hold bases unittest would run wrongly.
+        if classify(
             parse(path), [os.path.dirname(path)] + directories[1:], found, visited + (path,)
-        )
+        ) == "pytest":
+            return set()
     except UNREADABLE:
         return set()
     return {alias.asname or alias.name for alias in statement.names if alias.name in found}
@@ -257,7 +267,11 @@ def attaches_test(statement, test_cases):
             any(name.startswith("Test") for name in names)
             or (
                 any(name.startswith("test") for name in names)
-                and is_callable_value(statement.value)
+                and (
+                    is_callable_value(statement.value)
+                    # `test_a, test_b = make(1), make(2)`: each name takes one element.
+                    or any(isinstance(target, (ast.Tuple, ast.List)) for target in targets)
+                )
             )
             or any(
                 isinstance(target, ast.Attribute)
@@ -306,6 +320,9 @@ def classify(tree, directories, test_cases=None, visited=()):
     unittest_modules = set()
     test_cases = set() if test_cases is None else test_cases
     test_free = {"object"}
+    # Classes of this file, and those that bring pytest's class hooks (their own or a base's).
+    local_classes = set()
+    hooked = set()
     kind = "neither"
     statements = list(scope_statements(tree.body))
     sources = binding_sources(tree, statements)
@@ -357,6 +374,11 @@ def classify(tree, directories, test_cases=None, visited=()):
         elif isinstance(statement, ast.ClassDef):
             if marks_class_as_test(statement):
                 return "pytest"
+            local_classes.add(statement.name)
+            if CLASS_HOOKS & {
+                name for inner in scope_statements(statement.body) for name in bound_names(inner)
+            } or any(isinstance(base, ast.Name) and base.id in hooked for base in statement.bases):
+                hooked.add(statement.name)
             derives = any(
                 (isinstance(base, ast.Name) and base.id in test_cases)
                 or (
@@ -367,13 +389,17 @@ def classify(tree, directories, test_cases=None, visited=()):
                 for base in statement.bases
             )
             if derives:
-                if CLASS_HOOKS & {
-                    name for inner in scope_statements(statement.body) for name in bound_names(inner)
-                }:
+                # unittest never calls pytest's class hooks, the class's own or a mixin's.
+                if statement.name in hooked:
                     return "pytest"
-                # A decorator may return something other than the class, so a decorated one is
-                # not trusted as a base (its own tests are still unittest's).
-                if not statement.decorator_list:
+                # Trusted as a base only when everything it is made of is known: a decorator may
+                # return something else, and a mixin from elsewhere may bring hooks (its own tests
+                # are still unittest's).
+                if not statement.decorator_list and all(
+                    (isinstance(base, ast.Name) and (base.id in test_cases or base.id in local_classes))
+                    or (isinstance(base, ast.Attribute) and base.attr in UNITTEST_BASES)
+                    for base in statement.bases
+                ):
                     trust(test_cases, statement.name)
                 kind = "unittest"
             elif not may_hold_tests(statement, test_free):
