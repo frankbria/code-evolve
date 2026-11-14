@@ -14,15 +14,18 @@ bad() { echo "  FAIL: $1"; fail=$((fail+1)); }
 stub_dir="$(mktemp -d)"
 work_root="$(mktemp -d)"
 trap 'rm -rf "$stub_dir" "$work_root"' EXIT
-# The agent stub does what the cycle prompt asks: one feature, committed with `git add -A`.
-cat > "$stub_dir/claude" <<STUB
+# The agent stub does what the cycle prompt asks: one feature, committed with the prompt's command.
+cat > "$stub_dir/claude" <<'STUB'
 #!/bin/bash
-[ "\${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
-cat >/dev/null
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+prompt=$(cat)
 # The engine calls the agent again later in the cycle (the journal); the feature is built once.
 [ -e feature.txt ] && exit 0
+stage=$(grep -oE 'git add -A --pathspec-file-nul --pathspec-from-file="[^"]+"' <<<"$prompt" | head -1)
+[ -n "$stage" ] || { echo "stub: no commit command in the prompt" >&2; exit 1; }
 echo "feature" > feature.txt
-git add -A && git commit -qm "Day 0: add the feature"
+# From a subdirectory: the prompt sends the agent into substack folders, and its excludes must still hold.
+mkdir -p src && cd src && eval "$stage" && git commit -qm "Day 0: add the feature"
 STUB
 printf '#!/bin/bash\nexit 1\n' > "$stub_dir/gh"
 chmod +x "$stub_dir/claude" "$stub_dir/gh"
@@ -72,10 +75,17 @@ grep -q "Committed the code-evolve install on its own" "$stub_dir/prepare.log" \
 
 # ── a headless cycle ──
 new_project cycle
+echo "mine" > notes.txt
+echo "mine too" > "my notes.txt"
 engine > "$stub_dir/cycle.log" 2>&1 || bad "cycle failed: $(tail -3 "$stub_dir/cycle.log")"
 feature_sha=$(git log --format=%H --grep="add the feature" | head -1)
 [ -n "$feature_sha" ] && [ "$(committed_files "$feature_sha")" = "feature.txt" ] \
-    && ok "the first feature commit holds only the feature" || bad "feature commit files: $(committed_files "${feature_sha:-HEAD}" | tr '\n' ' ')"
+    && ok "the first feature commit holds only the feature, staged from a subdirectory" || bad "feature commit files: $(committed_files "${feature_sha:-HEAD}" | tr '\n' ' ')"
+# (#156) Files the user had untracked before the session are theirs: no session commit takes them.
+[ "$(git status --porcelain -- notes.txt "my notes.txt")" = "$(printf '?? "my notes.txt"\n?? notes.txt')" ] \
+    && [ -z "$(git log --format= --name-only | grep -F "notes.txt")" ] \
+    && ok "the user's untracked files stay untracked through the session and its wrap-up" \
+    || bad "untracked user files: '$(git status --porcelain -- notes.txt "my notes.txt")', in history: $(git log --format= --name-only | grep -cF notes.txt)"
 [ "$(setup_commits)" = "1" ] && [ "$(git log --format=%s "$feature_sha~1" -1)" = "$SETUP_SUBJECT" ] \
     && ok "the setup commit comes right before it" || bad "log: $(git log --format=%s | tr '\n' '|')"
 echo "second" > .evolve/user-note.md
@@ -130,10 +140,14 @@ engine prepare > "$stub_dir/shared.log" 2>&1 || bad "shared-files prepare failed
 shared_files=$(committed_files HEAD)
 grep -qx ".gitignore" <<<"$shared_files" && git show HEAD:.gitignore | grep -qx "node_modules/" && git show HEAD:.gitignore | grep -qxF ".evolve/.env" \
     && ok "a tracked .gitignore that only init changed is in the setup commit" || bad "setup commit files: $(tr '\n' ' ' <<<"$shared_files")"
-! grep -qx "AGENTS.md" <<<"$shared_files" && [ "$(git status --porcelain -- AGENTS.md)" = " M AGENTS.md" ] \
-    && grep -q "Left AGENTS.md out of the install commit" "$stub_dir/shared.log" \
-    && ok "an AGENTS.md with the user's own uncommitted edit is left out, and prepare says so" \
-    || bad "AGENTS.md: in commit=$(grep -cx AGENTS.md <<<"$shared_files"), status '$(git status --porcelain -- AGENTS.md)'"
+# (#156) An AGENTS.md with the user's own uncommitted edit: init's section is committed, the edit is not.
+grep -qx "AGENTS.md" <<<"$shared_files" && git show HEAD:AGENTS.md | grep -qx "Be kind." && git show HEAD:AGENTS.md | grep -qF "code-evolve:begin" \
+    && ! git show HEAD:AGENTS.md | grep -qF "A rule I have not committed yet." \
+    && [ "$(git status --porcelain -- AGENTS.md)" = " M AGENTS.md" ] && [ "$(git diff -U0 -- AGENTS.md | grep -c '^[-+][^-+]')" = "1" ] \
+    && git diff -- AGENTS.md | grep -qx "+A rule I have not committed yet." \
+    && grep -q "Committed init's part of AGENTS.md; your own edits to it are still uncommitted" "$stub_dir/shared.log" \
+    && ok "an AGENTS.md with the user's own edit: init's section is committed, the edit stays uncommitted, and prepare says so" \
+    || bad "AGENTS.md: in commit=$(grep -cx AGENTS.md <<<"$shared_files"), status '$(git status --porcelain -- AGENTS.md)', diff: $(git diff -U0 -- AGENTS.md | tail -3 | tr '\n' '|')"
 
 new_repository tracked_instructions
 printf '# Rules\n\nBe kind.\n' > AGENTS.md
@@ -141,7 +155,20 @@ git add -A && git commit -qm "instructions"
 install
 engine prepare > "$stub_dir/tracked.log" 2>&1 || bad "tracked-instructions prepare failed: $(tail -3 "$stub_dir/tracked.log")"
 committed_files HEAD | grep -qx "AGENTS.md" && git show HEAD:AGENTS.md | grep -qx "Be kind." && git show HEAD:AGENTS.md | grep -qF "code-evolve:begin" \
-    && ok "a tracked AGENTS.md that only init changed is in the setup commit" || bad "AGENTS.md was not committed with the install"
+    && [ -z "$(git status --porcelain -- AGENTS.md)" ] && ! grep -q "Committed init's part of AGENTS.md" "$stub_dir/tracked.log" \
+    && ok "a tracked AGENTS.md that only init changed is in the setup commit, as init wrote it" \
+    || bad "AGENTS.md: committed=$(committed_files HEAD | grep -cx AGENTS.md), status '$(git status --porcelain -- AGENTS.md)'"
+
+# (#156) A blank line the user added is theirs too: init's section is committed without it.
+new_repository blank_line
+printf '# Rules\n\nBe kind.\n' > AGENTS.md
+git add -A && git commit -qm "instructions"
+install
+printf '\n' >> AGENTS.md
+engine prepare > "$stub_dir/blank.log" 2>&1 || bad "blank-line prepare failed: $(tail -3 "$stub_dir/blank.log")"
+git show HEAD:AGENTS.md | grep -qF "code-evolve:begin" && [ "$(git diff -- AGENTS.md | grep -c '^+[^+]*$')" = "1" ] \
+    && ok "a blank line the user added to AGENTS.md stays uncommitted" \
+    || bad "blank line: HEAD has section=$(git show HEAD:AGENTS.md | grep -cF code-evolve:begin), diff: $(git diff -- AGENTS.md | tail -3 | tr '\n' '|')"
 
 # What counts as init's: only the ignore lines the CLI manages, only skills marked in their
 # frontmatter, and never a file whose staged version differs from both HEAD and the work tree.
@@ -156,9 +183,14 @@ mkdir -p .claude/skills/helper
 printf -- '---\nname: helper\ndescription: mine\n---\nNot one of the skills with\n  managed-by: code-evolve\n' > .claude/skills/helper/SKILL.md
 engine prepare > "$stub_dir/narrow.log" 2>&1 || bad "narrow prepare failed: $(tail -3 "$stub_dir/narrow.log")"
 narrow_files=$(committed_files HEAD)
-[ "$(setup_commits)" = "1" ] && ! grep -qxE '\.gitignore|AGENTS\.md|\.claude/skills/helper/SKILL\.md' <<<"$narrow_files" \
-    && ok "the user's own ignore rule, staged edit and skill stay out of the setup commit" \
-    || bad "narrow: commits $(setup_commits), took: $(grep -xE '\.gitignore|AGENTS\.md|\.claude/skills/helper/SKILL\.md' <<<"$narrow_files" | tr '\n' ' ')"
+[ "$(setup_commits)" = "1" ] && ! grep -qxE 'AGENTS\.md|\.claude/skills/helper/SKILL\.md' <<<"$narrow_files" \
+    && ok "the user's staged edit and own skill stay out of the setup commit" \
+    || bad "narrow: commits $(setup_commits), took: $(grep -xE 'AGENTS\.md|\.claude/skills/helper/SKILL\.md' <<<"$narrow_files" | tr '\n' ' ')"
+grep -qx ".gitignore" <<<"$narrow_files" && git show HEAD:.gitignore | grep -qxF ".evolve/.env" && git show HEAD:.gitignore | grep -qx "node_modules/" \
+    && ! git show HEAD:.gitignore | grep -qxF ".evolve/private-notes/" && [ "$(git diff -- .gitignore | grep -c '^+[^+]')" = "1" ] \
+    && git diff -- .gitignore | grep -qxF "+.evolve/private-notes/" \
+    && ok "(#156) init's ignore lines are committed and the user's own ignore rule stays uncommitted" \
+    || bad ".gitignore: in commit=$(grep -cx .gitignore <<<"$narrow_files"), diff: $(git diff -- .gitignore | tail -3 | tr '\n' '|')"
 git show :AGENTS.md | grep -qx "staged only" && ok "a version the user staged is still staged" || bad "the staged AGENTS.md was replaced"
 # The engine's list of managed ignore lines must match the CLI's, or a fresh .gitignore would be left out.
 managed_lines=$(node -e 'console.log(require(process.argv[1]).MANAGED_GITIGNORE_LINES.join("\n"))' "$ROOT/dist/utils/projectIntegration.js")
@@ -177,6 +209,16 @@ engine prepare > "$stub_dir/merging.log" 2>&1 || true
     && [ -z "$(git diff --cached --name-only -- .evolve)" ] && ! grep -q "could not commit the code-evolve install" "$stub_dir/merging.log" \
     && ok "an unfinished merge is left alone: nothing staged or committed, the conflict stays unresolved" \
     || bad "merging: commits $(setup_commits), AGENTS.md '$(git status --porcelain -- AGENTS.md)'"
+
+# A merge with no conflict left, not yet committed, is the user's to conclude too.
+new_repository pending_merge
+git checkout -q -b other && echo "theirs" > theirs.txt && git add theirs.txt && git commit -qm "theirs"
+git checkout -q - && git merge --no-commit --no-ff other >/dev/null 2>&1
+install
+engine prepare > "$stub_dir/pending.log" 2>&1 || true
+[ "$(setup_commits)" = "0" ] && git rev-parse -q --verify MERGE_HEAD >/dev/null && [ "$(git status --porcelain -- theirs.txt)" = "A  theirs.txt" ] \
+    && ok "a pending merge without conflicts is left alone: no setup commit concludes it" \
+    || bad "pending merge: commits $(setup_commits), MERGE_HEAD $(git rev-parse -q --verify MERGE_HEAD || echo gone), theirs.txt '$(git status --porcelain -- theirs.txt)'"
 
 echo "----"
 echo "PASS: $pass  FAIL: $fail"

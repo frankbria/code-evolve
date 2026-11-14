@@ -39,7 +39,7 @@ You are building software autonomously. Follow these rules exactly.
 3. Run lint if available — fix any warnings
 4. If any check fails, read the error and fix it. Keep trying until it passes.
 5. Only if you've tried 3+ times and are stuck, revert with `git checkout -- .`
-6. **Commit** — `git add -A && git commit -m "Day N (HH:MM): <short description>"`
+6. **Commit** — with the command the cycle prompt gives (`git add -A --pathspec-file-nul --pathspec-from-file=...`), never a bare `git add -A`: it leaves out the files the user had untracked before the session
 7. **Then move on to the next improvement.**
 
 ## Bootstrap session (Day 0)

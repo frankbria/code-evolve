@@ -341,6 +341,23 @@ document.
   `tasklite done <id>` with tests (7/7 pass), ticked the spec, wrote a journal entry, and
   committed, tagged (`day0-19-27`) and pushed. No shims or workarounds were used.
 
+## Headless `evolve-setup` on Codex (2026-11-14)
+
+For [#156](https://github.com/frankbria/code-evolve/issues/156): does `evolve-setup` recognise a
+`codex exec` run as headless and end without a question? On a small Node CLI fixture (one commit,
+`npm test` passing), with codex-cli 0.167.2 (`gpt-5.6-sol`, ChatGPT login) and a build of the #156 branch:
+
+```
+node dist/cli.js init --yes --agent codex
+codex exec -s workspace-write '$evolve-setup' </dev/null
+```
+
+The agent's first message said "This is a headless run, so I'll make the recommended choices
+without pausing for questions or installing a scheduler", and it checked `ps -o args= -p $PPID`.
+It wrote a vision and a seven-item spec, ran `npm test`, installed no schedule, and ended with
+what it assumed and the commands for the next steps; no question. OpenCode was not installed on
+that machine and was not run.
+
 ## Defects found
 
 | Issue | What |

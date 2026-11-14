@@ -451,6 +451,15 @@ path_ancestors() {
     done < <(printf '%s\n' "$parent" | tr '/' '\n')
 }
 
+# Stages the session's changes: everything but the files the user had untracked before it began.
+stage_session_changes() {
+    if [ -f "$PROTECTED_SNAPSHOT/commit-pathspec" ]; then
+        git add -A --pathspec-file-nul --pathspec-from-file="$PROTECTED_SNAPSHOT/commit-pathspec"
+    else
+        git add -A
+    fi
+}
+
 # Copies every protected file (and protected symlink, as a link) into the private run dir at
 # session start. Installs from before protected-paths.txt existed use the built-in list.
 snapshot_protected_paths() {
@@ -989,17 +998,37 @@ else
 fi
 echo ""
 
+# The lines init and start manage in .gitignore (MANAGED_GITIGNORE_LINES in the CLI), as an awk set.
+MANAGED_IGNORE_AWK='BEGIN {
+    count = split("ISSUES_TODAY.md ISSUE_RESPONSE.md .env .env* evolve.log schedule.json evidence/", names, " ")
+    for (i = 1; i <= count; i++) managed[engine_dir names[i]] = 1
+    managed["# code-evolve ephemeral files"] = 1
+}'
+
 # What is left of .gitignore or an agent instruction file once init's additions are taken out.
 without_install_additions() { # <file name>, content on stdin
     case "$1" in
-        .gitignore) # The lines init and start manage (MANAGED_GITIGNORE_LINES in the CLI).
-            awk -v engine_dir="$EVOLVE_DIR/" 'BEGIN {
-                    count = split("ISSUES_TODAY.md ISSUE_RESPONSE.md .env .env* evolve.log schedule.json evidence/", names, " ")
-                    for (i = 1; i <= count; i++) managed[engine_dir names[i]] = 1
-                    managed["# code-evolve ephemeral files"] = 1
-                }
-                NF && !($0 in managed)' ;;
+        .gitignore) awk -v engine_dir="$EVOLVE_DIR/" "$MANAGED_IGNORE_AWK"' NF && !($0 in managed)' ;;
         *) sed '/<!-- code-evolve:begin -->/,/<!-- code-evolve:end -->/d' | awk 'NF' ;;
+    esac
+}
+
+# HEAD's version of a shared file with init's additions from the work tree applied, and nothing else.
+with_only_install_additions() { # <file name>
+    case "$1" in
+        .gitignore)
+            # A file, not stdin: an empty one would end the first pass before it began.
+            git show "HEAD:./$1" > "$RUN_TMP/committed-gitignore"
+            awk -v engine_dir="$EVOLVE_DIR/" -v committed_file="$RUN_TMP/committed-gitignore" "$MANAGED_IGNORE_AWK"'
+                FILENAME == committed_file { committed[$0] = 1; print; next }
+                ($0 in managed) && !($0 in committed) { committed[$0] = 1; print }' "$RUN_TMP/committed-gitignore" "$1" ;;
+        *) # The section replaces HEAD's, or follows HEAD's text after a blank line, as init puts it.
+            git show "HEAD:./$1" | awk -v begin="<!-- code-evolve:begin -->" -v end="<!-- code-evolve:end -->" '
+                FNR == NR { if ($0 == begin) inside = 1; if (inside) section = section $0 "\n"; if ($0 == end) inside = 0; next }
+                $0 == begin { printf "%s", section; replaced = skipping = 1 }
+                skipping { if ($0 == end) skipping = 0; next }
+                { print; lines++ }
+                END { if (!replaced) { if (lines) print ""; printf "%s", section } }' "$1" - ;;
     esac
 }
 
@@ -1011,9 +1040,13 @@ commit_new_install() {
     # An install the user keeps out of git (or outside the repository) stays out, with everything that came with it.
     # A merge in progress is the user's to finish: adding a conflicted file would mark it resolved.
     [ -z "$(git ls-files -u)" ] || return 0
+    # So is one with no conflict left: a commit now would conclude it without the merged changes.
+    for operation_head in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+        ! git rev-parse -q --verify "$operation_head" >/dev/null || return 0
+    done
     git add -- "$EVOLVE_DIR" 2>/dev/null || return 0
     ! git diff --cached --quiet -- "$EVOLVE_DIR" || return 0
-    local install_paths=("$EVOLVE_DIR") candidates=() candidate committed current refusal
+    local install_paths=("$EVOLVE_DIR") candidates=() partial_paths=() partial_entries=() candidate committed current refusal part operation_head
     # init marks its skills in the frontmatter; a mention of the marker in a skill's text is not one.
     for candidate in .claude/skills/*/SKILL.md .agents/skills/*/SKILL.md; do
         [ -f "$candidate" ] || continue
@@ -1031,8 +1064,17 @@ commit_new_install() {
         grep -qsF -e "<!-- code-evolve:begin -->" -e "$EVOLVE_DIR/" "$candidate" || continue
         committed=$(git show "HEAD:./$candidate" 2>/dev/null | without_install_additions "$candidate" || true)
         current=$(without_install_additions "$candidate" < "$candidate")
+        # A tracked file with nothing staged: the commit takes HEAD's version plus init's part, so
+        # any edit of the user's (a blank line too) stays uncommitted.
+        if git cat-file -e "HEAD:./$candidate" 2>/dev/null && git diff --cached --quiet -- "$candidate" \
+            && { [ "$candidate" = .gitignore ] || grep -qxF "<!-- code-evolve:begin -->" "$candidate"; } \
+            && part=$(with_only_install_additions "$candidate" | git hash-object -w --stdin) \
+            && [ "$(git cat-file blob "$part" | without_install_additions "$candidate")" = "$committed" ]; then
+            [ "$part" = "$(git rev-parse "HEAD:./$candidate")" ] && continue
+            partial_paths+=("$candidate")
+            partial_entries+=("$(git ls-tree HEAD -- "$candidate" | cut -d' ' -f1),$part,$candidate")
         # A version the user staged that is neither HEAD's nor the file's would be lost to `git add`.
-        if [ "$current" = "$committed" ] && { git diff --cached --quiet -- "$candidate" || git diff --quiet -- "$candidate"; }; then
+        elif [ "$current" = "$committed" ] && { git diff --cached --quiet -- "$candidate" || git diff --quiet -- "$candidate"; }; then
             candidates+=("$candidate")
         else
             echo "  Left $candidate out of the install commit: it also has uncommitted changes of your own"
@@ -1042,8 +1084,20 @@ commit_new_install() {
     for candidate in ${candidates[@]+"${candidates[@]}"}; do
         ! git add -- "$candidate" 2>/dev/null || install_paths+=("$candidate")
     done
-    if refusal=$(git commit -q -m "code-evolve: add the engine and setup files" -- "${install_paths[@]}" 2>&1); then
+    # Built in an index of its own, so what else the user staged stays staged and out of the commit.
+    local install_index="$RUN_TMP/install-index" entry
+    GIT_INDEX_FILE="$install_index" git read-tree HEAD
+    GIT_INDEX_FILE="$install_index" git add -- "${install_paths[@]}"
+    for entry in ${partial_entries[@]+"${partial_entries[@]}"}; do
+        GIT_INDEX_FILE="$install_index" git update-index --cacheinfo "$entry"
+    done
+    if refusal=$(GIT_INDEX_FILE="$install_index" git commit -q -m "code-evolve: add the engine and setup files" 2>&1); then
+        # The user's index takes the committed versions, so their own edits show as unstaged changes.
+        git reset -q -- "${install_paths[@]}" ${partial_paths[@]+"${partial_paths[@]}"}
         echo "  Committed the code-evolve install on its own, ahead of this session's work"
+        for candidate in ${partial_paths[@]+"${partial_paths[@]}"}; do
+            git diff --quiet -- "$candidate" || echo "  Committed init's part of $candidate; your own edits to it are still uncommitted"
+        done
     else
         echo "  WARNING: could not commit the code-evolve install on its own; it will be part of this session's first commit"
         echo "  git said: $(tail -1 <<<"$refusal")"
@@ -1068,6 +1122,11 @@ commit_new_install
 SESSION_START_SHA=$(git rev-parse HEAD)
 snapshot_protected_paths
 git -c core.quotePath=false ls-files --others --exclude-standard -- "$PROJECT_DIR" | sort > "$PROTECTED_SNAPSHOT/untracked_at_start"
+# Files that were untracked before the session are the user's: the session's commits stage through
+# this pathspec (the whole repository except those files), so none of them is committed or pushed.
+# Paths from the repository root, so the agent's command excludes them from any directory it runs in.
+{ printf ':/\0'; git ls-files -z --full-name --others --exclude-standard -- "$PROJECT_DIR" | while IFS= read -r -d '' untracked_path; do
+    printf ':(top,exclude,literal)%s\0' "$untracked_path"; done; } > "$PROTECTED_SNAPSHOT/commit-pathspec"
 echo "-> Starting evolution session..."
 echo ""
 
@@ -1204,7 +1263,9 @@ Priority:
 
 Follow the evolve skill (focused changes, tests with every feature, verify after each change, revert
 after 3 failed tries). Commit each change as:
-git add -A && git commit -m "Day $DAY ($SESSION_TIME): <short description>"
+git add -A --pathspec-file-nul --pathspec-from-file="$PROTECTED_SNAPSHOT/commit-pathspec" && git commit -m "Day $DAY ($SESSION_TIME): <short description>"
+(That stages everything except the files that were untracked before this session: those are the user's.
+Never commit them.)
 
 === PHASE 4.5: Proof Obligations ===
 
@@ -1311,7 +1372,7 @@ verify_single_stack() {
         sformat_fix=$(format_fix_cmd "$sformat")
         if ! (cd "$subpath" && eval "$sformat") 2>/dev/null; then
             (cd "$subpath" && eval "$sformat_fix") 2>/dev/null && \
-                git add -A && git commit -m "Day $DAY ($SESSION_TIME): auto-format $label" || true
+                stage_session_changes && git commit -m "Day $DAY ($SESSION_TIME): auto-format $label" || true
         fi
     fi
 
@@ -1411,7 +1472,7 @@ revert_session_and_capture_req() {
         [ ! -f "$kept_state/$kept_name" ] || { mkdir -p "$EVOLVE_DIR" && cp -p "$kept_state/$kept_name" "$EVOLVE_DIR/$kept_name"; }
     done
     rm -rf "$kept_state"
-    git add -A && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
+    stage_session_changes && git commit -m "Day $DAY ($SESSION_TIME): revert session changes (could not fix build)" || true
 
     # PROOF9: Auto-capture REQ from revert
     # $ERRORS was captured before ERRORS_FILE was deleted — use it directly
@@ -1480,7 +1541,7 @@ Steps:
 1. Read the failing files
 2. Fix the errors above
 3. Run the verification commands and keep fixing until they pass
-4. Commit: git add -A && git commit -m "Day $DAY ($SESSION_TIME): fix build errors"
+4. Commit: git add -A --pathspec-file-nul --pathspec-from-file="$PROTECTED_SNAPSHOT/commit-pathspec" && git commit -m "Day $DAY ($SESSION_TIME): fix build errors"
 FIXEOF
                     run_agent "$FIX_PROMPT" "$MODEL" "$TIMEOUT_CMD" "300" || true
                     restore_protected_paths
@@ -1685,7 +1746,7 @@ ISSUE_RESPONSES="$RUN_TMP/ISSUE_RESPONSE.md"
 if [ -f "$EVOLVE_DIR/ISSUE_RESPONSE.md" ]; then mv "$EVOLVE_DIR/ISSUE_RESPONSE.md" "$ISSUE_RESPONSES"; fi
 # Build and test steps ran agent-authored code after the last restore; re-check before committing.
 restore_protected_paths
-git add -A
+stage_session_changes
 if ! git diff --cached --quiet; then
     git commit -m "Day $DAY ($SESSION_TIME): session wrap-up"
     echo "  Committed session wrap-up."

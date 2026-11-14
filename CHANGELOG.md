@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Setup commit with a shared file you also edited**: when `AGENTS.md`, `CLAUDE.md` or
+  `.gitignore` has uncommitted edits of your own, the first cycle's setup commit now takes init's
+  part of it (its section, its ignore lines) and leaves your edits uncommitted, instead of leaving
+  the whole file to the first feature commit (#156).
+- **Your untracked files stay yours**: files that were untracked when a cycle started are left out
+  of every commit the session makes (the prompt's commit command, the wrap-up, the revert and the
+  auto-format commits), so a scratch file or an unignored secret is never committed or pushed (#156).
+- **`evolve-setup`** lists the `CLAUDE_CODE_ENTRYPOINT` values of attended Claude hosts (#156).
+
 ## [0.3.1] — 2026-11-12
 
 The first release published with the 0.3.0 changes below. The release run for the `v0.3.0` tag
