@@ -20,7 +20,9 @@ Decide this first. Nobody can answer (a headless run) when any of these is true:
   `codex exec`, `opencode run`, an SDK call, a CI job or a scheduled task. If you are not sure how
   you were started, `ps -o args= -p $PPID` usually shows the command.
 - `echo "$CLAUDE_CODE_ENTRYPOINT"` prints a value that starts with `sdk` (Claude Code sets
-  `sdk-cli` under `claude -p`).
+  `sdk-cli` under `claude -p`, `sdk-ts` or `sdk-py` under the Agent SDK). Attended Claude hosts
+  set other values: `cli` in a terminal, `claude-vscode` in VS Code, `claude-desktop` or
+  `claude-desktop-3p` in the Desktop app's Code tab.
 - The prompt says the run is unattended, or that no one will reply.
 
 Otherwise someone is there, and the steps below apply as written. When nobody can answer:

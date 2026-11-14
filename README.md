@@ -33,7 +33,7 @@ Day 14 — Your project works. You barely touched a keyboard.
 
 **Quickest path:** run `npx code-evolve` with no subcommand. It finds Claude Code, Codex or OpenCode on your PATH (asking only if there are several), installs `.evolve/`, and opens that agent with the `evolve-setup` skill, which walks you through vision, spec and schedule in conversation. Without a terminal or an agent it prints the exact command for each agent instead.
 
-Run headless (`claude -p`, `codex exec`, a CI job), `evolve-setup` asks nothing: it uses its recommended answers, installs no schedule (cycles then run inside an agent session or with `npx code-evolve run`), and lists what it assumed. For cycles that run on your machine you do not need to commit what setup installed: the first cycle commits it on its own (`code-evolve: add the engine and setup files`) before it starts on a feature, and leaves your other uncommitted work out of that commit. If `AGENTS.md`, `CLAUDE.md` or `.gitignore` also has uncommitted edits of your own, that file is left out and the cycle says so. An install you keep out of git with an ignore rule is not committed. GitHub Actions and cloud scheduled tasks work from the remote, so for those commit and push the install yourself first.
+Run headless (`claude -p`, `codex exec`, a CI job), `evolve-setup` asks nothing: it uses its recommended answers, installs no schedule (cycles then run inside an agent session or with `npx code-evolve run`), and lists what it assumed. For cycles that run on your machine you do not need to commit what setup installed: the first cycle commits it on its own (`code-evolve: add the engine and setup files`) before it starts on a feature, and leaves your other uncommitted work out of that commit. If `AGENTS.md`, `CLAUDE.md` or `.gitignore` also has uncommitted edits of your own, only init's part of it (its section, its ignore lines) is committed, your edits stay uncommitted, and the cycle says so; a file with a staged version of your own is left out whole. Files you had untracked before a cycle started are never committed by it: the cycle prompt's commit command and the engine's own commits leave them out. An install you keep out of git with an ignore rule is not committed. GitHub Actions and cloud scheduled tasks work from the remote, so for those commit and push the install yourself first.
 
 ### From inside Claude Code (plugin)
 
@@ -568,7 +568,7 @@ Stops the engine, removes `.evolve/` and workflows. Your `vision.md` and `spec.m
 
 - Node.js >= 18
 - Python 3
-- Git
+- Git 2.25 or later
 - An AI coding agent: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode), or [Ollama](https://ollama.ai)
 - API key for your chosen agent (not needed for Ollama)
 
