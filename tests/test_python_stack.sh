@@ -336,6 +336,126 @@ parsed_as "a Test-named helper class with no test in it or its bases runs unitte
     'import unittest\n\n\nclass Settings(object):\n    name = "hi"\n\n\nclass TestSettings(Settings):\n    def build(self):\n        return self.name\n\n\nclass SettingsTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(TestSettings().build(), "hi")\n'
 parsed_as "test data and helpers named test* inside functions run unittest" "$UNITTEST" \
     'import unittest\n\ntest_cases = ["hi"]\n\n\ndef build():\n    def test_inner():\n        return 1\n    return test_inner\n\n\nclass DataTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertEqual(build()(), len(test_cases))\n'
+# A base class from another file of the project is followed (#160).
+printf 'import unittest\n\n\nclass SharedBase(unittest.TestCase):\n    pass\n\n\nclass PlainBase:\n    pass\n' > "$parsed/tests/basecase.py"
+printf 'from unittest import TestCase as Root\n\n\nclass ChainedBase(Root):\n    pass\n' > "$parsed/tests/chain.py"
+printf 'from cycle_b import Second\n\n\nclass First(Second):\n    pass\n' > "$parsed/tests/cycle_a.py"
+printf 'from cycle_a import First\n\n\nclass Second(First):\n    pass\n' > "$parsed/tests/cycle_b.py"
+printf 'def broken(:\n' > "$parsed/tests/broken.py"
+parsed_as "a Test class on a TestCase defined in another file runs unittest" "$UNITTEST" \
+    'from basecase import SharedBase\n\n\nclass TestDerived(SharedBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a base imported under another name from another file runs unittest" "$UNITTEST" \
+    'from basecase import SharedBase as Base\n\n\nclass TestDerived(Base):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a base that is a TestCase through two files runs unittest" "$UNITTEST" \
+    'from chain import ChainedBase\n\n\nclass TestDerived(ChainedBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a Test class on a plain class from another file keeps pytest" "pytest" \
+    'from basecase import PlainBase\n\n\nclass TestDerived(PlainBase):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a Test class on a base that is defined nowhere keeps pytest" "pytest" \
+    'from basecase import Missing\n\n\nclass TestDerived(Missing):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a Test class on a base from an unreadable file keeps pytest" "pytest" \
+    'from broken import Base\n\n\nclass TestDerived(Base):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a Test class on a base from files that import each other keeps pytest" "pytest" \
+    'from cycle_a import First\n\n\nclass TestDerived(First):\n    def test_failure(self):\n        assert False\n'
+# Tests attached at run time are only seen by pytest (#160).
+ATTACH='def failure(self):\n    assert False\n\n\n'
+parsed_as "a test attached to a Test class after its body keeps pytest" "pytest" \
+    "${ATTACH}class TestRegression:\n    pass\n\n\nTestRegression.test_failure = failure\n"
+parsed_as "a test attached with setattr keeps pytest" "pytest" \
+    "${ATTACH}class TestRegression:\n    pass\n\n\nsetattr(TestRegression, \"test_failure\", failure)\n"
+parsed_as "a test attached to a TestCase of the file runs unittest" "$UNITTEST" \
+    "import unittest\n\n\ndef passes(self):\n    pass\n\n\nclass AttachedTest(unittest.TestCase):\n    pass\n\n\nAttachedTest.test_passes = passes\nsetattr(AttachedTest, \"test_again\", passes)\n"
+parsed_as "setattr of a name that is not a test runs unittest" "$UNITTEST" \
+    "${ATTACH}class Helper:\n    pass\n\n\nsetattr(Helper, \"build\", failure)\n"
+parsed_as "a class that sets __test__ = True keeps pytest" "pytest" \
+    'class Checks:\n    __test__ = True\n\n    def test_failure(self):\n        assert False\n'
+parsed_as "a class that sets __test__ = False runs unittest" "$UNITTEST" \
+    'class Checks:\n    __test__ = False\n\n    def test_failure(self):\n        assert False\n'
+parsed_as "a lowercase test name assigned a function keeps pytest" "pytest" \
+    "${ATTACH}test_generated = failure\n"
+parsed_as "a lowercase test name assigned a lambda keeps pytest" "pytest" \
+    'test_generated = lambda: 1 / 0\n'
+parsed_as "a lowercase test name assigned a partial keeps pytest" "pytest" \
+    "from functools import partial\n\n\n${ATTACH}test_generated = partial(failure, 1)\n"
+parsed_as "a lowercase test name assigned functools.partial keeps pytest" "pytest" \
+    "import functools\n\n\n${ATTACH}test_generated = functools.partial(failure, 1)\n"
+parsed_as "lowercase test names assigned data run unittest" "$UNITTEST" \
+    'test_names = {"a": 1}\ntest_title = "hi"\ntest_count = 3\ntest_pairs = [(1, 2)]\n'
+parsed_as "a lowercase test name assigned a factory's result keeps pytest" "pytest" \
+    'def make():\n    return lambda: 1 / 0\n\n\ntest_generated = make()\n'
+parsed_as "a test name bound with := keeps pytest" "pytest" \
+    'print((test_generated := lambda: 1 / 0))\n'
+parsed_as "setattr with a test name computed at run time keeps pytest" "pytest" \
+    "${ATTACH}class Helper:\n    pass\n\n\nsetattr(Helper, \"test_\" + \"computed\", failure)\n"
+parsed_as "a class that sets an annotated __test__ = True keeps pytest" "pytest" \
+    'class Checks:\n    __test__: bool = True\n\n    def test_failure(self):\n        assert False\n'
+parsed_as "a lowercase test name only annotated runs unittest" "$UNITTEST" \
+    'test_count: int\n'
+printf 'import unittest\n\n\ndef replaced(cls):\n    return object\n\n\n@replaced\nclass DecoratedBase(unittest.TestCase):\n    pass\n' > "$parsed/tests/decorated.py"
+parsed_as "a Test class on a decorated TestCase from another file keeps pytest" "pytest" \
+    'from decorated import DecoratedBase\n\n\nclass TestDerived(DecoratedBase):\n    def test_failure(self):\n        assert False\n'
+parsed_as "test names bound by unpacking keep pytest" "pytest" \
+    'def _make(n):\n    return lambda: None\n\n\ntest_one, test_two = _make(1), _make(2)\n'
+parsed_as "a TestCase with a mixin holding pytest's setup_method keeps pytest" "pytest" \
+    'import unittest\n\n\nclass HookMixin:\n    def setup_method(self, method):\n        assert False\n\n\nclass MixedTest(HookMixin, unittest.TestCase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass HookMixin:\n    def setup_method(self, method):\n        assert False\n\n\nclass HookedBase(HookMixin, unittest.TestCase):\n    pass\n' > "$parsed/tests/hooked.py"
+parsed_as "a Test class on another file's TestCase whose mixin holds a pytest hook keeps pytest" "pytest" \
+    'from hooked import HookedBase\n\n\nclass TestDerived(HookedBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\nfrom installed_helpers import Mixin\n\n\nclass MixedBase(Mixin, unittest.TestCase):\n    pass\n' > "$parsed/tests/mixed_base.py"
+parsed_as "a Test class on another file's TestCase with a mixin from elsewhere keeps pytest" "pytest" \
+    'from mixed_base import MixedBase\n\n\nclass TestDerived(MixedBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass Base(unittest.TestCase):\n    pass\n' > "$parsed/tests/ambiguous.py"
+printf 'class Base:\n    def test_failure(self):\n        assert False\n' > "$parsed/ambiguous.py"
+parsed_as "a base that two files of the project could provide keeps pytest" "pytest" \
+    'from ambiguous import Base\n\n\nclass TestDerived(Base):\n    pass\n'
+rm -f "$parsed/ambiguous.py"
+parsed_as "test attributes attached by unpacking keep pytest" "pytest" \
+    "${ATTACH}class TestDynamic:\n    pass\n\n\nTestDynamic.test_a, TestDynamic.test_b = failure, failure\n"
+printf 'import unittest\n\nfrom installed_hooks import ImportedHooks\n\n\nclass Mixin(ImportedHooks):\n    pass\n\n\nclass WrappedBase(Mixin, unittest.TestCase):\n    pass\n' > "$parsed/tests/wrapped_base.py"
+parsed_as "a Test class on another file's TestCase whose local mixin has an ancestor from elsewhere keeps pytest" "pytest" \
+    'from wrapped_base import WrappedBase\n\n\nclass TestDerived(WrappedBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass Plain(type):\n    pass\n\n\nclass MetaBase(unittest.TestCase, metaclass=Plain):\n    pass\n' > "$parsed/tests/meta_base.py"
+parsed_as "a Test class on another file's TestCase with a metaclass keeps pytest" "pytest" \
+    'from meta_base import MetaBase\n\n\nclass TestDerived(MetaBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass Helpers:\n    def build(self):\n        return 1\n\n\nclass PlainMixinBase(Helpers, unittest.TestCase):\n    pass\n' > "$parsed/tests/plain_mixin_base.py"
+parsed_as "a Test class on another file's TestCase with a plain local mixin runs unittest" "$UNITTEST" \
+    'from plain_mixin_base import PlainMixinBase\n\n\nclass TestDerived(PlainMixinBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a test registered through globals() keeps pytest" "pytest" \
+    "${ATTACH}for name in (\"bad\",):\n    globals()[\"test_\" + name] = failure\n"
+parsed_as "a test name left bound by a module-level loop keeps pytest" "pytest" \
+    'for test_positive in [lambda: 1 / 0]:\n    pass\n'
+parsed_as "a class with a true but not True __test__ keeps pytest" "pytest" \
+    'class Generated:\n    __test__ = 1\n\n    def test_failure(self):\n        assert False\n'
+parsed_as "a loop over test data that binds no test name runs unittest" "$UNITTEST" \
+    'cases = []\nfor case in [1, 2]:\n    cases.append(case)\n'
+parsed_as "a decorated Test class on a local subclass of another file's TestCase keeps pytest" "pytest" \
+    'from basecase import SharedBase\n\n\ndef replaced(cls):\n    return cls\n\n\nclass Intermediate(SharedBase):\n    pass\n\n\n@replaced\nclass TestDerived(Intermediate):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a decorated Test class on another file's TestCase keeps pytest" "pytest" \
+    'from basecase import SharedBase\n\n\ndef replaced(cls):\n    return cls\n\n\n@replaced\nclass TestDerived(SharedBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a pytest setup_class on a TestCase keeps pytest" "pytest" \
+    'import unittest\n\n\nclass SetupTest(unittest.TestCase):\n    @classmethod\n    def setup_class(cls):\n        assert False\n\n    def test_passes(self):\n        pass\n'
+parsed_as "a pytest teardown_method on a TestCase keeps pytest" "pytest" \
+    'import unittest\n\n\nclass SetupTest(unittest.TestCase):\n    def teardown_method(self, method):\n        assert False\n\n    def test_passes(self):\n        pass\n'
+parsed_as "unittest.case imported as a module alias runs unittest" "$UNITTEST" \
+    'import unittest.case as uc\n\n\nclass TestAliased(uc.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "unittest.async_case imported as a module alias runs unittest" "$UNITTEST" \
+    'import unittest.async_case as ac\n\n\nclass TestAliased(ac.IsolatedAsyncioTestCase):\n    async def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "the case module imported from unittest runs unittest" "$UNITTEST" \
+    'from unittest import case\n\n\nclass TestAliased(case.TestCase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
+parsed_as "a case module alias that is rebound keeps pytest" "pytest" \
+    'from unittest import case\n\ncase = object\n\n\nclass TestAliased(case.TestCase):\n    def test_failure(self):\n        assert False\n'
+parsed_as "a star import of a module outside the searched folders runs unittest" "$UNITTEST" \
+    'import unittest\n\nfrom os.path import *\n\n\nclass StarTest(unittest.TestCase):\n    def test_passes(self):\n        self.assertTrue(join("a", "b"))\n'
+# The suite with a shared base class in a test package runs, and passes, under unittest.
+based="$(new_fixture based)"
+printf '[project]\nname = "based"\nversion = "0.1.0"\n' > "$based/pyproject.toml"
+mkdir -p "$based/tests/unit"; : > "$based/tests/__init__.py"; : > "$based/tests/unit/__init__.py"
+printf 'import unittest\n\n\nclass SharedBase(unittest.TestCase):\n    def greeting(self):\n        return "hi"\n' > "$based/tests/base.py"
+printf 'from .base import SharedBase as Root\n\n\nclass ChainedBase(Root):\n    pass\n' > "$based/tests/chain.py"
+printf 'from ..chain import ChainedBase\n\n\nclass TestDerived(ChainedBase):\n    def test_greeting(self):\n        self.assertEqual(self.greeting(), "hi")\n' > "$based/tests/unit/test_derived.py"
+J=$(detect_in "$based")
+check "a base class shared through relative imports runs unittest" "$(field "$J" test)" "python3 -m unittest discover"
+run_in "$based" "$(field "$J" test)" && grep -q "Ran 1 test" "$scratch/run.log" \
+    && ok "shared base class: the test is found and passes" || bad "shared base class: $(tail -3 "$scratch/run.log")"
 run_in "$parsed" "$UNITTEST" && grep -q "Ran 2 tests" "$scratch/run.log" \
     && ok "parsed suite: the detected command runs both files and passes" || bad "parsed suite: $(tail -3 "$scratch/run.log")"
 rm "$parsed/tests/test_other.py"
@@ -499,6 +619,73 @@ check "uv, lock without pytest, pytest-style tests: the command stays" "$(field 
 printf '[tool.pytest.ini_options]\n' > "$locked/pyproject.toml"; rm "$locked/tests/test_function.py"
 J=$(detect_in "$locked" "$tools")
 check "uv, lock without pytest, pytest configured: the command stays" "$(field "$J" test)" "uv run pytest"
+
+# A tool the lock names only for an optional extra or a group that is not installed by default
+# is not in the environment either (#160). Each case has a unittest suite, so a tool the runner
+# does not provide shows as unittest instead of `<runner> pytest`, and ruff as the one on PATH.
+uv_package() { printf '[[package]]\nname = "%s"\nversion = "1.0.0"\nsource = { registry = "https://pypi.org/simple" }\\n\\n' "$1"; }
+UV_ROOT='[[package]]\nname = "app"\nversion = "0.1.0"\nsource = { editable = "." }\n'
+poetry_package() { # <name> <lines after the version>
+    printf '[[package]]\nname = "%s"\nversion = "1.0.0"\ndescription = ""\n%b\\n\\n' "$1" "$2"
+}
+# lock_case <label> <lock file> <pyproject.toml> <lock> <pytest: yes|no> <ruff: yes|no>
+lock_case() {
+    local dir runner="uv run" want_test want_lint
+    dir="$(new_fixture lock_case)"; rm -rf "$dir"; dir="$(new_fixture lock_case)"
+    printf '%b' "$3" > "$dir/pyproject.toml"; printf '%b' "$4" > "$dir/$2"
+    [ -z "${7:-}" ] || printf '%b' "$7" > "$dir/uv.toml"
+    write_unittest "$dir/tests/test_greeting.py"
+    [ "$2" = "poetry.lock" ] && runner="poetry run"
+    want_test="$runner python -m unittest discover -s tests"; [ "$5" = yes ] && want_test="$runner pytest"
+    want_lint="ruff check --extend-exclude $ENGINE_EXCLUDES ."; [ "$6" = yes ] && want_lint="$runner $want_lint"
+    J=$(detect_in "$dir" "$tools")
+    check "$1: test" "$(field "$J" test)" "$want_test"
+    check "$1: lint" "$(field "$J" lint)" "$want_lint"
+}
+PROJECT='[project]\nname = "app"\nversion = "0.1.0"\n'
+TOOLS_PACKAGES="$(uv_package pytest)$(uv_package ruff)$(uv_package plugin)"
+lock_case "uv, pytest in an optional extra, ruff in the dev group" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ name = "plugin" }]\n\n[package.optional-dependencies]\nextra = [{ name = "pytest" }]\n\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\n\n'"$TOOLS_PACKAGES" no yes
+# A lock this code cannot follow (a dependency entry without a name) falls back to the name check.
+lock_case "uv, an unreadable dependency entry falls back to the lock naming the tools" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ version = "1" }]\n\n'"$TOOLS_PACKAGES" yes yes
+lock_case "uv, pytest and ruff in the root dependencies" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ name = "pytest" }, { name = "Ruff" }]\n\n'"$TOOLS_PACKAGES" yes yes
+lock_case "uv, pytest only in a transitive dependency" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ name = "plugin" }]\n\n'"$(uv_package pytest)"'[[package]]\nname = "plugin"\nversion = "1.0.0"\ndependencies = [{ name = "pytest" }]\n\n' yes no
+lock_case "uv, pytest in a dependency's optional extra that is requested" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ name = "plugin", extra = ["test"] }]\n\n'"$(uv_package pytest)"'[[package]]\nname = "plugin"\nversion = "1.0.0"\n\n[package.optional-dependencies]\ntest = [{ name = "pytest" }]\n\n' yes no
+lock_case "uv, pytest in a dependency's optional extra that is not requested" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ name = "plugin" }]\n\n'"$(uv_package pytest)"'[[package]]\nname = "plugin"\nversion = "1.0.0"\n\n[package.optional-dependencies]\ntest = [{ name = "pytest" }]\n\n' no no
+lock_case "uv, default-groups names the group of pytest, not the group of ruff" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = ["test"]\n' \
+    "$UV_ROOT"'\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes no
+lock_case "uv, default-groups in uv.toml wins over pyproject.toml" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = ["dev"]\n' \
+    "$UV_ROOT"'\n[package.dev-dependencies]\ndev = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes no 'default-groups = ["test"]\n'
+lock_case "poetry, a lock that is not UTF-8 falls back to the lock naming the tools" poetry.lock "$PROJECT" \
+    '[[package]]\nname = "pytest"\nversion = "8.0.0"\ndescription = "caf\xe9"\ngroups = ["docs"]\n\n[[package]]\nname = "ruff"\nversion = "0.1.0"\ngroups = ["docs"]\n' yes yes
+lock_case "uv, default-groups = all" uv.lock "$PROJECT"'\n[tool.uv]\ndefault-groups = "all"\n' \
+    "$UV_ROOT"'\n[package.dev-dependencies]\ndocs = [{ name = "ruff" }]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" yes yes
+lock_case "uv, pytest in a group that is not a default" uv.lock "$PROJECT" \
+    "$UV_ROOT"'\n[package.dev-dependencies]\ntest = [{ name = "pytest" }]\n\n'"$TOOLS_PACKAGES" no no
+lock_case "uv, dependencies that depend on each other" uv.lock "$PROJECT" \
+    "$UV_ROOT"'dependencies = [{ name = "plugin" }]\n\n'"$(uv_package pytest)"'[[package]]\nname = "plugin"\nversion = "1.0.0"\ndependencies = [{ name = "plugin" }, { name = "pytest" }]\n\n' yes no
+poetry_tools() { poetry_package pytest "$1"; poetry_package ruff "$1"; }
+lock_case "poetry, tools in the main group" poetry.lock "$PROJECT" \
+    "$(poetry_tools 'optional = false\npython-versions = ">=3.8"\ngroups = ["main"]')" yes yes
+lock_case "poetry, tools in a group that is not optional" poetry.lock "$PROJECT"'\n[tool.poetry.group.dev.dependencies]\npytest = "*"\n' \
+    "$(poetry_tools 'optional = false\ngroups = ["dev"]')" yes yes
+lock_case "poetry, tools in an optional group" poetry.lock "$PROJECT"'\n[tool.poetry.group.test]\noptional = true\n' \
+    "$(poetry_tools 'optional = false\ngroups = ["test"]')" no no
+lock_case "poetry, pytest in a group that is optional and one that is not" poetry.lock "$PROJECT"'\n[tool.poetry.group.test]\noptional = true\n\n[tool.poetry.group.lint.dependencies]\nruff = "*"\n' \
+    "$(poetry_package pytest 'groups = ["test"]')$(poetry_package ruff 'groups = ["test", "lint"]')" no yes
+lock_case "poetry, tools only in an extra" poetry.lock "$PROJECT" \
+    "$(poetry_tools 'optional = true\ngroups = ["main"]')" no no
+lock_case "poetry, old lock, tools in main" poetry.lock "$PROJECT" \
+    "$(poetry_tools 'category = "main"\noptional = false')" yes yes
+lock_case "poetry, old lock, tools in dev" poetry.lock "$PROJECT"'\n[tool.poetry.dev-dependencies]\npytest = "*"\n' \
+    "$(poetry_tools 'category = "dev"\noptional = false')" yes yes
+lock_case "poetry, old lock, dev only in an optional group" poetry.lock "$PROJECT"'\n[tool.poetry.group.dev]\noptional = true\n' \
+    "$(poetry_tools 'category = "dev"\noptional = false')" no no
 
 # ── Deno also scans the tree (deno fmt covers Markdown and JSON, which the engine ships) ──
 deno_dir="$(new_fixture deno)"

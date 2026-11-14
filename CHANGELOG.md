@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Python test detection** (#160): `uv run` / `poetry run` is used for pytest or ruff only when the
+  lock installs the tool by default (not only through an optional extra or an optional group);
+  a `TestCase` base imported from another file of the project is followed; tests attached at run
+  time (`X.test_y = f`, `setattr`, `__test__ = True`, a lowercase `test_x` bound to a function,
+  lambda or partial) and pytest's class hooks on a `TestCase` keep pytest; `import unittest.case as
+  uc` and `from unittest import case` are recognised.
 - **`evolve-setup`** no longer compares `engineVersion` itself before installing: the version it
   installs (0.3.1) has init's own refusal to put an older engine over a newer one, so the skill
   only passes that refusal on and tells the user to update the plugin (#158).

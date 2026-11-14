@@ -408,8 +408,13 @@ installed Python cannot parse counts as pytest's). Any other test
 layout still gets `pytest` (`.venv/bin/python -m pytest` with a `.venv`) when it is missing, so the
 run reports the missing tool instead of skipping tests.
 
-**uv and poetry projects** run a tool through `uv run` / `poetry run` when the lock file names
-it. Without pytest in the lock, the same unittest rule applies (`uv run python -m unittest
+**uv and poetry projects** run a tool through `uv run` / `poetry run` when the lock file installs
+it by default: from the project's own dependencies or a default group (`dev` for uv unless
+`[tool.uv] default-groups` says otherwise), not only from an optional extra or an optional group
+(this needs Python 3.11+ to read the lock; older Pythons take any mention of the tool in the lock as
+enough). Platform markers on a dependency are not evaluated, and an old poetry lock's `dev` category
+counts as installed unless every group is optional, so in those cases the runner's command is
+chosen and a missing tool shows up as a failed run. Without pytest in the lock, the same unittest rule applies (`uv run python -m unittest
 discover`); without ruff in the lock, the ruff of `.venv` or `PATH` is used, or lint is skipped. Tree-wide linters and formatters (ruff, deno) skip `.evolve/`, `.claude/` and
 `.agents/`, so the engine's own files never fail your project's checks.
 
