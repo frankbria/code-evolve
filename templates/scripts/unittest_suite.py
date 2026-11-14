@@ -256,9 +256,23 @@ def is_callable_value(node):
     return node is not None and not isinstance(node, DATA_VALUES)
 
 
+# Calls that can bind module-level names no statement shows (`globals()["test_x"] = ...`).
+DYNAMIC_NAMESPACE_CALLS = {"globals", "vars", "exec"}
+
+
 def attaches_test(statement, test_cases):
     """True for a module-level statement that gives pytest a test the def and class syntax
     does not show, on anything but a TestCase of the file (unittest sees those too)."""
+    if not isinstance(statement, FUNCTIONS + (ast.ClassDef,)) and any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in DYNAMIC_NAMESPACE_CALLS
+        for node in ast.walk(statement)
+    ):
+        return True
+    # A loop or with target is left bound to its last value.
+    if isinstance(statement, (ast.For, ast.AsyncFor, ast.With, ast.AsyncWith)):
+        return any(name.startswith(("test", "Test")) for name in bound_names(statement))
     if isinstance(statement, (ast.Assign, ast.AnnAssign)):
         targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
         names = bound_names(statement)
@@ -307,8 +321,9 @@ def marks_class_as_test(statement):
     return any(
         isinstance(inner, (ast.Assign, ast.AnnAssign))
         and "__test__" in bound_names(inner)
-        and isinstance(inner.value, ast.Constant)
-        and inner.value.value is True
+        and inner.value is not None
+        # pytest takes any true value; only a constant known to be false is safe.
+        and not (isinstance(inner.value, ast.Constant) and not inner.value.value)
         for inner in scope_statements(statement.body)
     )
 
