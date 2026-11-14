@@ -410,6 +410,15 @@ parsed_as "a base that two files of the project could provide keeps pytest" "pyt
 rm -f "$parsed/ambiguous.py"
 parsed_as "test attributes attached by unpacking keep pytest" "pytest" \
     "${ATTACH}class TestDynamic:\n    pass\n\n\nTestDynamic.test_a, TestDynamic.test_b = failure, failure\n"
+printf 'import unittest\n\nfrom installed_hooks import ImportedHooks\n\n\nclass Mixin(ImportedHooks):\n    pass\n\n\nclass WrappedBase(Mixin, unittest.TestCase):\n    pass\n' > "$parsed/tests/wrapped_base.py"
+parsed_as "a Test class on another file's TestCase whose local mixin has an ancestor from elsewhere keeps pytest" "pytest" \
+    'from wrapped_base import WrappedBase\n\n\nclass TestDerived(WrappedBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass Plain(type):\n    pass\n\n\nclass MetaBase(unittest.TestCase, metaclass=Plain):\n    pass\n' > "$parsed/tests/meta_base.py"
+parsed_as "a Test class on another file's TestCase with a metaclass keeps pytest" "pytest" \
+    'from meta_base import MetaBase\n\n\nclass TestDerived(MetaBase):\n    def test_passes(self):\n        pass\n'
+printf 'import unittest\n\n\nclass Helpers:\n    def build(self):\n        return 1\n\n\nclass PlainMixinBase(Helpers, unittest.TestCase):\n    pass\n' > "$parsed/tests/plain_mixin_base.py"
+parsed_as "a Test class on another file's TestCase with a plain local mixin runs unittest" "$UNITTEST" \
+    'from plain_mixin_base import PlainMixinBase\n\n\nclass TestDerived(PlainMixinBase):\n    def test_passes(self):\n        self.assertTrue(True)\n'
 parsed_as "a test registered through globals() keeps pytest" "pytest" \
     "${ATTACH}for name in (\"bad\",):\n    globals()[\"test_\" + name] = failure\n"
 parsed_as "a test name left bound by a module-level loop keeps pytest" "pytest" \

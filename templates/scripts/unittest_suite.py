@@ -338,8 +338,9 @@ def classify(tree, directories, test_cases=None, visited=()):
     unittest_modules = set()
     test_cases = set() if test_cases is None else test_cases
     test_free = {"object"}
-    # Classes of this file, and those that bring pytest's class hooks (their own or a base's).
-    local_classes = set()
+    # Plain classes of this file whose whole ancestry is known (no decorator, metaclass or base
+    # from elsewhere), and the classes that bring pytest's class hooks (their own or a base's).
+    plain_classes = {"object"}
     hooked = set()
     # TestCase names this file trusts only because another file of the project defines them.
     imported_cases = set()
@@ -395,7 +396,10 @@ def classify(tree, directories, test_cases=None, visited=()):
         elif isinstance(statement, ast.ClassDef):
             if marks_class_as_test(statement):
                 return "pytest"
-            local_classes.add(statement.name)
+            if not statement.decorator_list and not statement.keywords and all(
+                isinstance(base, ast.Name) and base.id in plain_classes for base in statement.bases
+            ):
+                plain_classes.add(statement.name)
             if CLASS_HOOKS & {
                 name for inner in scope_statements(statement.body) for name in bound_names(inner)
             } or any(isinstance(base, ast.Name) and base.id in hooked for base in statement.bases):
@@ -419,11 +423,11 @@ def classify(tree, directories, test_cases=None, visited=()):
                     isinstance(base, ast.Name) and base.id in imported_cases for base in statement.bases
                 ):
                     return "pytest"
-                # Trusted as a base only when everything it is made of is known: a decorator may
-                # return something else, and a mixin from elsewhere may bring hooks (its own tests
-                # are still unittest's).
-                if not statement.decorator_list and all(
-                    (isinstance(base, ast.Name) and (base.id in test_cases or base.id in local_classes))
+                # Trusted as a base only when everything it is made of is known: a decorator or a
+                # metaclass may return something else, and an ancestor from elsewhere may bring
+                # hooks (its own tests are still unittest's).
+                if not statement.decorator_list and not statement.keywords and all(
+                    (isinstance(base, ast.Name) and (base.id in test_cases or base.id in plain_classes))
                     or (isinstance(base, ast.Attribute) and base.attr in UNITTEST_BASES)
                     for base in statement.bases
                 ):
