@@ -105,6 +105,22 @@ for git_write_dir in "$(dirname "$LOCK_FILE")" "$GIT_COMMON_DIR"; do
         exit 1
     fi
 done
+# Kept in the git directory, outside the project tree, after a cycle that ended with status 5.
+UNCHECKED_MARKER="$(dirname "$LOCK_FILE")/code-evolve-protected-unchecked"
+# A session that starts after a status 5 cycle would take whatever the link leads to now for the
+# user's layout. The marker stays until the user has looked at the link and removed it. Checked
+# before the lock too, so a run turned away as busy still reports status 5.
+refuse_while_links_unchecked() {
+    [ -e "$UNCHECKED_MARKER" ] || [ -L "$UNCHECKED_MARKER" ] || return 0
+    {
+        cat "$UNCHECKED_MARKER" 2>/dev/null || true
+        echo "Not starting: the agent would take whatever those links lead to now for your layout."
+        echo "Check that each link leads to the directory you meant (ls -l, readlink), put it back if not, then clear this with:"
+        printf '  rm -rf %q\n' "$UNCHECKED_MARKER"
+    } >&2
+    exit 5
+}
+case "$ENGINE_PHASE" in cycle|prepare) refuse_while_links_unchecked ;; esac
 # Private (0700) dir: the holder writes status.tmp next to the status file, so it must not be guessable in the shared temp dir.
 LOCK_STATUS_DIR=$(mktemp -d)
 LOCK_STATUS_FILE="$LOCK_STATUS_DIR/status"
@@ -137,10 +153,25 @@ esac
 RUN_TMP=""
 # Set once a restore pass had to leave a swapped link alone (see restore_protected_paths).
 PROTECTED_PATHS_UNCHECKED=false
+UNCHECKED_LINKS=""
 # However the run ends after that (an agent error and an aborted step included), its status is
 # 5: any other failure status would have the workflow retry with a new session, which would take
 # the swapped directory for the user's layout.
 end_of_run() {
+    local marker_draft
+    if [ "$PROTECTED_PATHS_UNCHECKED" = true ]; then
+        # Written while the lock is still held, as a new file renamed into place: whatever the agent
+        # may have left at that name (a symlink, say) is replaced, never written through.
+        if marker_draft=$(mktemp "$UNCHECKED_MARKER.XXXXXX") \
+            && printf 'Protected files behind these symlinks were NOT checked in the cycle that ended %s:\n%s\n' \
+                "$(date '+%Y-%m-%d %H:%M:%S')" "$(printf '%s' "$UNCHECKED_LINKS" | sort -u)" > "$marker_draft" \
+            && rm -rf "$UNCHECKED_MARKER" && mv -f "$marker_draft" "$UNCHECKED_MARKER"; then
+            :
+        else
+            rm -f "${marker_draft:-}"
+            echo "WARNING: could not write $UNCHECKED_MARKER; the next cycle will NOT stop by itself. Check the links above before it runs."
+        fi
+    fi
     kill "$LOCK_HOLDER_PID" 2>/dev/null || true
     # Reaped here, so bash does not print a "Terminated" job notice into the cycle's output.
     wait "$LOCK_HOLDER_PID" 2>/dev/null || true
@@ -152,6 +183,9 @@ end_of_run() {
 }
 trap end_of_run EXIT
 RUN_TMP=$(mktemp -d)
+
+# Checked again now that the lock is held: a cycle that held it may have just left the marker.
+case "$ENGINE_PHASE" in cycle|prepare) refuse_while_links_unchecked ;; esac
 
 # ── Session state (shared by prepare, verify and finalize) ──
 # session.env is plain KEY=value lines read by a whitelist parser, never sourced: in the
@@ -591,6 +625,7 @@ restore_protected_paths() {
         if [ -n "$session_physical" ] && [ "$(physical_directory "$session_link"; printf x)" != "$session_physical${NEWLINE}x" ]; then
             printf '%s\n' "$session_link" >> "$PROTECTED_SNAPSHOT/untrusted_links"
             PROTECTED_PATHS_UNCHECKED=true
+            UNCHECKED_LINKS="$UNCHECKED_LINKS$session_link$NEWLINE"
             echo "  WARNING: $session_link no longer leads to $session_physical; protected files behind it were NOT checked or restored. Put that directory back before the next cycle."
         fi
     done < "$PROTECTED_SNAPSHOT/ancestor_links"
