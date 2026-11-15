@@ -99,6 +99,13 @@ priorities, scope limits, or things that must never change. Apply the answers to
 If nobody can answer (step 1), do not ask: use your recommended answers and list them in the
 final summary so the user can revise them later.
 
+Nested projects: next to a root project, the engine verifies only the folders listed in
+`.evolve/nested-projects.txt`, and says `Not verified: api/, examples/` for the other folders that
+hold a project. Run `bash .evolve/scripts/detect_stack.sh .`; if its `unverified` list is not empty,
+offer to list those folders (one per line) with a yes/no, which is not one of the five questions.
+If nobody can answer, do not list them (a listed folder gets its build and tests run every cycle):
+name them in the summary with the line that lists one.
+
 ## 6. Choose how cycles run
 
 Offer these options and set up the one the user picks (recommend the first for a laptop or

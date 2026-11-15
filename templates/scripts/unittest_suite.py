@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Decide whether `python -m unittest` runs a project's whole test suite.
 
-Usage: unittest_suite.py <project_dir> [skipped directory name]...
+Usage: unittest_suite.py <project_dir> [skipped directory name, or ./path from the project]...
 
 Prints the unittest arguments (`discover`, or `discover -s tests`) when every test pytest
 would collect is one unittest discovery loads too. Prints nothing otherwise: a suite unittest
@@ -42,8 +42,14 @@ def is_unittest_file(name):
 def project_test_files(project, skipped):
     """Every file pytest collects by name, or None when a conftest.py says the suite is pytest's."""
     found = set()
+    skipped_paths = {path[2:] for path in skipped if path.startswith("./")}
     for directory, subdirectories, names in os.walk(project):
-        subdirectories[:] = [name for name in subdirectories if name not in skipped]
+        subdirectories[:] = [
+            name
+            for name in subdirectories
+            if name not in skipped
+            and os.path.relpath(os.path.join(directory, name), project) not in skipped_paths
+        ]
         if "conftest.py" in names:
             return None
         found.update(

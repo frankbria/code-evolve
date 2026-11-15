@@ -306,6 +306,17 @@ print(', '.join(name + '/' for name in json.load(sys.stdin).get('unverified', []
     echo "  add its directory to $EVOLVE_DIR/nested-projects.txt (one per line)."
 }
 
+# Names the entries of nested-projects.txt that <detect_stack JSON> could not use, and why.
+report_skipped_nested_entries() {
+    echo "$1" | LIST="$EVOLVE_DIR/nested-projects.txt" python3 -c "
+import sys, json, os
+for skipped in json.load(sys.stdin).get('skipped', []):
+    entry, reason = skipped['entry'], skipped['reason']
+    # Inline comments are not stripped (a folder name may hold #), so say so when one is likely.
+    hint = ' (a # comment goes on a line of its own)' if ' #' in entry else ''
+    print(f\"  {os.environ['LIST']}: '{entry}' {reason}; skipped{hint}\")" 2>/dev/null || true
+}
+
 count_lines_matching() {
     [ -f "$2" ] || { echo 0; return; }
     grep -c -- "$1" "$2" || true
@@ -983,6 +994,7 @@ for s in json.load(sys.stdin):
     print(f\"    - {s['name']}: {s['stack']} (build: {s['build']})\")
 " 2>/dev/null || true
 report_unverified_projects "$STACK_JSON"
+report_skipped_nested_entries "$STACK_JSON"
 echo ""
 
 # ── Step 1b: Verify starting state (if project exists) ──
@@ -1260,7 +1272,7 @@ for s in json.load(sys.stdin):
 " 2>/dev/null
 }
 ROOT_VERIFY_INSTRUCTIONS=""
-if [ -n "$BUILD_CMD" ] || [ -n "$TEST_CMD" ]; then
+if [ -n "$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then
     ROOT_VERIFY_INSTRUCTIONS="## Build Verification Commands
 After making changes, run these commands to verify:"
     [ -n "$BUILD_CMD" ] && ROOT_VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS
@@ -1289,7 +1301,7 @@ The code lives in subdirectories. After making changes, verify EACH affected sub
 $(substack_verify_lines)
 
 IMPORTANT: ALL substacks must pass. Do not skip any."
-elif [ -n "$ROOT_VERIFY_INSTRUCTIONS" ]; then
+elif [ -n "$BUILD_CMD$TEST_CMD" ]; then
     VERIFY_INSTRUCTIONS="$ROOT_VERIFY_INSTRUCTIONS"
 else
     VERIFY_INSTRUCTIONS="## Build Verification
@@ -1628,6 +1640,7 @@ known = {entry.get("dir") for entry in merged}
 merged += [entry for entry in detected.values() if entry.get("dir") not in known]
 print(json.dumps(merged))' 2>/dev/null || echo "$DETECTED_SUBSTACKS_JSON")
 report_unverified_projects "$STACK_JSON"
+report_skipped_nested_entries "$STACK_JSON"
 ERRORS=""
 HAS_VERIFICATION=false
 if [ -n "$(substack_commands)$BUILD_CMD$TEST_CMD$LINT_CMD$FORMAT_CMD" ]; then HAS_VERIFICATION=true; fi

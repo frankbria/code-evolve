@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Nested projects list** (#168): a folder name with `*`, `?` or `[` no longer matches a
+  sibling's project marker; an entry of `.evolve/nested-projects.txt` that matches nothing is named
+  with the reason (a `# comment` on the same line included); the same project listed twice (or
+  through a symlink) is verified once, and a listed symlink that leads outside the project is
+  skipped; a root Python project no longer counts a listed nested folder's test files as its own;
+  a root with only lint or format commands keeps its lint line next to the nested projects';
+  `evolve-setup` offers to list the folders the engine reports as not verified.
 - **After a status 5 cycle** (#166): the engine leaves a marker in the repository's git directory
   naming the protected symlink(s) it could not check, and every later `cycle` or `prepare` exits 5
   without running the agent until the user has checked the link and removed the marker (the
