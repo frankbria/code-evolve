@@ -61,14 +61,30 @@ function splitRequirementBody(body: string): { fields: Map<string, string>; note
   return { fields, notes: noteLines.join('\n').replace(/^(\s*\n)+/, '').trimEnd() };
 }
 
+const REQUIREMENT_HEADING = /^## (REQ-\d{4}: .+?)\r?$/;
+
+/** The text above the first requirement, then each requirement's heading and body. A heading inside a fenced code block belongs to the text around it. */
+function splitOnRequirementHeadings(content: string): { header: string; sections: { heading: string; body: string }[] } {
+  const headerLines: string[] = [];
+  const sections: { heading: string; bodyLines: string[] }[] = [];
+  let openFence = '';
+  for (const line of content.split('\n')) {
+    const heading = openFence ? undefined : line.match(REQUIREMENT_HEADING)?.[1];
+    openFence = openFenceAfter(openFence, line);
+    if (heading) sections.push({ heading, bodyLines: [] });
+    else (sections[sections.length - 1]?.bodyLines ?? headerLines).push(line);
+  }
+  return {
+    header: headerLines.join('\n'),
+    sections: sections.map(({ heading, bodyLines }) => ({ heading, body: bodyLines.join('\n') })),
+  };
+}
+
 export function parseRequirements(content: string): Req[] {
   const reqs: Req[] = [];
-  // Split on REQ headings
-  const blocks = content.split(/^## (REQ-\d{4}: .+)$/m);
 
-  for (let i = 1; i < blocks.length; i += 2) {
-    const heading = blocks[i].trim();
-    const body = blocks[i + 1] ?? '';
+  for (const { heading: rawHeading, body } of splitOnRequirementHeadings(content).sections) {
+    const heading = rawHeading.trim();
 
     const idMatch = heading.match(/^(REQ-\d{4}):\s*(.+)$/);
     if (!idMatch) continue;
@@ -129,7 +145,7 @@ const STANDARD_LEDGER_HEADER = `# Requirements Ledger
 
 /** Everything above the first requirement: the title, the format notes, a user's own text. */
 export function ledgerHeader(content: string): string {
-  return content.split(/^## REQ-\d{4}: /m)[0].trim();
+  return splitOnRequirementHeadings(content).header.trim();
 }
 
 export function serializeRequirements(reqs: Req[], header = ''): string {

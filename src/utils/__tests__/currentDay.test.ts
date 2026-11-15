@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { currentDay, localCalendarDate } from '../paths';
+import { createReq, isWaiverExpired } from '../proof';
 
 describe('currentDay', () => {
   const originalDirectory = process.cwd();
@@ -19,7 +20,12 @@ describe('currentDay', () => {
     fs.rmSync(path.dirname(evolveDirectory), { recursive: true, force: true });
   });
 
-  const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+  // Calendar days, as currentDay counts them: N × 24 hours can cross a clock change.
+  const daysAgo = (days: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return localCalendarDate(date);
+  };
 
   it('is 0 on the day the project was born, as the engine counts it', () => {
     fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '0\n');
@@ -32,11 +38,31 @@ describe('currentDay', () => {
     expect(currentDay()).toBe(0);
   });
 
-  it('prefers DAY_COUNT, and falls back to whole days since the birth date', () => {
+  it('counts from the birth date, ignoring a DAY_COUNT left by an earlier cycle', () => {
     fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), daysAgo(10));
     expect(currentDay()).toBe(10);
     fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '7\n');
+    expect(currentDay()).toBe(10);
+  });
+
+  it('uses DAY_COUNT when the birth date cannot be read', () => {
+    fs.mkdirSync(path.join(evolveDirectory, '.birth_date'));
+    fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '10\n');
+    expect(currentDay()).toBe(10);
+  });
+
+  it('uses DAY_COUNT when there is no birth date to count from', () => {
+    fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '7\n');
     expect(currentDay()).toBe(7);
+    fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), 'not a date\n');
+    expect(currentDay()).toBe(7);
+  });
+
+  it('lapses a waiver on its day without a cycle having to run', () => {
+    fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), daysAgo(6));
+    fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '5\n');
+    const waived = createReq({ id: 'REQ-0001', title: 'waived', status: 'waived', waiverExpires: 'Day 5' });
+    expect(isWaiverExpired(waived, currentDay())).toBe(true);
   });
 
   it('counts from the birth date while DAY_COUNT is still the 0 that init installs', () => {
@@ -65,6 +91,41 @@ describe('currentDay', () => {
     expect(currentDay()).toBe(0);
     fs.writeFileSync(path.join(evolveDirectory, '.birth_date'), daysAgo(-3));
     expect(currentDay()).toBe(0);
+  });
+});
+
+describe('currentDay across a clock change', () => {
+  const originalDirectory = process.cwd();
+  let project: string;
+
+  beforeEach(() => {
+    project = fs.mkdtempSync(path.join(os.tmpdir(), 'current-day-dst-'));
+    fs.mkdirSync(path.join(project, '.evolve'));
+    process.chdir(project);
+    // jest.global-setup.js puts the suite in a zone with clock changes; without it these tests prove nothing.
+    expect(new Date(2026, 2, 9, 12).getTimezoneOffset()).toBe(240);
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    process.chdir(originalDirectory);
+    fs.rmSync(project, { recursive: true, force: true });
+  });
+
+  it('counts calendar days, so the first hour after a 23-hour day is not a day behind', () => {
+    fs.writeFileSync(path.join(project, '.evolve', '.birth_date'), '2026-03-01\n');
+    // Clocks went forward on 2026-03-08, so 2026-03-09 is 8 calendar days on but 8 days minus an hour of seconds.
+    jest.setSystemTime(new Date(2026, 2, 9, 0, 30));
+    expect(currentDay()).toBe(8);
+    jest.setSystemTime(new Date(2026, 2, 9, 23, 30));
+    expect(currentDay()).toBe(8);
+  });
+
+  it('counts calendar days across the clock change back, a 25-hour day', () => {
+    fs.writeFileSync(path.join(project, '.evolve', '.birth_date'), '2026-10-25\n');
+    jest.setSystemTime(new Date(2026, 10, 2, 23, 30));
+    expect(currentDay()).toBe(8);
   });
 });
 

@@ -31,6 +31,8 @@ A REQ applies if any file you changed this session matches its **Scope**: globs 
   gates matching the issue, and its obligations run with evidence captured.
 
 Use the next free id (highest `REQ-####` + 1) and the format shown in the comment at the top of the ledger.
+Put examples and code in a REQ's notes in fenced blocks (``` or ~~~), never indented ones: only a fenced block
+keeps a field-shaped line or a `## REQ-NNNN:` heading from being read as ledger structure.
 
 ## Commit
 

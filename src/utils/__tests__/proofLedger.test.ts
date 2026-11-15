@@ -131,6 +131,24 @@ describe('writeLedger', () => {
     expect(fs.readFileSync(ledgerPath, 'utf8').endsWith(`- **Status**: open\n\n${example}\n`)).toBe(true);
   });
 
+  it('keeps a requirement heading inside a fenced example as a note, not a new requirement', () => {
+    const example = '```markdown\n## REQ-0099: an example heading\n- **Status**: satisfied\n```';
+    fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n\n## REQ-0002: second\n- **Status**: open\n`);
+    const requirements = readLedger();
+    expect(requirements.map((requirement) => requirement.id)).toEqual(['REQ-0001', 'REQ-0002']);
+    expect(requirements[0]).toMatchObject({ status: 'open', notes: example });
+    writeLedger(requirements);
+    const written = fs.readFileSync(ledgerPath, 'utf8');
+    expect(written).toContain(`- **Status**: open\n\n${example}\n`);
+    expect(written.match(/REQ-0099/g)).toHaveLength(1);
+  });
+
+  it('keeps a heading inside a fenced example in the text above the first requirement', () => {
+    fs.writeFileSync(ledgerPath, '# Ledger\n\n~~~\n## REQ-0099: format example\n~~~\n\n## REQ-0001: first\n- **Status**: open\n');
+    writeLedger(readLedger());
+    expect(fs.readFileSync(ledgerPath, 'utf8')).toMatch(/^# Ledger\n\n~~~\n## REQ-0099: format example\n~~~\n\n## REQ-0001: first\n/);
+  });
+
   it('ends a fenced example only at a bare fence of the same kind that is at least as long', () => {
     const example = '````text\n```\n- **Waiver expires**: Day 9999\n~~~~\n- **Waiver reason**: example\n````javascript\n- **Satisfied by**: example\n````';
     fs.writeFileSync(ledgerPath, `## REQ-0001: first\n- **Status**: open\n\n${example}\n- **Evidence**: after the example\n`);

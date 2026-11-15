@@ -279,11 +279,48 @@ count_lines_matching() {
 
 # Next REQ id in <ledger>: highest REQ-#### + 1, zero-padded. Only real ids count, so the
 # template's "## REQ-NNNN" format example is not a REQ, and deleting a lower REQ cannot make
-# a later capture reuse an id that is still in the ledger.
+# a later capture reuse an id that is still in the ledger. A heading inside a fenced code block
+# is part of that requirement's text (same fence rules as parseRequirements in src/utils/proof.ts).
 next_req_number() {
     local highest
-    highest=$( { grep -oE '^## REQ-[0-9]{4}:' "$1" 2>/dev/null || true; } | tr -dc '0-9\n' | sort -n | tail -1)
+    highest=$( { awk '
+        { line = $0; sub(/\r$/, "", line) }
+        fence == "" && line ~ /^## REQ-[0-9][0-9][0-9][0-9]:/ { print substr(line, 8, 4) }
+        match(line, /^[ \t]*(```+|~~~+)/) {
+            marker = substr(line, RSTART, RLENGTH); sub(/^[ \t]*/, "", marker)
+            rest = substr(line, RLENGTH + 1)
+            if (substr(marker, 1, 1) == "`" && index(rest, "`")) next
+            if (fence == "") fence = marker
+            else if (substr(marker, 1, 1) == substr(fence, 1, 1) && length(marker) >= length(fence) && rest ~ /^[ \t]*$/) fence = ""
+        }' "$1" 2>/dev/null || true; } | sort -n | tail -1)
     printf '%04d' $(( 10#${highest:-0} + 1 ))
+}
+
+# The evolution day: calendar days from the birth date to <today> (both on the local calendar,
+# YYYY-MM-DD), 0 on the first day and never negative. Counted on dates, not seconds, so a 23-hour
+# or 25-hour day (a clock change) still counts as one. `code-evolve status` counts the same way.
+evolution_day() {
+    local birth="$1" today="$2" born_on
+    born_on="$birth"
+    if ! [[ "$birth" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        # A timestamp (an install from before #163): its local date. GNU date reads it; BSD date
+        # reads a UTC one (…Z); otherwise its first ten characters.
+        born_on=$(date -d "$birth" +%Y-%m-%d 2>/dev/null \
+            || { [[ "$birth" == *Z ]] && date -r "$(date -j -u -f '%Y-%m-%dT%H:%M:%S' "${birth:0:19}" +%s 2>/dev/null)" +%Y-%m-%d 2>/dev/null; } \
+            || printf '%s' "${birth:0:10}")
+        [[ "$born_on" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || born_on="$today"
+    fi
+    local day=$(( $(calendar_day_number "$today") - $(calendar_day_number "$born_on") ))
+    [ "$day" -ge 0 ] || day=0
+    echo "$day"
+}
+
+# A running count of calendar days for YYYY-MM-DD, so two dates can be subtracted (shell
+# arithmetic only: the same on GNU and BSD userlands and bash 3.2).
+calendar_day_number() {
+    local year=$((10#${1:0:4})) month=$((10#${1:5:2})) day=$((10#${1:8:2}))
+    [ "$month" -gt 2 ] || { year=$((year - 1)); month=$((month + 12)); }
+    echo $(( 365 * year + year / 4 - year / 100 + year / 400 + (153 * (month - 3) + 2) / 5 + day ))
 }
 
 # One line per runtime skill, "- <name>: <description>", from each SKILL.md's frontmatter.
@@ -825,15 +862,9 @@ BOUNDARY_NONCE=$(python3 -c "import os; print(os.urandom(16).hex())" 2>/dev/null
 BOUNDARY_BEGIN="[BOUNDARY-${BOUNDARY_NONCE}-BEGIN]"
 BOUNDARY_END="[BOUNDARY-${BOUNDARY_NONCE}-END]"
 
-# Compute evolution day
-if date -j &>/dev/null; then
-    DAY=$(( ($(date +%s) - $(date -j -f "%Y-%m-%d" "$BIRTH_DATE" +%s)) / 86400 ))
-else
-    DAY=$(( ($(date +%s) - $(date -d "$BIRTH_DATE" +%s)) / 86400 ))
-fi
-# A birth date a day or more ahead (a clock that was set back) is the first day, as
-# `code-evolve status` and `proof` count it.
-[ "$DAY" -ge 0 ] || DAY=0
+# Compute evolution day (a birth date a day or more ahead, from a clock that was set back, is
+# the first day, as `code-evolve status` and `proof` count it)
+DAY=$(evolution_day "$BIRTH_DATE" "$DATE")
 echo "$DAY" > "$EVOLVE_DIR/DAY_COUNT"
 
 echo "=== Day $DAY ($DATE $SESSION_TIME) ==="
