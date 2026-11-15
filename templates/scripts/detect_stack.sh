@@ -524,6 +524,8 @@ while IFS= LC_ALL=C read -r listed_dir; do NESTED_DIRS+=("$listed_dir"); done < 
 # those are verified on their own, so only their tests are not the root project's.
 NESTED_PROJECT_PATHS=()
 for listed_dir in ${NESTED_DIRS[@]+"${NESTED_DIRS[@]}"}; do
+    # A name the report cannot carry is never verified on its own, so its tests stay the root's.
+    json_safe_name "$listed_dir" || continue
     nested_physical=$(physical_path "$PROJECT_DIR/$listed_dir") || continue
     case "$nested_physical" in "$PROJECT_PHYSICAL"/*) ;; *) continue ;; esac
     has_project_marker "$nested_physical" && NESTED_PROJECT_PATHS+=("${nested_physical#"$PROJECT_PHYSICAL"/}")

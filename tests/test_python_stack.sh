@@ -713,6 +713,14 @@ mkdir -p "$plain_listed/.evolve"
 printf 'tests/integration\n' > "$plain_listed/.evolve/nested-projects.txt"
 J=$(detect_listed "$plain_listed")
 check "a listed folder that holds no project keeps its tests in the root's" "$(field "$J" test)" "pytest"
+quoted_listed="$(new_fixture nested-quoted-name)"
+printf '[project]\nname = "root"\n' > "$quoted_listed/pyproject.toml"
+mkdir -p "$quoted_listed/api\"quoted" "$quoted_listed/.evolve"
+printf '[project]\nname = "api"\n' > "$quoted_listed/api\"quoted/pyproject.toml"
+write_pytest_style "$quoted_listed/api\"quoted/test_api.py"
+printf 'api"quoted\n' > "$quoted_listed/.evolve/nested-projects.txt"
+J=$(detect_listed "$quoted_listed")
+check "a listed folder whose name the report cannot carry keeps its tests in the root's" "$(field "$J" test)" "pytest"
 
 own_tests="$(new_fixture nested-tests-own)"
 printf '[project]\nname = "root"\n' > "$own_tests/pyproject.toml"
