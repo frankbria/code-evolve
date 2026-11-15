@@ -45,6 +45,12 @@ describe('currentDay', () => {
     expect(currentDay()).toBe(10);
   });
 
+  it('uses DAY_COUNT when the birth date cannot be read', () => {
+    fs.mkdirSync(path.join(evolveDirectory, '.birth_date'));
+    fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '10\n');
+    expect(currentDay()).toBe(10);
+  });
+
   it('uses DAY_COUNT when there is no birth date to count from', () => {
     fs.writeFileSync(path.join(evolveDirectory, 'DAY_COUNT'), '7\n');
     expect(currentDay()).toBe(7);

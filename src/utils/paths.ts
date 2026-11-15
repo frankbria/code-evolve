@@ -70,23 +70,25 @@ function calendarDaysBetween(from: string, to: string): number {
  * DAY_COUNT only stands in for a missing or unreadable birth date.
  */
 export function currentDay(): number {
+  const recorded = stateFileText('.birth_date');
+  if (recorded !== null) {
+    // The engine reads a bare date as a day on the local calendar; JavaScript would read it as UTC.
+    const birth = new Date(/^\d{4}-\d{2}-\d{2}$/.test(recorded) ? `${recorded}T00:00:00` : recorded);
+    if (!Number.isNaN(birth.getTime())) {
+      return Math.max(0, calendarDaysBetween(localCalendarDate(birth), localCalendarDate()));
+    }
+  }
+  const dayCount = parseInt(stateFileText('DAY_COUNT') ?? '', 10);
+  return dayCount > 0 ? dayCount : 0;
+}
+
+/** A state file's trimmed text, or null when it is missing or cannot be read. */
+function stateFileText(name: string): string | null {
   try {
-    const birthPath = evolveFile('.birth_date');
-    if (fs.existsSync(birthPath)) {
-      const recorded = fs.readFileSync(birthPath, 'utf8').trim();
-      // The engine reads a bare date as a day on the local calendar; JavaScript would read it as UTC.
-      const birth = new Date(/^\d{4}-\d{2}-\d{2}$/.test(recorded) ? `${recorded}T00:00:00` : recorded);
-      if (!Number.isNaN(birth.getTime())) {
-        return Math.max(0, calendarDaysBetween(localCalendarDate(birth), localCalendarDate()));
-      }
-    }
-    const dayCountPath = evolveFile('DAY_COUNT');
-    if (fs.existsSync(dayCountPath)) {
-      const n = parseInt(fs.readFileSync(dayCountPath, 'utf8').trim(), 10);
-      if (n > 0) return n;
-    }
-  } catch { /* ignore */ }
-  return 0;
+    return fs.readFileSync(evolveFile(name), 'utf8').trim();
+  } catch {
+    return null;
+  }
 }
 
 export function shortCommit(): string {
