@@ -360,8 +360,11 @@ cat >/dev/null
 [ -e "$STUB_MARKER" ] && exit 0
 touch "$STUB_MARKER"
 mv ../shared-skills ../moved-skills && ln -s victim ../shared-skills
+# An agent that knows the marker's name plants a link there, hoping the engine writes through it.
+ln -s "$OUTSIDE_FILE" "$(git rev-parse --absolute-git-dir)/code-evolve-protected-unchecked"
 STUB
 tenth_root="$(mktemp -d)"
+echo "outside" > "$tenth_root/outside.txt"
 mkdir -p "$tenth_root/project" "$tenth_root/victim"
 echo "keep me" > "$tenth_root/victim/canary.txt"
 cd "$tenth_root/project"
@@ -372,7 +375,7 @@ node "$CLI" init --agent claude </dev/null >/dev/null 2>&1 || bad "tenth init fa
 mv .evolve/skills ../shared-skills && ln -s ../../shared-skills .evolve/skills
 git add -A && git commit -qm "baseline, skills symlinked to a shared store"
 tenth_status=0
-STUB_MARKER="$tenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+OUTSIDE_FILE="$tenth_root/outside.txt" STUB_MARKER="$tenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
     bash .evolve/scripts/evolve.sh > "$stub_dir/engine10.log" 2>&1 || tenth_status=$?
 [ -e "$tenth_root/stub-ran" ] && [ "$(cat ../victim/canary.txt 2>/dev/null)" = "keep me" ] && [ "$(ls ../victim)" = "canary.txt" ] \
     && ok "a swapped link target: nothing is deleted from or written to the directory it now leads to" \
@@ -384,6 +387,52 @@ grep -q "WARNING: .evolve/skills no longer leads to" "$stub_dir/engine10.log" \
     && git log --format=%s -1 | grep -q "session wrap-up" \
     && ok "a swapped link target ends the cycle with exit status 5 after the wrap-up commit" \
     || bad "swapped target: exit $tenth_status, $(tail -2 "$stub_dir/engine10.log")"
+# (#166) The next session would take the swapped directory for the user's layout, so neither cycle nor
+# prepare starts until the marker the status 5 cycle left in the git directory is removed.
+unchecked_marker="$(git rev-parse --absolute-git-dir)/code-evolve-protected-unchecked"
+cat > "$stub_dir/claude" <<'STUB'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null
+touch "$STUB_MARKER"
+STUB
+[ -f "$unchecked_marker" ] && [ ! -L "$unchecked_marker" ] && grep -qx ".evolve/skills" "$unchecked_marker" \
+    && ok "a status 5 cycle leaves a marker in the git directory naming the link" \
+    || bad "no marker naming .evolve/skills at $unchecked_marker"
+[ "$(cat "$tenth_root/outside.txt")" = "outside" ] \
+    && ok "a link the agent planted at the marker's name is replaced, not written through" \
+    || bad "the file behind the planted link was changed: $(head -2 "$tenth_root/outside.txt")"
+rm -f "$tenth_root/stub-ran"
+for refused_phase in cycle prepare; do
+    refused_status=0
+    STUB_MARKER="$tenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+        bash .evolve/scripts/evolve.sh "$refused_phase" > "$stub_dir/engine10-$refused_phase.log" 2>&1 || refused_status=$?
+    [ "$refused_status" -eq 5 ] && [ ! -e "$tenth_root/stub-ran" ] && [ -f "$unchecked_marker" ] \
+        && grep -q "\.evolve/skills" "$stub_dir/engine10-$refused_phase.log" \
+        && grep -qF "rm -rf $unchecked_marker" "$stub_dir/engine10-$refused_phase.log" \
+        && ok "after a status 5 cycle, $refused_phase exits 5 without the agent and says how to clear the marker" \
+        || bad "$refused_phase after status 5: exit $refused_status, $(tail -3 "$stub_dir/engine10-$refused_phase.log")"
+done
+# A run turned away because another holds the lock still reports the marker's status 5, not 0.
+sleep 30 & lock_owner=$!
+lock_status_file="$tenth_root/lock-status"
+python3 .evolve/scripts/hold_lock.py "$(git rev-parse --absolute-git-dir)/code-evolve.lock" "$lock_owner" "$lock_status_file" </dev/null >/dev/null 2>&1 &
+lock_holder=$!
+for _ in $(seq 1 50); do [ -s "$lock_status_file" ] && break; sleep 0.1; done
+busy_status=0
+ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 bash .evolve/scripts/evolve.sh > "$stub_dir/engine10-busy.log" 2>&1 || busy_status=$?
+kill "$lock_owner" 2>/dev/null || true; wait "$lock_owner" 2>/dev/null || true
+# The holder lets go once it sees its owner gone.
+wait "$lock_holder" 2>/dev/null || true
+[ "$(cat "$lock_status_file")" = "locked" ] && [ "$busy_status" -eq 5 ] \
+    && ok "a run that finds the lock busy still exits 5 while the marker is there" \
+    || bad "busy run with the marker: lock '$(cat "$lock_status_file" 2>/dev/null)', exit $busy_status, $(tail -2 "$stub_dir/engine10-busy.log")"
+rm "$unchecked_marker"
+STUB_MARKER="$tenth_root/stub-ran" ANTHROPIC_API_KEY=k EVOLVE_DIR=.evolve PROJECT_DIR=. AGENT=claude TIMEOUT=60 \
+    bash .evolve/scripts/evolve.sh > "$stub_dir/engine10-cleared.log" 2>&1 || true
+[ -e "$tenth_root/stub-ran" ] && [ ! -e "$unchecked_marker" ] \
+    && ok "once the marker is removed the cycle runs again" \
+    || bad "cycle after clearing the marker: $(tail -3 "$stub_dir/engine10-cleared.log")"
 cd / && rm -rf "$tenth_root"
 
 # Same swap, but the agent then fails. The engine's own "exit for retry" status must not hide

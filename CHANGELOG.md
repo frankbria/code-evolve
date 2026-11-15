@@ -7,6 +7,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **After a status 5 cycle** (#166): the engine leaves a marker in the repository's git directory
+  naming the protected symlink(s) it could not check, and every later `cycle` or `prepare` exits 5
+  without running the agent until the user has checked the link and removed the marker (the
+  message gives the exact `rm` command). The macOS CI job also runs the stack-detection test.
 - **Day count and ledger** (#164): `status` and `proof` count today's day from the birth date
   between cycles, so a waiver lapses on its day without a cycle; the day follows the local
   calendar across clock changes (engine and CLI); a `## REQ-NNNN:` line inside a fenced example

@@ -56,8 +56,9 @@ jobs:
           claude plugin validate plugins/code-evolve
 
   guard-macos:
-    # The protected-path guard is bash, find, readlink and cp: the parts that differ between GNU
-    # and BSD userlands. macOS also brings bash 3.2.
+    # The protected-path guard is bash, find, readlink and cp, and stack detection's nested-projects
+    # list is compgen and a C-locale read: the parts that differ between GNU and BSD userlands.
+    # macOS also brings bash 3.2.
     runs-on: macos-latest
     timeout-minutes: 15
 
@@ -86,3 +87,6 @@ jobs:
 
       - name: Day count test with the system bash and BSD userland
         run: bash tests/test_day_count.sh
+
+      - name: Stack detection test with the system bash and find
+        run: bash tests/test_detect_stack.sh

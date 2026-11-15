@@ -89,7 +89,8 @@ Exit status 5 means finalize printed `WARNING: <link> no longer leads to <direct
 directory the user keeps as a symlink now leads somewhere else, and the files behind it were not
 checked. The cycle is committed, and pushed unless finalize also printed "NOT pushed" (status 5
 takes the place of status 4). Do not try to repair the link yourself: report it first, with the
-warning line, so the user can put the directory back before the next cycle.
+warning line, so the user can put the directory back before the next cycle. Until they remove the marker that the
+message in the next `prepare` names, `prepare` itself exits 5 without starting a session; do not remove it for them.
 
 ## 5. Report
 
