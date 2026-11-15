@@ -721,6 +721,14 @@ write_pytest_style "$quoted_listed/api\"quoted/test_api.py"
 printf 'api"quoted\n' > "$quoted_listed/.evolve/nested-projects.txt"
 J=$(detect_listed "$quoted_listed")
 check "a listed folder whose name the report cannot carry keeps its tests in the root's" "$(field "$J" test)" "pytest"
+static_listed="$(new_fixture nested-static-site)"
+printf '[project]\nname = "root"\n' > "$static_listed/pyproject.toml"
+mkdir -p "$static_listed/site" "$static_listed/.evolve"
+echo '<html></html>' > "$static_listed/site/index.html"
+write_pytest_style "$static_listed/site/test_pages.py"
+printf 'site\n' > "$static_listed/.evolve/nested-projects.txt"
+J=$(detect_listed "$static_listed")
+check "a listed static site's tests are not the root's either" "$(field "$J" test)" ""
 
 own_tests="$(new_fixture nested-tests-own)"
 printf '[project]\nname = "root"\n' > "$own_tests/pyproject.toml"

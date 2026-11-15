@@ -507,16 +507,6 @@ add_listed_substack() {
     SKIPPED_ENTRIES="${SKIPPED_ENTRIES:+$SKIPPED_ENTRIES,}{\"entry\":\"$1\",\"reason\":\"$reason\"}"
 }
 
-# has_project_marker <dir> — true when the folder holds a project marker file.
-has_project_marker() {
-    local marker
-    for marker in Cargo.toml deno.json deno.jsonc package.json pyproject.toml requirements.txt go.mod \
-        pom.xml build.gradle build.gradle.kts settings.gradle settings.gradle.kts Gemfile composer.json \
-        CMakeLists.txt Makefile; do
-        [ ! -f "$1/$marker" ] || return 0
-    done
-    has_file_matching "$1" "*.sln" "*.csproj"
-}
 
 NESTED_DIRS=()
 while IFS= LC_ALL=C read -r listed_dir; do NESTED_DIRS+=("$listed_dir"); done < <(listed_nested_dirs)
@@ -528,7 +518,9 @@ for listed_dir in ${NESTED_DIRS[@]+"${NESTED_DIRS[@]}"}; do
     json_safe_name "$listed_dir" || continue
     nested_physical=$(physical_path "$PROJECT_DIR/$listed_dir") || continue
     case "$nested_physical" in "$PROJECT_PHYSICAL"/*) ;; *) continue ;; esac
-    has_project_marker "$nested_physical" && NESTED_PROJECT_PATHS+=("${nested_physical#"$PROJECT_PHYSICAL"/}")
+    # The same detection that accepts the folder as a project below (the root's runs after this).
+    detect_single_stack "$PROJECT_DIR/$listed_dir"
+    [ "$STACK" = "unknown" ] || NESTED_PROJECT_PATHS+=("${nested_physical#"$PROJECT_PHYSICAL"/}")
 done
 
 detect_single_stack "$PROJECT_DIR"
@@ -569,6 +561,15 @@ fi
 # verified. It is reported so that the engine can say so; folders git ignores (build output)
 # are left out. Only marker files are looked at: full detection runs the folder's own
 # interpreter (.venv/bin/python), and nobody offered these folders for that.
+has_project_marker() {
+    local marker
+    for marker in Cargo.toml deno.json deno.jsonc package.json pyproject.toml requirements.txt go.mod \
+        pom.xml build.gradle build.gradle.kts settings.gradle settings.gradle.kts Gemfile composer.json \
+        CMakeLists.txt Makefile; do
+        [ ! -f "$1/$marker" ] || return 0
+    done
+    has_file_matching "$1" "*.sln" "*.csproj"
+}
 if [ "$ROOT_STACK" != "unknown" ] && [ "$SCAN_NESTED" != "0" ]; then
     for subdir in "$PROJECT_DIR"/*/; do
         [ -d "$subdir" ] || continue
