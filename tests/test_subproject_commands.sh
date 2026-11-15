@@ -167,6 +167,26 @@ verify_status=0; engine verify > "$stub_dir/verify.log" 2>&1 || verify_status=$?
 [ "$verify_status" -ne 0 ] && grep -q "broken-examples-test" .evolve/run/ERRORS.md 2>/dev/null \
     && ok "listed: a folder added to the list during the session is verified" || bad "verify exited $verify_status after examples was listed"
 
+# ── A root project with only a lint command, and list entries that match nothing (#168) ──
+lint_dir="$(mktemp -d)"
+trap 'rm -rf "$stub_dir" "$work_dir" "$static_dir" "$bootstrap_dir" "$mixed_dir" "$pipe_dir" "$lint_dir"' EXIT
+new_fixture "$lint_dir"
+mkdir api
+printf '{"name":"root","scripts":{"lint":"true"}}\n' > package.json
+printf '{"name":"api","scripts":{"test":"true"}}\n' > api/package.json
+printf 'api\napi # the api\ntypo\n' > .evolve/nested-projects.txt
+git add -A && git commit -qm "baseline"
+engine prepare > "$stub_dir/prepare.log" 2>&1 || bad "prepare failed (lint-only root fixture): $(tail -3 "$stub_dir/prepare.log")"
+grep -qF -- '- Lint: `npm run lint`' .evolve/run/PROMPT.md && grep -qF 'cd ./api && npm run test' .evolve/run/PROMPT.md \
+    && grep -q "## Nested Projects" .evolve/run/PROMPT.md && ! grep -q "MONOREPO" .evolve/run/PROMPT.md \
+    && ok "a root with only a lint command: the prompt gives its lint line next to the nested project's" || bad "lint-only prompt: $(grep -n "Lint\|MONOREPO\|Nested" .evolve/run/PROMPT.md)"
+grep -qF "nested-projects.txt: 'typo' is not a folder with a project in it; skipped" "$stub_dir/prepare.log" \
+    && grep -qF "'api # the api' is not a folder with a project in it; skipped (a # comment goes on a line of its own)" "$stub_dir/prepare.log" \
+    && ok "prepare names the list entries that match nothing, and the comment case" || bad "prepare notice: $(grep -n "skipped" "$stub_dir/prepare.log")"
+engine verify > "$stub_dir/verify.log" 2>&1 || bad "verify failed (lint-only root fixture): $(tail -3 "$stub_dir/verify.log")"
+grep -qF "nested-projects.txt: 'typo' is not a folder with a project in it; skipped" "$stub_dir/verify.log" \
+    && ok "verify names them too" || bad "verify notice: $(grep -n "skipped" "$stub_dir/verify.log")"
+
 # ── A directory name containing | (#152) ──
 new_fixture "$pipe_dir"
 mkdir 'a|b'

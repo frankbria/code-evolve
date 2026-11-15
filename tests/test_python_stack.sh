@@ -687,6 +687,56 @@ lock_case "poetry, old lock, tools in dev" poetry.lock "$PROJECT"'\n[tool.poetry
 lock_case "poetry, old lock, dev only in an optional group" poetry.lock "$PROJECT"'\n[tool.poetry.group.dev]\noptional = true\n' \
     "$(poetry_tools 'category = "dev"\noptional = false')" no no
 
+# ── A listed nested Python project's tests are not the root project's (#168) ──
+# detect_listed <dir>  → the JSON detected by the engine copy installed in that project
+detect_listed() { mkdir -p "$1/.evolve/scripts"; cp -R "$ROOT/templates/scripts/." "$1/.evolve/scripts"; PATH="$toolbox" bash "$1/.evolve/scripts/detect_stack.sh" "$1"; }
+write_pytest_style() { mkdir -p "$(dirname "$1")"; printf 'def test_greeting():\n    assert True\n' > "$1"; }
+
+only_nested="$(new_fixture nested-tests-only)"
+printf '[project]\nname = "root"\n' > "$only_nested/pyproject.toml"
+mkdir -p "$only_nested/api"
+printf '[project]\nname = "api"\n' > "$only_nested/api/pyproject.toml"
+write_pytest_style "$only_nested/api/tests/test_api.py"
+J=$(detect_listed "$only_nested")
+check "nested Python project not listed: its tests count as the root's" "$(field "$J" test)" "pytest"
+printf 'api\n' > "$only_nested/.evolve/nested-projects.txt"
+J=$(detect_listed "$only_nested")
+check "nested Python project listed: the root has no tests of its own" "$(field "$J" test)" ""
+ln -s api "$only_nested/api-link"
+printf 'api-link\n' > "$only_nested/.evolve/nested-projects.txt"
+J=$(detect_listed "$only_nested")
+check "nested Python project listed through a symlink: its tests are still not the root's" "$(field "$J" test)" ""
+plain_listed="$(new_fixture nested-plain-folder)"
+printf '[project]\nname = "root"\n' > "$plain_listed/pyproject.toml"
+write_pytest_style "$plain_listed/tests/integration/test_flow.py"
+mkdir -p "$plain_listed/.evolve"
+printf 'tests/integration\n' > "$plain_listed/.evolve/nested-projects.txt"
+J=$(detect_listed "$plain_listed")
+check "a listed folder that holds no project keeps its tests in the root's" "$(field "$J" test)" "pytest"
+
+own_tests="$(new_fixture nested-tests-own)"
+printf '[project]\nname = "root"\n' > "$own_tests/pyproject.toml"
+write_unittest "$own_tests/tests/test_root.py"
+mkdir -p "$own_tests/services/api"
+printf '[project]\nname = "api"\n' > "$own_tests/services/api/pyproject.toml"
+write_pytest_style "$own_tests/services/api/test_api.py"
+J=$(detect_listed "$own_tests")
+check "nested pytest-style tests not listed: unittest would run the root's in part" "$(field "$J" test)" "pytest"
+printf 'services/api\n' > "$own_tests/.evolve/nested-projects.txt"
+J=$(detect_listed "$own_tests")
+check "nested pytest-style tests listed: the root's own unittest tests run alone" "$(field "$J" test)" "python3 -m unittest discover -s tests"
+
+same_name="$(new_fixture nested-same-name)"
+printf '[project]\nname = "root"\n' > "$same_name/pyproject.toml"
+write_pytest_style "$same_name/src/api/test_inner.py"
+mkdir -p "$same_name/api"
+printf '[project]\nname = "api"\n' > "$same_name/api/pyproject.toml"
+write_pytest_style "$same_name/api/test_api.py"
+mkdir -p "$same_name/.evolve"
+printf 'api\n' > "$same_name/.evolve/nested-projects.txt"
+J=$(detect_listed "$same_name")
+check "nested Python project listed: a folder of the same name deeper in the root's tree still counts" "$(field "$J" test)" "pytest"
+
 # ── Deno also scans the tree (deno fmt covers Markdown and JSON, which the engine ships) ──
 deno_dir="$(new_fixture deno)"
 echo '{}' > "$deno_dir/deno.json"

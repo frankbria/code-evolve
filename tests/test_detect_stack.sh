@@ -220,6 +220,59 @@ JR=$(installed_detect "$MIXED")
 check "unverified: a folder git ignores is not named" "$(listing "$JR" unverified dir)" ""
 rm -rf "$MIXED" "$OUTSIDE"
 
+# A * ? or [ in a folder's name is part of the name: it must not match files of its siblings.
+GLOB=$(mktemp -d)
+install_engine "$GLOB"
+mkdir "$GLOB/axb" "$GLOB/a*b" "$GLOB/a?b" "$GLOB/a[x]b"
+echo '<Project/>' > "$GLOB/axb/App.sln"
+JG=$(installed_detect "$GLOB")
+check "glob characters in a name: without a root project only the real project is found" "$(listing "$JG" substacks dir)" "axb"
+printf 'a*b\na?b\na[x]b\n' > "$GLOB/.evolve/nested-projects.txt"
+JG=$(installed_detect "$GLOB")
+check "glob characters in a name: listing them adds nothing" "$(listing "$JG" substacks dir)" "axb"
+echo '{"scripts":{"build":"x"}}' > "$GLOB/package.json"
+JG=$(installed_detect "$GLOB")
+check "glob characters in a name: next to a root project, listed folders without a project are no dotnet project" "$(listing "$JG" substacks dir)" ""
+check "glob characters in a name: only the folder with a project is named as unverified" "$(listing "$JG" unverified dir)" "axb"
+rm -rf "$GLOB"
+
+# An entry that matches nothing is named with the reason, and is not an error.
+SKIP=$(mktemp -d)
+install_engine "$SKIP"
+echo '{"scripts":{"build":"x"}}' > "$SKIP/package.json"
+mkdir "$SKIP/api" "$SKIP/plain"
+echo '<project/>' > "$SKIP/api/pom.xml"
+printf 'api # the api\nplain\ntypo\napi\n' > "$SKIP/.evolve/nested-projects.txt"
+JS=$(installed_detect "$SKIP")
+check "skipped entries: the ones that match nothing are named" "$(listing "$JS" skipped entry)" "api # the api,plain,typo"
+check "skipped entries: with the reason" "$(echo "$JS" | python3 -c "import sys,json; print(json.load(sys.stdin)['skipped'][0]['reason'])")" "is not a folder with a project in it"
+check "skipped entries: the real project is still verified" "$(listing "$JS" substacks dir)" "api"
+JS=$(DETECT_STACK_NESTED=0 bash "$SKIP/.evolve/scripts/detect_stack.sh" "$SKIP")
+check "skipped entries: none when the list is not read" "$(listing "$JS" skipped entry)" ""
+
+# A symlink is verified once, and one that leads out of the project is not followed.
+OUTSIDE_LINKED="$(dirname "$SKIP")/outside-$(basename "$SKIP")"
+mkdir "$OUTSIDE_LINKED"
+echo '<project/>' > "$OUTSIDE_LINKED/pom.xml"
+ln -s api "$SKIP/api-link"
+ln -s "$OUTSIDE_LINKED" "$SKIP/out-link"
+ln -s . "$SKIP/self-link"
+printf 'api-link\napi\nout-link\nself-link\n' > "$SKIP/.evolve/nested-projects.txt"
+JS=$(installed_detect "$SKIP")
+check "symlinks: the same project under two names is verified once" "$(listing "$JS" substacks dir)" "api-link"
+check "symlinks: one that leads outside the project, or back to its root, is skipped with a reason" \
+    "$(echo "$JS" | python3 -c "import sys,json; print(','.join(e['entry'] + ' ' + e['reason'] for e in json.load(sys.stdin)['skipped']))")" "out-link points outside the project"
+check "symlinks: a link to a listed project, or out of the project, is not named as unverified" "$(listing "$JS" unverified dir)" ""
+# Without a root project, a folder that is a link out of the project is not scanned either.
+ROOTLESS=$(mktemp -d)
+install_engine "$ROOTLESS"
+mkdir "$ROOTLESS/real" && echo '<project/>' > "$ROOTLESS/real/pom.xml"
+ln -s "$OUTSIDE_LINKED" "$ROOTLESS/ext"
+JS=$(installed_detect "$ROOTLESS")
+check "symlinks: the scan without a root project does not follow a link out of the project" "$(listing "$JS" substacks dir)" "real"
+rm -rf "$ROOTLESS"
+rm -rf "$SKIP" "$OUTSIDE_LINKED"
+
 # Without a root project every folder one level down counts, and the list adds deeper ones.
 DEEP=$(mktemp -d)
 install_engine "$DEEP"

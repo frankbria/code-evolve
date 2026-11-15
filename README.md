@@ -430,6 +430,8 @@ services/worker
 
 Listed projects get the baseline check, the cycle prompt, verification and the CI workflow, each in its own directory, in addition to the root project. A session that starts with a folder on the list keeps verifying it even if the list changes during the session. When a session starts and when it is verified, the engine names nested folders that have a stack marker and are not listed (`Not verified: examples/`), without running anything in them; folders git ignores are left out. Without a root project the file is optional: it adds projects deeper than one level.
 
+An entry that matches nothing (a typo, a folder with no stack marker, or `api # comment`: a comment must be on a line of its own, since `#` can be part of a folder name) is skipped with one line naming it, not an error: a session may create the folder later. A folder reached under two names, such as a symlink, is verified once, and an entry that leads outside the project is skipped. Limits: the installed GitHub Actions workflow (`evolve-ci.yml`) reads the list the same way but has only been tried in tests, not in a live Actions run, and a folder whose name is not valid UTF-8 is skipped silently, listed or not.
+
 ## Local vs. Cloud
 
 Run it however fits your workflow:
