@@ -27,7 +27,7 @@ program
   .description('Self-evolving project builder powered by Claude Code')
   .version(packageVersion())
   // A typo'd subcommand must error, not fall through to the bootstrap.
-  .action(() => (program.args.length ? program.error(`error: unknown command '${program.args[0]}'`) : bootstrap(binName)));
+  .action(() => (program.args.length ? program.error(`error: unknown command '${program.args[0]}'`) : bootstrap()));
 
 program.addCommand(initCommand);
 program.addCommand(setupCommand);

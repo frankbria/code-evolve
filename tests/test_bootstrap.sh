@@ -64,6 +64,12 @@ contains "no terminal: claude next step" "$out" "init --yes --agent claude && cl
 contains "no terminal: codex next step" "$out" "init --yes --agent codex && codex '\$evolve-setup'"
 contains "no terminal: opencode next step" "$out" "init --yes --agent opencode && opencode --prompt"
 
+# npx runs the `ce` alias (#85); the next steps must still name this package, since `npx ce` is another one.
+ln -s "$CLI" "$work/ce"
+out="$(cd "$project" && PATH="$work/several:$base_bin" node "$work/ce" </dev/null 2>&1)"
+contains "run as ce: next steps use npx code-evolve" "$out" "npx code-evolve init --yes --agent claude"
+check "run as ce: never suggests npx ce" "$(printf '%s' "$out" | grep -c 'npx ce ' || true)" "0"
+
 # No agent on PATH, even on a terminal: say so and print the next steps.
 project="$(new_project)"
 out="$(run_in_tty "$project" "$base_bin" "")"

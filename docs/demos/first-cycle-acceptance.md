@@ -5,12 +5,15 @@ end-to-end proof for the cross-agent plugin epic ([#99](https://github.com/frank
 Every command below was run against real agents; nothing here is inferred from the test suite.
 Long outputs are shortened to the lines that matter.
 
-**Where it stands (2026-11-11):** on Claude Code, both fixtures went from install to a verified,
-committed first cycle through both install paths, and a cron-triggered cycle committed and pushed
-on its own. Those sessions were headless (`claude -p`): the `npx code-evolve` path was run as the
-commands the bootstrap prints, not through Claude's terminal UI. On Codex, the plugin route passed
-on one fixture on 2026-11-08. Still open: the rest of the Codex matrix, and one pass through each
-agent's interactive terminal UI (see [What is still open](#what-is-still-open)).
+**Where it stands (2026-11-16):** on both Claude Code and Codex, both fixtures went from install
+to a verified, committed first cycle through both install paths (on the mature fixture, Codex's
+plugin run had `init` run in a terminal first). A cron-triggered cycle (Claude
+Code) committed and pushed on its own. Bare `npx code-evolve`, typed in a real terminal, handed
+off to each agent's terminal UI, and `evolve-setup` ran there with a person answering its
+questions; those two passes stopped after setup
+([2026-11-16](#codex-matrix-and-the-interactive-hand-off-2026-11-16)). These runs turned up
+three defects: one is fixed in the PR that added this section, and two are filed as issues
+([Defects found](#defects-found)).
 
 | Agent | Fixture | Install path | Setup | First cycle | Result |
 |---|---|---|---|---|---|
@@ -20,11 +23,15 @@ agent's interactive terminal UI (see [What is still open](#what-is-still-open)).
 | Claude Code | mature | A: `npx code-evolve`, headless | drafted 5 features | 7 commits, 23/23 tests | passed, tag and branch pushed |
 | Claude Code | mature | cron, `start --every 1` | drafted 5 features | 8 commits, 15/15 tests | passed unattended at 02:00 UTC, tag and branch pushed |
 | Codex | mature | B: plugin, after `init` in a terminal | done | `tasklite done <id>`, 7/7 tests | passed on 2026-11-08, tag and branch pushed |
-| Codex | empty | A and B | | | not run |
-| Codex | mature | A: `npx code-evolve` | | | not run |
+| Codex | empty | A: `npx code-evolve`, headless | drafted 6 features (after one answer) | 7 commits, 3/3 tests, scaffold only | passed on 2026-11-16, tag and branch pushed |
+| Codex | empty | B: plugin only (setup ran init) | drafted 7 features | 10 commits, 17/17 tests | passed on 2026-11-16 with `~/.npm` writable ([#182](https://github.com/frankbria/code-evolve/issues/182)), tag and branch pushed |
+| Codex | mature | A: `npx code-evolve`, headless | drafted 3 features | 6 commits, 8/8 tests | passed on 2026-11-16, tag and branch pushed |
+| Claude Code | mature | A: `npx code-evolve`, interactive terminal UI | 3 questions answered | not run (setup only) | `evolve-setup` ran in the terminal UI |
+| Codex | mature | A: `npx code-evolve`, interactive terminal UI | 3 questions answered | not run (setup only) | `evolve-setup` ran in the terminal UI |
 
-"Passed" means the engine's own `verify` passed, `finalize` committed and tagged the session, the
-working tree was clean afterwards, and the project's test suite passes when run by hand.
+For the cycle rows, "passed" means the engine's own `verify` passed, `finalize` committed and
+tagged the session, the working tree was clean afterwards, and the project's test suite passes
+when run by hand.
 
 ## What was run
 
@@ -241,8 +248,8 @@ a script. This attempt went wrong on the script's side and proves only the hand-
 - The script's next line ended with Enter, and that dialog's default is "No, exit", so Claude
   exited. The attempt was not repeated.
 
-What happens after a person accepts the dialog (the `/evolve-setup` prompt running inside the
-terminal UI) has not been watched for either agent.
+What happens after a person accepts the dialog was watched on 2026-11-16 for both agents; see
+[below](#interactive-hand-off-both-agents).
 
 ## Scheduled run: `code-evolve start --every 1`
 
@@ -358,23 +365,251 @@ It wrote a vision and a seven-item spec, ran `npm test`, installed no schedule, 
 what it assumed and the commands for the next steps; no question. OpenCode was not installed on
 that machine and was not run.
 
+## Codex matrix and the interactive hand-off (2026-11-16)
+
+These runs cover the rows the earlier runs left open. Everything ran on one machine as the
+owner's local user. The setup was WSL2 on Linux 6.18 with Node 24.21 (Node 22.22 for the shell
+that started the runs), Python 3.14, codex-cli 0.169.0 (`gpt-5.6-sol`, signed in with ChatGPT)
+and Claude Code 2.1.325 (Claude subscription). The build under test was **code-evolve 0.3.1 from
+npm** (`npx -y code-evolve@0.3.1`, which includes `init --yes`), so no packed build or substitute
+npx cache was needed. The fixtures matched the earlier ones: an empty `git init` repository and
+the three-test `tasklite` Node CLI, each under `/tmp` with a local bare repository as `origin`.
+For the empty fixtures the idea was the same `uconv` paragraph as above.
+
+Every `codex exec` ran with `--json </dev/null`. Times are wall-clock. Tokens are what Codex
+reported: input (most of it cached) and output.
+
+| Session | Time | Tokens in / out |
+|---|---|---|
+| empty, A: setup, then one answer | 99 s + 86 s | 207k / 4.2k, then a resumed turn |
+| empty, A: cycle | 166 s | 1.01M / 6.9k |
+| empty, B: setup without `~/.npm` (stopped) / with it | 35 s / 116 s | 95k / 1.0k, 212k / 5.8k |
+| empty, B: cycle | 239 s | 1.27M / 10.4k |
+| mature, A: setup / cycle | 142 s / 227 s | 332k / 4.9k, 1.35M / 9.6k |
+
+### Codex, empty fixture, path A: `npx code-evolve`
+
+```bash
+npx -y code-evolve@0.3.1 init --yes --agent codex          # in a terminal, 1 s
+codex exec -s workspace-write --json '$evolve-setup <the idea>' </dev/null
+codex exec -s workspace-write -c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]' --json '$evolve-run' </dev/null
+```
+
+Setup wrote a vision and a six-item spec, then **ended with three questions** ("You can reply
+simply: Accept all; manual."). Nobody can read those in a `codex exec` run. The agent's
+headless check, `ps -o args= -p $PPID`, printed `codex-linux-sandbox …` rather than
+`codex exec` ([#183](https://github.com/frankbria/code-evolve/issues/183)). A person would type
+the answer, so it was given with `codex exec resume <session> "Accept all; manual."`. Setup then
+finished in manual mode and installed nothing. Its closing `npx code-evolve status` hung in the
+offline sandbox ([#182](https://github.com/frankbria/code-evolve/issues/182)).
+
+The cycle built the first spec item, the package scaffold with a `uconv` entry point, and stopped
+there:
+
+```
+$ git log --format='%h %s'
+db639a3 Day 0 (12:25): session wrap-up
+0e18ff2 Day 0 (12:25): satisfy scaffold lint checks
+66569ee Day 0 (12:25): journal entry
+d1aaa3e Day 0 (12:25): update spec progress
+78bbdea Day 0 (12:25): ignore generated Python artifacts
+2cbb6e5 Day 0 (12:25): scaffold Python package and CLI entry point
+011eb14 code-evolve: initial commit
+$ git ls-remote origin
+db639a3a…  refs/heads/main
+39c11348…  refs/tags/day0-12-25
+$ python3 -m unittest discover        # Ran 3 tests ... OK
+$ cat .evolve/LAST_VERIFY.md          # Day 0 (12:25): verification passed.
+$ git status --short                  # (clean)
+```
+
+`main` reached the remote this time, so the #132 fix holds for a repository with no commits.
+
+### Codex, empty fixture, path B: the plugin only
+
+The plugin was installed from this repository's marketplace (`codex plugin marketplace add
+<code-evolve checkout>`, `codex plugin add code-evolve@code-evolve`) and removed afterwards. This
+time no `init` was run in a terminal: the plugin's setup had to install the engine itself. The
+skill says Codex needs `-c sandbox_workspace_write.network_access=true` for that.
+
+```bash
+codex exec -s workspace-write -c sandbox_workspace_write.network_access=true \
+  --json '$code-evolve:evolve-setup <the idea>' </dev/null
+```
+
+With network access alone, `npx -y code-evolve@0.3.1 init` failed with
+`EROFS: read-only file system, open '~/.npm/_cacache/tmp/…'`. The sandbox keeps the npm cache
+read-only. The agent stopped without changing anything and told the user to run init in a
+terminal ([#182](https://github.com/frankbria/code-evolve/issues/182)). The run was repeated
+with `~/.npm` writable as well:
+
+```bash
+codex exec -s workspace-write -c sandbox_workspace_write.network_access=true \
+  -c 'sandbox_workspace_write.writable_roots=["<home>/.npm"]' \
+  --json '$code-evolve:evolve-setup <the idea>' </dev/null
+codex exec -s workspace-write -c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]' \
+  --json '$code-evolve:evolve-run' </dev/null
+```
+
+Setup ran init itself, drafted seven features, and finished without a question. `.agents/skills`
+was read-only in the sandbox, so the project copies went to `.claude/skills` only; #125 already
+records that. The cycle built the whole spec:
+
+```
+$ git log --format='%h %s'
+0c86182 Day 0 (12:26): session wrap-up
+246151f Day 0 (12:26): record verification fixes
+abe1a69 Day 0 (12:26): update proof obligations
+c7c9759 Day 0 (12:26): satisfy project lint checks
+b4a42e7 Day 0 (12:26): auto-format project
+94dbcf0 Day 0 (12:26): journal entry
+dbdd622 Day 0 (12:26): update spec progress
+230d4a2 Day 0 (12:26): ignore generated Python files
+1c928a6 Day 0 (12:26): build uconv command-line converter
+3a27ab2 code-evolve: initial commit
+$ git ls-remote origin
+0c861829…  refs/heads/main
+7e129583…  refs/tags/day0-12-26
+$ python3 -m unittest discover        # Ran 17 tests ... OK
+$ cat .evolve/LAST_VERIFY.md          # Day 0 (12:26): verification passed.
+$ git status --short                  # (clean)
+```
+
+### Codex, mature fixture, path A: from bare `npx code-evolve`
+
+```
+$ npx -y code-evolve@0.3.1 < /dev/null
+To set up code-evolve, run one of these in your project:
+
+  npx ce init --yes --agent claude && claude /evolve-setup
+  npx ce init --yes --agent codex && codex '$evolve-setup'
+  npx ce init --yes --agent opencode && opencode --prompt 'Use the evolve-setup skill to set up code-evolve in this project.'
+```
+
+**That printout is wrong.** The package has two bins, `code-evolve` and `ce`, and both point at
+the same file. When all of a package's bins point at one file, npx runs the first one, and the
+registry lists `ce` first. The CLI then names itself after the bin it was started as, so it
+printed `npx ce`. But `npx ce` installs an unrelated npm package called `ce`. The PR that added
+this section fixes the printout: it always says `npx code-evolve`, and
+`tests/test_bootstrap.sh` now runs the CLI as `ce` to check that. `--help` under npx still shows
+`Usage: ce`. That is cosmetic and was left alone. The run used the correct command:
+
+```bash
+npx -y code-evolve@0.3.1 init --yes --agent codex
+codex exec -s workspace-write --json '$evolve-setup' </dev/null
+codex exec -s workspace-write -c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]' --json '$evolve-run' </dev/null
+```
+
+Setup took its three features from the README roadmap and finished without a question. The cycle
+committed the setup files on their own (the #156 fix), then built `tasklite done <id>` with unit
+and CLI tests:
+
+```
+$ git log --format='%h %s'
+410be48 Day 0 (12:34): session wrap-up
+5880cc1 Day 0 (12:34): journal entry
+651b395 Day 0 (12:34): update spec progress
+7c9ade8 Day 0 (12:34): update proof obligations
+2570f9e Day 0 (12:34): add task completion command
+23d1a4e code-evolve: add the engine and setup files
+3191bd8 tasklite: add and list
+$ git ls-remote origin
+410be48d…  refs/heads/main
+678f89de…  refs/tags/day0-12-34
+$ npm test        # tests 8, pass 8, fail 0
+$ git status --short        # (clean)
+```
+
+### Interactive hand-off, both agents
+
+Bare `npx -y code-evolve@0.3.1` was typed into a tmux pane in a fresh `tasklite` fixture, and
+every prompt was answered with `tmux send-keys`. The pane's environment was cleared first
+(`env -i` with `HOME`, `USER`, `TERM`, `LANG` and a login shell). An earlier attempt started
+from inside a `claude -p` session had passed `CLAUDE_CODE_ENTRYPOINT=sdk-cli` down to the
+interactive Claude. `evolve-setup` read that variable as headless and asked nothing. That came
+from the test harness, not from code-evolve, and the attempt is not counted. Pane captures are
+shortened below.
+
+**Claude Code** (claude, codex and opencode were all on `PATH`):
+
+```
+$ npx -y code-evolve@0.3.1
+Found several agents:
+  1. claude
+  2. codex
+  3. opencode
+Which one should set up code-evolve? [1-3] (1): 1
+[... init output ...]
+code-evolve initialized.
+Handing off to claude to finish setup...
+ Accessing workspace:
+ /tmp/ce85/tty-claude2
+ Quick safety check: Is this a project you created or one you trust? [...]
+ ❯ No, exit
+   Yes, I trust this folder
+```
+
+Down and Enter chose "Yes, I trust this folder" for the fixture. The session's transcript starts
+with `/evolve-setup`. Setup drafted the vision and spec in the terminal UI, then asked its three
+questions as a multiple-choice form:
+
+```
+←  ☐ Priorities  ☐ Deps  ☐ Run mode  ✔ Submit  →
+│ The spec queues features in the README roadmap order: `done <id>`, then `rm <id>`,
+│ then `list --pending`, then input validation and a full usage message. Keep that
+│ order?
+❯ 1. Keep order (Recommended)
+```
+
+The answers were "keep order", "zero dependencies" and "inside a session". The form recommends
+"local schedule", which would have installed a cron job on the host. Setup ended with
+`code-evolve is set up. Cycles run when you start them from a session, so there's no schedule to
+stop.` No permission prompts appeared, because this Claude install runs in auto mode by default.
+
+**Codex** (the same prompt, answered `2`):
+
+```
+Handing off to codex to finish setup...
+  Folder access
+  /tmp/ce85/tty-codex
+  Trust this folder? Codex can read, edit, and run files here, subject to your permission settings. [...]
+› 1. Trust and continue
+  2. Back to Agent Command Center
+```
+
+Enter chose "Trust and continue". The first prompt in the Codex terminal UI was `› $evolve-setup`.
+Setup kept the engine `init` had installed, rewrote the vision and spec, and asked three numbered
+questions (accept the drafts, how cycles run, whether to run the first cycle). They were
+answered in one typed line: accept, cycles inside agent sessions only, no cycle now. It ended
+with `Setup is complete. … Scheduling: none installed; nothing needs stopping.` No approval
+prompts appeared: setup ran nothing that needed network or wrote outside the workspace.
+
+Neither interactive pass ran a cycle, because the headless rows above already cover cycles. Both
+agents were closed afterwards (`/exit`, `/quit`). The fixture trust entry and the plugin were
+removed from Codex's config. No crontab entry was added.
+
 ## Defects found
 
 | Issue | What |
 |---|---|
 | [#125](https://github.com/frankbria/code-evolve/issues/125) (closed) | The CLI failed inside Codex's sandbox |
 | [#132](https://github.com/frankbria/code-evolve/issues/132) (closed) | A branch with no upstream is not pushed; fresh repositories push only the tag |
-| [#133](https://github.com/frankbria/code-evolve/issues/133) | Python projects fail verification on tooling, and ruff checks the engine's own scripts |
-| [#134](https://github.com/frankbria/code-evolve/issues/134) | Papercuts: npx's PATH saved into the cron `.env`; headless setup ends with questions; setup files swept into the first feature commit |
+| [#133](https://github.com/frankbria/code-evolve/issues/133) (closed) | Python projects fail verification on tooling, and ruff checks the engine's own scripts |
+| [#134](https://github.com/frankbria/code-evolve/issues/134) (closed) | Papercuts: npx's PATH saved into the cron `.env`; headless setup ends with questions; setup files swept into the first feature commit |
+| fixed with this section | Bare `npx code-evolve` printed `npx ce init …`, which names another npm package |
+| [#182](https://github.com/frankbria/code-evolve/issues/182) | Codex plugin-only setup: network access is not enough for npx (read-only `~/.npm`), and the status check hangs offline |
+| [#183](https://github.com/frankbria/code-evolve/issues/183) | `evolve-setup` cannot tell `codex exec` from the Codex terminal UI on codex-cli 0.169 |
 
 ## What is still open
 
-For [#85](https://github.com/frankbria/code-evolve/issues/85) to close:
+Nothing is left for [#85](https://github.com/frankbria/code-evolve/issues/85), which covers
+Claude Code and Codex (OpenCode is out of its scope). For both agents, every fixture and install
+path has a verified, committed first cycle. A cron run passed. Both terminal
+UIs ran `evolve-setup`, and those two setup-only rows need no cycle of their own. Follow-ups:
 
-1. **Codex on the empty fixture**, through both install paths, and **Codex through
-   `npx code-evolve`** on the mature fixture. Codex needs its owner's login.
-2. **One interactive pass per agent:** type `npx code-evolve` in a terminal, accept the agent's
-   prompts, and confirm `evolve-setup` runs in its terminal UI. With npm still serving the old
-   0.2.0, this needs a local build or the next release ([#95](https://github.com/frankbria/code-evolve/issues/95)).
-3. Optionally a cron run with Codex; the acceptance asks for at least one cron run, and Claude's
-   is above.
+- [#182](https://github.com/frankbria/code-evolve/issues/182) and
+  [#183](https://github.com/frankbria/code-evolve/issues/183) (above).
+- The `npx ce` printout fix reaches users with the next npm release, since 0.3.1 still prints
+  it.
+- Optional: a cron run with Codex. The acceptance asks for at least one cron run, and Claude's is
+  above.

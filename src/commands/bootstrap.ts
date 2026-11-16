@@ -14,10 +14,11 @@ function shellQuote(arg: string): string {
   return /^[\w./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
-function printNextSteps(binName: string): void {
+function printNextSteps(): void {
   console.log('To set up code-evolve, run one of these in your project:\n');
   for (const [agent, args] of Object.entries(SETUP_LAUNCH_ARGS)) {
-    console.log(`  npx ${binName} init --yes --agent ${agent} && ${[agent, ...args].map(shellQuote).join(' ')}`);
+    // npx runs the `ce` alias, but `npx ce` is another npm package, so always name this one.
+    console.log(`  npx code-evolve init --yes --agent ${agent} && ${[agent, ...args].map(shellQuote).join(' ')}`);
   }
 }
 
@@ -34,11 +35,11 @@ async function chooseAgent(found: string[]): Promise<string> {
  * Bare `code-evolve`: install with the agent found on PATH, then hand the terminal to that
  * agent with the evolve-setup skill as its first prompt.
  */
-export async function bootstrap(binName: string): Promise<void> {
+export async function bootstrap(): Promise<void> {
   const found = Object.keys(SETUP_LAUNCH_ARGS).filter(isOnPath);
   if (found.length === 0 || !process.stdin.isTTY || !process.stdout.isTTY) {
     if (found.length === 0) console.log('No supported agent CLI (claude, codex, opencode) found on PATH.\n');
-    printNextSteps(binName);
+    printNextSteps();
     return;
   }
 
