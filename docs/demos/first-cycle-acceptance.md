@@ -5,13 +5,14 @@ end-to-end proof for the cross-agent plugin epic ([#99](https://github.com/frank
 Every command below was run against real agents; nothing here is inferred from the test suite.
 Long outputs are shortened to the lines that matter.
 
-**Where it stands (2026-11-16):** every row of the matrix has passed. On both Claude Code and
-Codex, both fixtures went from install to a verified, committed first cycle through both install
-paths, and a cron-triggered cycle committed and pushed on its own. Bare `npx code-evolve`, typed
-in a real terminal, handed off to each agent's terminal UI, and `evolve-setup` ran there with a
-person answering its questions ([2026-11-16](#codex-matrix-and-the-interactive-hand-off-2026-11-16)).
-These runs turned up three defects: one is fixed in the PR that added this section, and two are
-filed as issues ([Defects found](#defects-found)).
+**Where it stands (2026-11-16):** on both Claude Code and Codex, both fixtures went from install
+to a verified, committed first cycle through both install paths. A cron-triggered cycle (Claude
+Code) committed and pushed on its own. Bare `npx code-evolve`, typed in a real terminal, handed
+off to each agent's terminal UI, and `evolve-setup` ran there with a person answering its
+questions; those two passes stopped after setup
+([2026-11-16](#codex-matrix-and-the-interactive-hand-off-2026-11-16)). These runs turned up
+three defects: one is fixed in the PR that added this section, and two are filed as issues
+([Defects found](#defects-found)).
 
 | Agent | Fixture | Install path | Setup | First cycle | Result |
 |---|---|---|---|---|---|
@@ -27,8 +28,9 @@ filed as issues ([Defects found](#defects-found)).
 | Claude Code | mature | A: `npx code-evolve`, interactive terminal UI | 3 questions answered | not run (setup only) | `evolve-setup` ran in the terminal UI |
 | Codex | mature | A: `npx code-evolve`, interactive terminal UI | 3 questions answered | not run (setup only) | `evolve-setup` ran in the terminal UI |
 
-"Passed" means the engine's own `verify` passed, `finalize` committed and tagged the session, the
-working tree was clean afterwards, and the project's test suite passes when run by hand.
+For the cycle rows, "passed" means the engine's own `verify` passed, `finalize` committed and
+tagged the session, the working tree was clean afterwards, and the project's test suite passes
+when run by hand.
 
 ## What was run
 
@@ -599,9 +601,9 @@ removed from Codex's config. No crontab entry was added.
 
 ## What is still open
 
-Nothing is left for [#85](https://github.com/frankbria/code-evolve/issues/85): every row of the
-matrix has a verified, committed first cycle, a cron run passed, and both terminal UIs ran
-`evolve-setup`. Follow-ups:
+Nothing is left for [#85](https://github.com/frankbria/code-evolve/issues/85). Every agent,
+fixture and install path has a verified, committed first cycle. A cron run passed. Both terminal
+UIs ran `evolve-setup`, and those two setup-only rows need no cycle of their own. Follow-ups:
 
 - [#182](https://github.com/frankbria/code-evolve/issues/182) and
   [#183](https://github.com/frankbria/code-evolve/issues/183) (above).
