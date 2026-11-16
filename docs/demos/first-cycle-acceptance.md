@@ -6,7 +6,8 @@ Every command below was run against real agents; nothing here is inferred from t
 Long outputs are shortened to the lines that matter.
 
 **Where it stands (2026-11-16):** on both Claude Code and Codex, both fixtures went from install
-to a verified, committed first cycle through both install paths. A cron-triggered cycle (Claude
+to a verified, committed first cycle through both install paths (on the mature fixture, Codex's
+plugin run had `init` run in a terminal first). A cron-triggered cycle (Claude
 Code) committed and pushed on its own. Bare `npx code-evolve`, typed in a real terminal, handed
 off to each agent's terminal UI, and `evolve-setup` ran there with a person answering its
 questions; those two passes stopped after setup
@@ -601,8 +602,9 @@ removed from Codex's config. No crontab entry was added.
 
 ## What is still open
 
-Nothing is left for [#85](https://github.com/frankbria/code-evolve/issues/85). Every agent,
-fixture and install path has a verified, committed first cycle. A cron run passed. Both terminal
+Nothing is left for [#85](https://github.com/frankbria/code-evolve/issues/85), which covers
+Claude Code and Codex (OpenCode is out of its scope). For both agents, every fixture and install
+path has a verified, committed first cycle. A cron run passed. Both terminal
 UIs ran `evolve-setup`, and those two setup-only rows need no cycle of their own. Follow-ups:
 
 - [#182](https://github.com/frankbria/code-evolve/issues/182) and
