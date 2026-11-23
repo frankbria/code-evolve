@@ -1,9 +1,7 @@
 import { Command } from 'commander';
 import { WORKFLOW_MARKER, MANAGED_GITIGNORE_LINES, installOperatorSkills, upsertAgentInstructions } from '../utils/projectIntegration';
-import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import readline from 'readline';
 import { getEvolveDir, getTemplatesDir, getOperatorSkillsDir, projectFile, evolveFile, isInitialized, localCalendarDate, packageVersion, EVOLVE_DIR_NAME } from '../utils/paths';
 import { checkDependencies, formatDependencyResults, runProcess } from '../utils/checks';
 import {
@@ -20,9 +18,6 @@ import {
   customAgentEnv,
   isEnvVarName,
   getSupportedAgents,
-  getPickableAgents,
-  resolveAgentSelection,
-  resolveModeSelection,
   getExecutionModes,
   NATIVE_REPLACED_WARNING,
   newerInstalledEngine,
@@ -33,7 +28,7 @@ import {
 } from '../utils/config';
 import { installLocalSchedule, hourlyCron, parseInterval, credentialsKeptFromEnvFile } from './start';
 
-// Default evolution cadence (hours) when --every isn't passed and isn't chosen interactively.
+// Default evolution cadence (hours) when --every isn't passed.
 const DEFAULT_EVERY_HOURS = 4;
 
 // Files that contain user/agent evolution history — never overwrite
@@ -63,13 +58,13 @@ export const initCommand = new Command('init')
   .option('--auth-mode <mode>', 'Auth mode: api-key, oauth (Claude login) or chatgpt (Codex login)', 'api-key')
   .option('--mode <mode>', 'Execution mode: local, ci, both, or native (the agent\'s own scheduler)')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
-  .option('--yes', 'Never prompt; refresh an existing install (managed files only, state kept)')
+  .option('--yes', 'Refresh an existing install (managed files only, state kept)')
   .action(runInit);
 
 /**
- * Run the init flow: create `.evolve/`, pick agent/auth/mode/schedule (interactive
- * on a TTY), copy templates, install CI/cron, optionally run the vision+spec
- * interviews, and print next steps. Exported so the `setup` wizard reuses it.
+ * Run the init flow: create `.evolve/` for the agent/auth/mode/schedule the flags give
+ * (it never prompts), copy templates, install CI/cron, and print next steps.
+ * Exported so `setup` and `upgrade` reuse it.
  */
 export async function runInit(options: InitOptions): Promise<void> {
     const evolveDir = getEvolveDir();
@@ -82,7 +77,6 @@ export async function runInit(options: InitOptions): Promise<void> {
     const authModeExplicit = flagPassed('--auth-mode');
     const modeExplicit = flagPassed('--mode');
     const everyExplicit = flagPassed('--every');
-    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !options.yes;
     const wasInitialized = isInitialized();
     const forceExplicit = Boolean(options.force);
     // --yes refreshes an existing install the way --force does, so an agent can re-run it safely.
@@ -150,23 +144,10 @@ export async function runInit(options: InitOptions): Promise<void> {
       process.exit(1);
     }
 
-    // Fail fast before prompting: don't ask agent/auth questions only to abort.
+    // Fail fast before checking dependencies or writing anything.
     if (isInitialized() && !options.force) {
       console.error(`.evolve/ already exists. Use --force to overwrite.`);
       process.exit(1);
-    }
-
-    // Interactive picker: on a TTY, when --agent wasn't passed, ask the user.
-    if (interactive && !agentExplicit) {
-      const picked = await promptForAgentAndAuth(agent, !authModeExplicit);
-      agent = picked.agent;
-      if (picked.authMode) authMode = picked.authMode;
-    }
-
-    // Interactive execution-mode picker: on a TTY, when neither --mode nor
-    // --with-ci was passed, ask where evolution should run.
-    if (interactive && !modeExplicit && !options.withCi) {
-      mode = await promptForMode(mode);
     }
 
     if (!isValidAgent(agent)) {
@@ -299,12 +280,6 @@ export async function runInit(options: InitOptions): Promise<void> {
     const wantCi = mode === 'ci' || mode === 'both' || Boolean(options.withCi);
     const wantLocal = mode === 'local' || mode === 'both';
 
-    // Ask for the cadence interactively only when a schedule will actually be
-    // installed and the user didn't already pin it with --every.
-    if (interactive && !everyExplicit && (wantCi || wantLocal)) {
-      hours = await promptForInterval(hours);
-    }
-
     // Install GitHub Actions workflows directly into .github/workflows/ so they actually run.
     // (GitHub only executes workflows located directly in .github/workflows/, not subdirectories.)
     // Renamed to evolve-* so they never clobber a target repo's own ci.yml/evolve.yml.
@@ -356,10 +331,10 @@ export async function runInit(options: InitOptions): Promise<void> {
           // Template the cadence + agent into the evolve workflow before writing, so
           // --every and the chosen backend reach CI. (evolve-ci.yml has nothing to template.)
           if (src === 'evolve.yml') {
-            // A non-interactive refresh keeps the cadence already in our workflow; --every or an
-            // interval chosen at the prompt replaces it (the same rule as the local schedule).
+            // A refresh keeps the cadence already in our workflow; --every replaces it (the same
+            // rule as the local schedule).
             const installedEvery = Number(installed?.match(/# every (\d+)/)?.[1]);
-            const workflowHours = !everyExplicit && !interactive && ours && installedEvery > 0 ? installedEvery : hours;
+            const workflowHours = !everyExplicit && ours && installedEvery > 0 ? installedEvery : hours;
             const templated = templateEvolveWorkflow(fs.readFileSync(srcPath, 'utf8'), agent, workflowHours, ciProfile);
             fs.writeFileSync(destPath, templated);
           } else {
@@ -391,16 +366,16 @@ export async function runInit(options: InitOptions): Promise<void> {
     const customCommandChanged = agent === 'custom'
       && (agentCommand !== previousConfig.agentCommand || agentErrorPattern !== previousConfig.agentErrorPattern
         || (agentEnvVars ?? []).join(',') !== (previousConfig.agentEnvVars ?? []).join(','));
-    const keepSchedule = wasInitialized && !interactive && !modeExplicit && !everyExplicit
+    const keepSchedule = wasInitialized && !modeExplicit && !everyExplicit
       && !agentChanged && !authChanged && !customCommandChanged && fs.existsSync(evolveFile('schedule.json'));
     // Reinstalling for a changed agent, auth or custom command keeps the cadence the user already chose.
-    if (wasInitialized && !everyExplicit && !interactive) {
+    if (wasInitialized && !everyExplicit) {
       const previousEvery = readScheduleEvery();
       if (previousEvery !== null) hours = previousEvery;
     }
     // `stop` removes schedule.json but keeps the mode, so a plain refresh of a stopped engine
-    // (no --mode/--every, not interactive) must not quietly start unattended cycles again.
-    const engineStopped = wasInitialized && !interactive && !modeExplicit && !everyExplicit
+    // (no --mode/--every) must not quietly start unattended cycles again.
+    const engineStopped = wasInitialized && !modeExplicit && !everyExplicit
       && !fs.existsSync(evolveFile('schedule.json'));
     if (keepSchedule && wantLocal) {
       console.log('  Keeping the existing local schedule');
@@ -485,30 +460,11 @@ export async function runInit(options: InitOptions): Promise<void> {
     console.log('code-evolve initialized.');
     console.log('');
 
-    // On a TTY, offer to run the vision + spec interviews right now so onboarding
-    // flows straight into artifact generation. Declining (or non-TTY) falls through
-    // to the manual "edit these files" guidance below — scripted/CI installs are
-    // never prompted. We only drop the manual step for a file the interview
-    // actually populated, so a cancelled interview still gets its "edit" reminder.
-    let visionDone = false;
-    let specDone = false;
-    if (interactive) {
-      const launch = await promptYesNo('Generate your vision + spec now via a guided interview? (yes/no): ');
-      if (launch) {
-        visionDone = runInterview('vision');
-        specDone = runInterview('spec');
-        console.log('');
-      }
-    }
-
     console.log('Next steps:');
     let step = 1;
-    if (!visionDone) {
-      console.log(`  ${step++}. Edit .evolve/vision.md with your project vision`);
-    }
-    if (!specDone) {
-      console.log(`  ${step++}. Edit .evolve/spec.md with your technical specification`);
-    }
+    console.log(`  ${step++}. Edit .evolve/vision.md with your project vision`);
+    console.log(`  ${step++}. Edit .evolve/spec.md with your technical specification`);
+    console.log('     (or have your agent draft both from the repository: its evolve-setup skill)');
     console.log(`  ${step++}. ${getAgentEnvHint(agent, authMode)}`);
     if (localScheduled) {
       console.log(`  ${step++}. Local evolution runs every ${hours}h. Run now: code-evolve run`);
@@ -522,42 +478,6 @@ export async function runInit(options: InitOptions): Promise<void> {
       console.log('  To choose where evolution runs (local / ci / both / native):');
       console.log('    code-evolve init --mode <local|ci|both|native> --force');
     }
-}
-
-/** Ask a yes/no question on the current TTY. Defaults to no on empty/EOF. */
-async function promptYesNo(question: string): Promise<boolean> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await new Promise<string>((resolve) => {
-      // EOF (Ctrl-D / closed TTY) fires 'close' without ever calling the
-      // question callback — resolve empty so we follow the declined path.
-      rl.on('close', () => resolve(''));
-      rl.question(question, resolve);
-    });
-    const normalized = answer.trim().toLowerCase();
-    return normalized === 'y' || normalized === 'yes';
-  } finally {
-    rl.close();
-  }
-}
-
-/**
- * Launch one of the interview subcommands (`vision`/`spec`) by re-invoking this
- * same CLI as a child process with inherited stdio, so it owns the terminal
- * cleanly. Returns true only if the interview actually populated the target file
- * (the user can cancel mid-interview and exit 0), so callers know whether the
- * manual "edit this file" guidance is still needed.
- */
-function runInterview(name: 'vision' | 'spec'): boolean {
-  const file = evolveFile(`${name}.md`);
-  const read = (): string => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
-  const before = read();
-  const res = spawnSync(process.execPath, [process.argv[1], name], { stdio: 'inherit' });
-  if (res.status !== 0) {
-    console.warn(`  (${name} interview did not complete — run \`code-evolve ${name}\` anytime.)`);
-  }
-  const after = read();
-  return after.trim() !== '' && after !== before;
 }
 
 /**
@@ -599,89 +519,6 @@ function copyDir(src: string, dest: string, root: string): void {
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
-  }
-}
-
-/**
- * Interactively prompt for the agent backend (and, for Claude, the auth mode)
- * using Node's built-in readline. Returns `authMode` only when it was asked.
- */
-async function promptForAgentAndAuth(
-  defaultAgent: string,
-  askAuth: boolean,
-): Promise<{ agent: string; authMode?: AuthMode }> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
-  try {
-    const agents = getPickableAgents();
-    console.log('Which agent backend should drive evolution?');
-    agents.forEach((a, i) => console.log(`  ${i + 1}. ${a}${a === defaultAgent ? ' (default)' : ''}`));
-    // A saved custom agent is not in the menu, so Enter keeps it; say so instead of showing a number.
-    const defaultLabel = agents.includes(defaultAgent) ? String(agents.indexOf(defaultAgent) + 1) : `keep ${defaultAgent}`;
-    const defaultIdx = agents.indexOf(defaultAgent) + 1;
-    const raw = await ask(`Select [1-${agents.length}] (default ${defaultLabel}): `);
-    const agent = resolveAgentSelection(raw, defaultAgent);
-    if (raw.trim() && agent === defaultAgent && raw.trim() !== defaultAgent && raw.trim() !== String(defaultIdx)) {
-      console.log(`  Unrecognized choice — using ${defaultAgent}.`);
-    }
-
-    if (agent === 'claude' && askAuth) {
-      console.log('Claude auth mode:');
-      console.log('  1. api-key — ANTHROPIC_API_KEY (default)');
-      console.log('  2. oauth — claude login / subscription');
-      const a = (await ask('Select [1-2] (default 1): ')).trim().toLowerCase();
-      return { agent, authMode: a === '2' || a === 'oauth' ? 'oauth' : 'api-key' };
-    }
-    return { agent };
-  } finally {
-    rl.close();
-  }
-}
-
-/**
- * Interactively ask where evolution should run. Free-text (local/ci/both/native/skip)
- * to avoid colliding with the numbered agent picker's "Select [1-N]" prompt.
- * Empty / "skip" keeps the current `fallback` (decide later).
- */
-async function promptForMode(fallback: ExecutionMode | undefined): Promise<ExecutionMode | undefined> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    console.log('Where should evolution run?');
-    console.log('  local — schedule a cron job on this machine');
-    console.log('  ci    — install GitHub Actions workflows');
-    console.log('  both  — local + CI');
-    console.log("  native — your agent's own scheduler runs the evolve-run skill");
-    console.log('  skip  — decide later (default)');
-    const raw = await new Promise<string>((resolve) => {
-      rl.on('close', () => resolve(''));
-      rl.question('Select [local/ci/both/native/skip] (default skip): ', resolve);
-    });
-    return resolveModeSelection(raw) ?? fallback;
-  } finally {
-    rl.close();
-  }
-}
-
-/**
- * Ask how often evolution should run (hours). Empty/invalid input keeps the
- * current `fallback`. Free-text to match the other init prompts' style.
- */
-async function promptForInterval(fallback: number): Promise<number> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const raw = await new Promise<string>((resolve) => {
-      rl.on('close', () => resolve(''));
-      rl.question(`How often should evolution run, in hours? [1-24] (default ${fallback}): `, resolve);
-    });
-    if (!raw.trim()) return fallback;
-    const parsed = parseInterval(raw);
-    if (parsed === null) {
-      console.log(`  Invalid interval — using ${fallback}h.`);
-      return fallback;
-    }
-    return parsed;
-  } finally {
-    rl.close();
   }
 }
 

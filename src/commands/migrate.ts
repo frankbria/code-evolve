@@ -2,11 +2,12 @@ import { Command } from 'commander';
 import fs from 'fs';
 import readline from 'readline';
 import { evolveFile, getEvolveDir, isInitialized } from '../utils/paths';
+import { draftWithAgent } from '../utils/agent';
+import { readConfig } from '../utils/config';
 import {
   extractFeaturesRegex,
   buildSpecMarkdown,
   buildVisionMarkdown,
-  generateWithClaude,
   buildAiSpecPrompt,
   buildAiVisionPrompt,
   gatherCodebaseFiles,
@@ -17,7 +18,7 @@ export const migrateCommand = new Command('migrate')
   .argument('<type>', 'Document type: "spec" or "vision"')
   .argument('<source>', 'Path to the source document')
   .option('--yes', 'Write without confirmation prompt')
-  .option('--ai', 'Use Claude CLI for AI-powered conversion (default: regex extraction)')
+  .option('--ai', "Draft with the project's configured agent (default: regex extraction)")
   .action(async (type: string, source: string, options: { yes?: boolean; ai?: boolean }) => {
     // Validate type
     if (type !== 'spec' && type !== 'vision') {
@@ -49,27 +50,26 @@ export const migrateCommand = new Command('migrate')
     const outputPath = evolveFile(`${type}.md`);
 
     console.log(`Migrating ${source} → .evolve/${type}.md`);
-    console.log(`Mode: ${options.ai ? 'AI-powered (claude CLI)' : 'regex extraction'}`);
+    const agent = readConfig().agent;
+    console.log(`Mode: ${options.ai ? `drafted by the ${agent} agent` : 'regex extraction'}`);
     console.log('');
 
     let result: string;
 
     if (options.ai) {
-      console.log('Running Claude CLI...');
-      try {
-        if (type === 'spec') {
-          const files = gatherCodebaseFiles(process.cwd());
-          const prompt = buildAiSpecPrompt(sourceContent, files);
-          result = generateWithClaude(prompt);
-        } else {
-          const prompt = buildAiVisionPrompt(sourceContent);
-          result = generateWithClaude(prompt);
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`AI conversion failed: ${message}`);
+      console.log(`Running the ${agent} agent...`);
+      const prompt = type === 'spec'
+        ? buildAiSpecPrompt(sourceContent, gatherCodebaseFiles(process.cwd()))
+        : buildAiVisionPrompt(sourceContent);
+      const drafted = draftWithAgent(prompt);
+      if (drafted === null) {
+        console.error(
+          `AI conversion failed: the ${agent} agent could not draft it (its adapter is missing, ` +
+            'its API key is not set, or the call failed). Run `code-evolve init` first, or drop --ai for regex extraction.',
+        );
         process.exit(3);
       }
+      result = drafted;
     } else {
       if (type === 'spec') {
         const features = extractFeaturesRegex(sourceContent);

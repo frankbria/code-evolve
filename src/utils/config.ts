@@ -38,7 +38,6 @@ export const NATIVE_REPLACED_WARNING =
 const CONFIG_FILE = 'config.json';
 const SUPPORTED_AGENTS = ['claude', 'codex', 'opencode', 'ollama', 'custom'];
 // The interactive picker offers the built-in backends; a custom agent needs --agent-command.
-const PICKABLE_AGENTS = SUPPORTED_AGENTS.filter((agent) => agent !== 'custom');
 const EXECUTION_MODES: ExecutionMode[] = ['local', 'ci', 'both', 'native'];
 
 export function getConfigPath(): string {
@@ -82,39 +81,8 @@ export function getExecutionModes(): ExecutionMode[] {
   return [...EXECUTION_MODES];
 }
 
-/**
- * Resolve an interactive execution-mode answer. Accepts a 1-based list index
- * ("2"), a mode name ("ci"), or "skip"/empty (returns undefined — decide later).
- */
-export function resolveModeSelection(raw: string): ExecutionMode | undefined {
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed || trimmed === 'skip' || trimmed === 'none') return undefined;
-  const n = Number(trimmed);
-  if (Number.isInteger(n) && n >= 1 && n <= EXECUTION_MODES.length) return EXECUTION_MODES[n - 1];
-  if (isValidMode(trimmed)) return trimmed;
-  return undefined;
-}
-
 export function getSupportedAgents(): string[] {
   return [...SUPPORTED_AGENTS];
-}
-
-export function getPickableAgents(): string[] {
-  return [...PICKABLE_AGENTS];
-}
-
-/**
- * Resolve an interactive agent picker answer to an agent name.
- * Accepts a 1-based list index ("2") or an agent name ("codex").
- * Empty or unrecognized input falls back to `defaultAgent`.
- */
-export function resolveAgentSelection(raw: string, defaultAgent: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return defaultAgent;
-  const n = Number(trimmed);
-  if (Number.isInteger(n) && n >= 1 && n <= PICKABLE_AGENTS.length) return PICKABLE_AGENTS[n - 1];
-  if (PICKABLE_AGENTS.includes(trimmed)) return trimmed;
-  return defaultAgent;
 }
 
 const AGENT_ENV_KEYS: Record<string, string> = {

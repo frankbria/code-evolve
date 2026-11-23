@@ -6,10 +6,12 @@ A failed session (an error event, or a result whose `is_error` is set or whose s
 "success") prints an ERROR_MARKER line for the reader and makes this script exit 1. Under
 evolve.sh's pipefail that exit code is the adapter's, so the failure signal is the exit status,
 which nothing the model writes can forge. Lines that are not JSON (stderr) pass through unchanged.
+With EVOLVE_AGENT_REPLY_FILE set (a draft, not a cycle), a successful result's text is also written there.
 """
 from __future__ import annotations  # `dict | None` hints on Python < 3.10
 
 import json
+import os
 import sys
 
 ERROR_MARKER = "code-evolve: agent error"
@@ -63,6 +65,9 @@ def main() -> int:
             print(line, flush=True)
             continue
         failed = failed or is_failure(event)
+        if event.get("type") == "result" and not is_failure(event) and os.environ.get("EVOLVE_AGENT_REPLY_FILE"):
+            with open(os.environ["EVOLVE_AGENT_REPLY_FILE"], "w", encoding="utf-8") as reply:
+                reply.write(str(event.get("result") or ""))
         for output in describe(event):
             print(output, flush=True)
     return 1 if failed else 0

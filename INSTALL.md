@@ -118,13 +118,13 @@ From inside the project you want to evolve:
 ```bash
 cd your-project
 
-# Guided front door: agent → interview → mode → schedule → ready
-code-evolve setup
+# One command: installs .evolve/, then opens your agent on the evolve-setup skill,
+# which drafts .evolve/vision.md and .evolve/spec.md and picks a schedule with you
+npx code-evolve
 
 # …or do it step by step:
-code-evolve init           # scaffold .evolve/
-code-evolve vision         # interview → .evolve/vision.md
-code-evolve spec           # interview → .evolve/spec.md
+code-evolve init           # scaffold .evolve/ (never prompts; flags choose agent, mode, schedule)
+                           # then edit .evolve/vision.md and .evolve/spec.md, or run evolve-setup in your agent
 code-evolve run            # run one cycle manually to verify
 code-evolve start          # turn on the scheduler (every 4h by default)
 ```

@@ -10,9 +10,10 @@ import { readConfig, getAgentEnvKey, getDefaultModel, isValidAgent, customAgentE
  * (`.evolve/scripts/agents/<agent>.sh`) — the same `run_agent` entry point
  * `evolve.sh` uses to invoke the agent.
  *
- * Returns the agent's text output, or `null` when no agent is usable (adapter
- * missing, required API key unset, or the call fails/times out). Callers fall
- * back to their static builder on `null`.
+ * Returns the agent's reply, or `null` when no agent is usable (adapter missing,
+ * required API key unset, or the call fails/times out). Adapters that can separate
+ * the reply from their log write it to `$EVOLVE_AGENT_REPLY_FILE` (claude, codex);
+ * for the others the whole stdout is the reply.
  */
 export function draftWithAgent(prompt: string): string | null {
   const config = readConfig();
@@ -26,8 +27,8 @@ export function draftWithAgent(prompt: string): string | null {
   if (envKey && !process.env[envKey]) return null;
 
   const model = config.model || getDefaultModel(agent);
-  // Per-call private dir (not a guessable shared-tmp name), prompt written 0600 —
-  // interview prompts can carry sensitive product details.
+  // Per-call private dir (not a guessable shared-tmp name), prompt written 0600:
+  // the source document can carry sensitive product details.
   let promptDir: string;
   try {
     promptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-evolve-draft-'));
@@ -35,6 +36,7 @@ export function draftWithAgent(prompt: string): string | null {
     return null;
   }
   const promptFile = path.join(promptDir, 'prompt.txt');
+  const replyFile = path.join(promptDir, 'reply.txt');
 
   try {
     fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
@@ -59,13 +61,15 @@ export function draftWithAgent(prompt: string): string | null {
         killSignal: 'SIGTERM',
         env: {
           ...process.env,
+          EVOLVE_AGENT_REPLY_FILE: replyFile,
           ...customAgentEnv(agent, config),
           ...(config.authMode === 'oauth' ? { CLAUDE_AUTH_MODE: 'oauth' } : {}),
         },
       },
     );
     if (result.status !== 0 || result.error) return null;
-    const out = (result.stdout || '').trim();
+    const reply = fs.existsSync(replyFile) ? fs.readFileSync(replyFile, 'utf8').trim() : '';
+    const out = reply || (result.stdout || '').trim();
     return out.length ? out : null;
   } catch {
     return null;

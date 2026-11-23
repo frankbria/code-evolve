@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **The TTY wizard is retired** (#97): `init` and `setup` never prompt (no agent, auth, mode or
+  interval pickers, no interview offer); their flags are unchanged and choose what the pickers did.
+  `code-evolve vision` and `code-evolve spec` print a pointer to the `evolve-setup` skill and change
+  nothing; they go away in a later release. The only question left is bare `npx code-evolve`
+  asking which agent to use when several are installed (#82). Confirmations before `eject` and
+  before `migrate` overwrites a file, and `proof capture`'s fields, stay.
+- **`migrate --ai` uses the configured agent** (#97) through its adapter, as a cycle does, instead
+  of always running `claude -p`, and fails with exit 3 naming the agent when it cannot draft. Only
+  the agent's reply is written: the claude and codex adapters hand the bare reply to code-evolve
+  (`EVOLVE_AGENT_REPLY_FILE`; Codex's `--output-last-message`) rather than their session log.
 - **Headless setup on Codex** (#183): `evolve-setup` no longer tells Codex to check
   `ps -o args= -p $PPID` (its sandbox hides the parent, and `codex exec` and the TUI set the same
   variables on codex-cli 0.169). The README's `codex exec` setup command says in the prompt that

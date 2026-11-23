@@ -28,15 +28,14 @@ code-evolve/                  # npm package source
 │   ├── commands/             # One file per subcommand (see Commands below)
 │   │   ├── init.ts           # code-evolve init (exports runInit)
 │   │   ├── bootstrap.ts      # bare `code-evolve`: init --yes, then open the agent on evolve-setup
-│   │   ├── setup.ts          # code-evolve setup (guided onboarding wizard)
+│   │   ├── setup.ts          # code-evolve setup (re-runnable init)
 │   │   ├── start.ts          # code-evolve start (set up recurring cron)
 │   │   ├── stop.ts           # code-evolve stop (remove cron)
 │   │   ├── run.ts            # code-evolve run
 │   │   ├── status.ts         # code-evolve status
 │   │   ├── eject.ts          # code-evolve eject
 │   │   ├── migrate.ts        # code-evolve migrate
-│   │   ├── vision.ts         # code-evolve vision (guided interview)
-│   │   ├── spec.ts           # code-evolve spec (guided interview)
+│   │   ├── retiredInterviews.ts # code-evolve vision / spec: pointers to evolve-setup (retired, #97)
 │   │   ├── proof.ts          # code-evolve proof (PROOF9 quality gates)
 │   │   └── upgrade.ts        # code-evolve upgrade (managed engine files only)
 │   └── utils/
@@ -45,7 +44,6 @@ code-evolve/                  # npm package source
 │       ├── output.ts         # TTY/JSON output
 │       ├── agent.ts          # Agent backend invocation
 │       ├── config.ts         # Agent/mode selection + config I/O
-│       ├── interview.ts      # Guided vision/spec interview engine
 │       ├── migrate.ts        # Spec/vision document migration
 │       ├── proof.ts          # PROOF9 requirements management
 │       └── __tests__/        # Jest unit tests
@@ -73,15 +71,14 @@ The CLI ships 12 subcommands (registered in `src/cli.ts`; also available as `ce`
 | Command | Purpose |
 |---------|---------|
 | `init` | Initialize `.evolve/` in the current project |
-| `setup` | Guided onboarding wizard: agent → interview → mode → schedule → ready |
+| `setup` | Re-runnable `init`: reconfigures an existing install from flags |
 | `start` | Start the evolution engine (sets up a recurring local cron job) |
 | `stop` | Stop the evolution engine (removes the local cron job) |
 | `run` | Run one evolution cycle |
 | `status` | Show current evolution state |
 | `eject` | Remove code-evolve framework, keep project files |
 | `migrate` | Convert an existing spec or vision document into code-evolve format |
-| `vision` | Guided interview to generate `.evolve/vision.md` |
-| `spec` | Guided interview to generate `.evolve/spec.md` |
+| `vision`, `spec` | Retired: print a pointer to the `evolve-setup` skill |
 | `proof` | PROOF9 quality gates and requirements management |
 | `upgrade` | Replace the managed engine files with this version's; user-owned files are kept (needs a clean git tree) |
 

@@ -6,8 +6,6 @@ import {
   isValidMode,
   getExecutionModes,
   getSupportedAgents,
-  resolveModeSelection,
-  resolveAgentSelection,
   getAgentEnvKey,
   getDefaultModel,
   getAgentEnvHint,
@@ -36,33 +34,6 @@ describe('execution-mode validation', () => {
     expect(getExecutionModes()).toEqual(['local', 'ci', 'both', 'native']);
     for (const m of getExecutionModes()) expect(isValidMode(m)).toBe(true);
     expect(isValidMode('cloud')).toBe(false);
-  });
-});
-
-describe('resolveModeSelection', () => {
-  it('maps 1-based index, name, and skip/empty', () => {
-    expect(resolveModeSelection('1')).toBe('local');
-    expect(resolveModeSelection('2')).toBe('ci');
-    expect(resolveModeSelection('3')).toBe('both');
-    expect(resolveModeSelection('4')).toBe('native');
-    expect(resolveModeSelection('ci')).toBe('ci');
-    expect(resolveModeSelection('Native')).toBe('native');
-    expect(resolveModeSelection('BOTH')).toBe('both');
-    expect(resolveModeSelection('')).toBeUndefined();
-    expect(resolveModeSelection('skip')).toBeUndefined();
-    expect(resolveModeSelection('9')).toBeUndefined();
-    expect(resolveModeSelection('bogus')).toBeUndefined();
-  });
-});
-
-describe('resolveAgentSelection', () => {
-  it('maps index and name, falling back to the default', () => {
-    expect(resolveAgentSelection('1', 'claude')).toBe('claude');
-    expect(resolveAgentSelection('2', 'claude')).toBe('codex');
-    expect(resolveAgentSelection('opencode', 'claude')).toBe('opencode');
-    expect(resolveAgentSelection('', 'codex')).toBe('codex');
-    expect(resolveAgentSelection('99', 'claude')).toBe('claude');
-    expect(resolveAgentSelection('nope', 'ollama')).toBe('ollama');
   });
 });
 
@@ -208,10 +179,8 @@ describe('resolveModel', () => {
 });
 
 describe('custom agent', () => {
-  it('is supported but not offered by the interactive picker', () => {
+  it('is supported', () => {
     expect(isValidAgent('custom')).toBe(true);
-    expect(resolveAgentSelection('5', 'claude')).toBe('claude');
-    expect(resolveAgentSelection('custom', 'claude')).toBe('claude');
   });
 
   it('has no default model or API key of its own', () => {
