@@ -138,13 +138,15 @@ if the user explicitly asks you to.
   with `/schedule`, needs a claude.ai subscription login). Prompt:
 
   ```text
-  Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request. If the push fails, say so in the first line of your report.
+  Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits and pushes there itself, so do not create a claude/ branch or open a pull request. The cloud environment refuses the engine's day-tag push; that is expected, so do not report it as a failure. If the push of the commits fails, say so in the first line of your report.
   ```
 
   Each run is a fresh clone of the default branch, so `.evolve/` and `.claude/skills/` must be
   committed and pushed first. The shortest interval is one hour. Runs count against the user's
   subscription usage, and the push is made as the user's GitHub identity, so a branch protection
   rule that identity cannot bypass blocks it. A cycle that fails to push is lost with the clone.
+  The cloud environment's git access refuses tag pushes, so the engine's day tags never reach
+  GitHub; the commits still land and the cycle does not fail.
   Without an authenticated `gh` in the cloud environment, cycles skip community issues.
 - **Claude Code Desktop local scheduled task** (the Desktop app's Code tab, Scheduled, with "Only
   on this computer" on and the project as its folder). Prompt:

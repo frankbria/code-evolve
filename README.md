@@ -456,7 +456,7 @@ For when you can't or won't run cron or Actions. Nothing is installed: your agen
 
 | Scheduler | Where you create it | Prompt to schedule | Constraints |
 |-----------|--------------------|--------------------|-------------|
-| Claude Code cloud scheduled task (formerly "routine") | [claude.ai/code/routines](https://claude.ai/code/routines), or `/schedule` in a session | See below | Fresh clone of the default branch on every run, so commit and push `.evolve/` and `.claude/skills/` first. Shortest interval: 1 hour. Needs a claude.ai subscription login; runs count against your usage. A cycle that fails to push is lost with the clone. Without an authenticated `gh` in the cloud environment, cycles skip community issues. |
+| Claude Code cloud scheduled task (formerly "routine") | [claude.ai/code/routines](https://claude.ai/code/routines), or `/schedule` in a session | See below | Fresh clone of the default branch on every run, so commit and push `.evolve/` and `.claude/skills/` first. Shortest interval: 1 hour. Needs a claude.ai subscription login; runs count against your usage. A cycle that fails to push is lost with the clone. The cloud environment's git access refuses tag pushes (HTTP 403), so the engine's `dayN-HH-MM` tags stay in the clone; the commits still land, and the engine reports the refused tag push without failing the cycle. Without an authenticated `gh` in the cloud environment, cycles skip community issues. |
 | Claude Code Desktop local scheduled task | The Desktop app's Code tab → Scheduled, with "Only on this computer" on and the project as its folder | See below | Runs only while the app is open and the computer is awake; at most hourly from the form. Leave "Worktree" off. Click Run now once and approve the permissions a cycle needs, or later runs stall on a prompt. |
 | Claude Code `/loop` | An open Claude Code session | `/loop 4h` followed by the `/loop` prompt below | Fires only while that session is running and idle. A recurring loop ends after 7 days. |
 | Codex scheduled task (also called an "automation") | The ChatGPT desktop app's Scheduled view | `$evolve-run` | The machine must be on with the app running. Choose the local project, not a new worktree. Runs with your default sandbox settings, which must let the cycle write the repository's `.git` directory and reach the network to push (settings below). |
@@ -464,7 +464,7 @@ For when you can't or won't run cron or Actions. Nothing is installed: your agen
 Prompt for a Claude Code cloud scheduled task:
 
 ```text
-Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits, tags and pushes there itself, so do not create a claude/ branch or open a pull request. If the push fails, say so in the first line of your report.
+Run one code-evolve evolution cycle in this repository. Read .claude/skills/evolve-run/SKILL.md and follow it from start to finish. Stay on the default branch: the engine commits and pushes there itself, so do not create a claude/ branch or open a pull request. The cloud environment refuses the engine's day-tag push; that is expected, so do not report it as a failure. If the push of the commits fails, say so in the first line of your report.
 ```
 
 Prompt for a Claude Code Desktop local scheduled task:
