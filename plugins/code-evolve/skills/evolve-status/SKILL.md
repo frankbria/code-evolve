@@ -10,6 +10,11 @@ metadata:
 1. Run `npx code-evolve status`. When its output is not a terminal it prints JSON with `day`,
    `features` (total, done, partial, remaining), `mode`, `schedule`, `requirements` (open, regressed,
    satisfied, waived), `pendingSession`, `abandonedSession`, `engineVersion`, `engineDrift` and `lastEntry`.
+   Under Codex, run it as `npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm" npx code-evolve status`
+   (the sandbox keeps `~/.npm` read-only), and add `--offline` after `npx` when
+   `echo "$CODEX_SANDBOX_NETWORK_DISABLED"` prints `1` (without it, npx waits until the command times
+   out). If it still fails, say status could not run and report from `.evolve/config.json`, the
+   checkboxes in `.evolve/spec.md` and `.evolve/JOURNAL.md` instead.
 2. Summarize in a few sentences: the day count and spec progress, how cycles run (`schedule` is the
    local cron; `mode` `ci` or `both` means GitHub Actions also runs them; `mode` `native` means the
    user set up the agent's own scheduler, which code-evolve cannot see, so judge whether it is
