@@ -136,6 +136,22 @@ grep -qF 'Claude Code or OpenCode' <<<"$ps_hint_line" && grep -qF 'codex-linux-s
 grep -qF "evolve-setup This run is unattended; nobody will reply." "$ROOT/README.md" \
     && ok "README's codex exec setup command tells the skill nobody will reply" \
     || bad "README gives no codex exec setup command that says the run is unattended"
+# Codex's sandbox (#182): ~/.npm is read-only (npx fails with EROFS even with network), and with no
+# network npx waits for the command timeout instead of failing. Setup must route around both.
+basics_section=$(awk '/^## / { in_section = ($0 ~ /^## 2\. Check the basics/) } in_section' "$setup_skill")
+grep -qF 'npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm"' <<<"$basics_section" \
+    && grep -qF 'CODEX_SANDBOX_NETWORK_DISABLED' <<<"$basics_section" && grep -qF 'npx --offline' <<<"$basics_section" \
+    && ok "evolve-setup moves npm's cache out of the read-only ~/.npm under Codex and makes offline npx fail at once" \
+    || bad "evolve-setup's basics do not cover Codex's read-only ~/.npm and offline npx hang"
+status_skill="$ROOT/plugins/code-evolve/skills/evolve-status/SKILL.md"
+grep -qF 'npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm"' "$status_skill" && grep -qF 'CODEX_SANDBOX_NETWORK_DISABLED' "$status_skill" \
+    && grep -qF '.evolve/config.json' "$status_skill" && grep -qF 'every command of this skill' "$status_skill" \
+    && grep -qF '.evolve/REQUIREMENTS.md' "$status_skill" \
+    && ok "evolve-status runs status the same way under Codex and falls back to the files offline" \
+    || bad "evolve-status runs npx code-evolve status as-is, which hangs in Codex's offline sandbox"
+grep -qF 'npm_config_cache=' "$ROOT/README.md" && grep -qF '/.npm"]' "$ROOT/README.md" \
+    && ok "README's Codex notes give both ways past the read-only ~/.npm" \
+    || bad "README's Codex notes say network access is enough for npx"
 grep -qF 'inside an agent session, or manually' <<<"$headless_section" && grep -qiF 'do not end with a question' <<<"$headless_section" \
     && ok "a headless setup settles on in-session or manual cycles and ends without a question" \
     || bad "evolve-setup does not say what a headless setup settles on, or that it must not end with a question"

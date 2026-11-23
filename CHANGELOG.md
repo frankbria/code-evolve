@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Codex sandbox and npx** (#182): `evolve-setup` runs `npx` with npm's cache under `$TMPDIR`,
+  since Codex keeps `~/.npm` read-only (`EROFS` even with network access), and adds `--offline`
+  when the sandbox has no network, so `npx` fails at once instead of waiting for the command
+  timeout. Without network it checks the install from `.evolve/config.json` rather than
+  `npx code-evolve status`; `evolve-status` runs all its `npx` commands the same way (or an installed
+  `code-evolve`) and reads the files status reads when it cannot. The README's Codex notes give both ways past the read-only `~/.npm`.
 - **Headless setup on Codex** (#183): `evolve-setup` no longer tells Codex to check
   `ps -o args= -p $PPID` (its sandbox hides the parent, and `codex exec` and the TUI set the same
   variables on codex-cli 0.169). The README's `codex exec` setup command says in the prompt that

@@ -43,6 +43,12 @@ Otherwise someone is there, and the steps below apply as written. When nobody ca
 - The project must be a git repository (`git rev-parse --git-dir`). If it is not, offer to run `git init`.
 - `npx` must work (`npx --version`). If it does not, tell the user code-evolve needs Node.js 18 or newer.
 - Know which agent you are: `claude`, `codex` or `opencode`. Use it for `--agent` below.
+- **Codex:** its sandbox keeps `~/.npm` read-only, so `npx` fails with `EROFS` even with network
+  access. Run every `npx` command in this skill with npm's cache moved somewhere writable:
+  `npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm" npx ...`. When
+  `echo "$CODEX_SANDBOX_NETWORK_DISABLED"` prints `1` there is no network, and `npx` then waits
+  until the command times out instead of failing: add `--offline` (`npx --offline ...`) so it fails
+  at once (`ENOTCACHED`), and treat that as npm being unreachable (step 3).
 - If any code-evolve command fails, stop and tell the user what failed. Never patch, shim, wrap or
   bypass code-evolve or its checks (for example with `NODE_OPTIONS` preloads or edited copies) to get
   past a failure: a faked check leaves a broken install that reports itself as healthy.
@@ -62,7 +68,8 @@ version this skill was written for. If init refuses because the installed engine
 user to update the code-evolve plugin (or this skill copy). If npm answers that this version does not exist
 (a 404, `ETARGET` or "No matching version"), the release is not published yet: run the command once
 more with `code-evolve@latest` and tell the user which version was installed. If `npx` cannot reach npm
-(an offline sandbox): with an existing `.evolve/`, say so and continue with it; without one, stop
+(an offline sandbox): with an existing `.evolve/`, say so and continue with it, and check the install
+by reading `.evolve/config.json` instead of running `npx code-evolve status`; without one, stop
 and tell the user setup needs network access to npm. Codex's default sandbox has no network: ask
 the user to start Codex with `-c sandbox_workspace_write.network_access=true` for setup, or to run
 `npx code-evolve init --yes --agent codex` in a terminal first. Never edit `config.json` by hand.
