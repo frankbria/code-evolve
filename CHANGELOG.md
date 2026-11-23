@@ -9,7 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - **Headless setup on Codex** (#183): `evolve-setup` no longer tells Codex to check
   `ps -o args= -p $PPID` (its sandbox hides the parent, and `codex exec` and the TUI set the same
-  environment on codex-cli 0.169). The README's `codex exec` setup command says in the prompt that
+  variables on codex-cli 0.169). The README's `codex exec` setup command says in the prompt that
   the run is unattended, which is the one sign Codex can see.
 - **Nested projects list** (#168): a folder name with `*`, `?` or `[` no longer matches a
   sibling's project marker; an entry of `.evolve/nested-projects.txt` that matches nothing is named
