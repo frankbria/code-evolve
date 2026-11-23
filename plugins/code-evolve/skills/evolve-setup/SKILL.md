@@ -18,7 +18,10 @@ Decide this first. Nobody can answer (a headless run) when any of these is true:
 
 - You were started by a one-shot command that takes a prompt and exits: `claude -p` (or `--print`),
   `codex exec`, `opencode run`, an SDK call, a CI job or a scheduled task. If you are not sure how
-  you were started, `ps -o args= -p $PPID` usually shows the command.
+  you were started and you are Claude Code or OpenCode, `ps -o args= -p $PPID` usually shows it.
+  Codex cannot check this: its commands run in a sandbox whose parent is `codex-linux-sandbox`,
+  and `codex exec` and the interactive Codex TUI set the same variables (`CODEX_CI=1` in both).
+  Under Codex, only the prompt tells you (the last sign below).
 - `echo "$CLAUDE_CODE_ENTRYPOINT"` prints a value that starts with `sdk` (Claude Code sets
   `sdk-cli` under `claude -p`, `sdk-ts` or `sdk-py` under the Agent SDK). Attended Claude hosts
   set other values: `cli` in a terminal, `claude-vscode` in VS Code, `claude-desktop` or

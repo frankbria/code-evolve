@@ -588,6 +588,34 @@ Neither interactive pass ran a cycle, because the headless rows above already co
 agents were closed afterwards (`/exit`, `/quit`). The fixture trust entry and the plugin were
 removed from Codex's config. No crontab entry was added.
 
+## Codex: `codex exec` and the TUI look the same from inside (2026-11-22)
+
+For [#183](https://github.com/frankbria/code-evolve/issues/183), on codex-cli 0.169.0 (ChatGPT
+login). A shell command dumped its environment once under `codex exec -s workspace-write` and once
+under the interactive TUI (driven through a pseudo-terminal). The two sets of variable names were
+identical, and both had `CODEX_CI=1`, `CODEX_SANDBOX_NETWORK_DISABLED=1`, `TERM=dumb` and no tty.
+In both, `ps` showed `codex-linux-sandbox` as PID 1, so nothing above it can be seen. Codex gives
+the skill no way to tell the two apart, so `evolve-setup` now keeps the `ps` hint to Claude Code
+and OpenCode, and the README's `codex exec` setup command carries the signal in the prompt.
+
+That command, on an empty `git init` repository installed with a build of the #183 branch
+(`init --yes --agent codex` in a terminal, so `.agents/skills/` held the changed skill):
+
+```
+codex exec -s workspace-write --json '$evolve-setup Build uconv, a small Python command-line tool that converts between units of length, mass and temperature, for people who want quick conversions in a terminal. This run is unattended; nobody will reply.' </dev/null
+```
+
+The agent's first message: "Because this run is unattended, I'll make the recommended scope
+choices, install no scheduler, and won't start the first evolution cycle." It wrote the vision
+and spec, listed its assumptions, installed no schedule, and ended without a question. Its
+optional `npx code-evolve status` check hung in the offline sandbox, which is
+[#182](https://github.com/frankbria/code-evolve/issues/182).
+
+A Codex run with a writable `/tmp` leaves empty `/tmp/.git`, `/tmp/.agents` and `/tmp/.codex`
+directories behind (the sandbox's mount points for paths it keeps read-only). Remove them before
+running this repository's tests: `test_session_nudge.sh` creates its non-repository under `/tmp`
+and then finds `/tmp/.git`.
+
 ## Defects found
 
 | Issue | What |
