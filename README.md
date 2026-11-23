@@ -27,11 +27,25 @@ Day 14 — Your project works. You barely touched a keyboard.
 
 ---
 
-## Getting Started: New Project
+## Quickstart
+
+Pick the door that matches where you are. Every door ends in the same place: your agent runs the
+`evolve-setup` skill, which installs the engine into `.evolve/`, drafts `.evolve/vision.md` and
+`.evolve/spec.md` from your repository (or from your idea, for an empty one), asks at most five
+questions, and sets up how cycles run.
+
+| Where you start | Do this |
+|---|---|
+| A terminal | `npx code-evolve` in your project |
+| Claude Code | `claude plugin marketplace add frankbria/code-evolve`, `claude plugin install code-evolve@code-evolve --scope project`, then `/code-evolve:evolve-setup` in a session |
+| Codex | `codex plugin marketplace add frankbria/code-evolve`, `codex plugin add code-evolve@code-evolve`, then `$code-evolve:evolve-setup` |
+| Any other agent that reads `SKILL.md` files | `npx skills add frankbria/code-evolve`, then ask it to use the `evolve-setup` skill |
 
 > **Detailed install, agent setup, verification, and troubleshooting:** see [INSTALL.md](INSTALL.md).
 
-**Quickest path:** run `npx code-evolve` with no subcommand. It finds Claude Code, Codex or OpenCode on your PATH (asking only if there are several), installs `.evolve/`, and opens that agent with the `evolve-setup` skill, which walks you through vision, spec and schedule in conversation. Without a terminal or an agent it prints the exact command for each agent instead.
+### From a terminal: `npx code-evolve`
+
+Run `npx code-evolve` with no subcommand. It finds Claude Code, Codex or OpenCode on your PATH (asking only if there are several), installs `.evolve/`, and opens that agent with the `evolve-setup` skill, which walks you through vision, spec and schedule in conversation. Without a terminal or an agent it prints the exact command for each agent instead.
 
 Run headless (`claude -p`, `codex exec`, a CI job), `evolve-setup` asks nothing (under `codex exec`, put "This run is unattended" in the prompt; see the Codex notes below): it uses its recommended answers, installs no schedule (cycles then run inside an agent session or with `npx code-evolve run`), and lists what it assumed. For cycles that run on your machine you do not need to commit what setup installed: the first cycle commits it on its own (`code-evolve: add the engine and setup files`) before it starts on a feature, and leaves your other uncommitted work out of that commit. If `AGENTS.md`, `CLAUDE.md` or `.gitignore` also has uncommitted edits of your own, only init's part of it (its section, its ignore lines) is committed, your edits stay uncommitted, and the cycle says so; a file with a staged version of your own is left out whole. Files you had untracked before a cycle started are never committed by it: the cycle prompt's commit command and the engine's own commits leave them out. An install you keep out of git with an ignore rule is not committed. GitHub Actions and cloud scheduled tasks work from the remote, so for those commit and push the install yourself first.
 
@@ -73,19 +87,48 @@ Then start Codex in your project and run `$code-evolve:evolve-setup` (Codex name
 
 Codex runs a plugin's hooks only after you trust them: open `/hooks` in Codex and approve the code-evolve hook (approve it again after each plugin update, since trust is tied to the hook's contents). Until then Codex warns at startup and skips it.
 
-Any other agent that reads `SKILL.md` files can take just the skills: `npx skills add frankbria/code-evolve`.
+### Any other agent
 
-Prefer to do it step by step? Three steps:
+Any agent that reads `SKILL.md` files (Cursor, Copilot, OpenCode, Gemini and others) can take just the skills:
 
-### 1. Initialize
+```bash
+npx skills add frankbria/code-evolve
+```
+
+Then ask it to use the `evolve-setup` skill. Setup runs `npx code-evolve init`, which needs Node.js and network access to npm.
+
+### How cycles run
+
+`evolve-setup` offers these and installs the one you pick (details in [Local vs. Cloud](#local-vs-cloud)):
+
+- **A local schedule:** `npx code-evolve start --every <hours>` adds a cron job on your machine.
+- **GitHub Actions:** `npx code-evolve init --yes --mode ci --every <hours>` adds the workflows; the repository needs your agent's API key as a secret.
+- **Your agent's own scheduler:** a Claude Code scheduled task or `/loop`, or a Codex scheduled task, runs the `evolve-run` skill (`npx code-evolve init --yes --mode native` records the choice).
+- **Inside an agent session:** run the `evolve-run` skill whenever you want a cycle.
+- **By hand:** `npx code-evolve run` runs one headless cycle.
+
+### Stop, upgrade, eject
+
+```bash
+npx code-evolve status           # day, spec progress, schedule, open requirements
+npx code-evolve stop             # remove the local schedule
+npx code-evolve@latest upgrade   # replace the engine with the latest version, keep your files
+npx code-evolve eject --yes      # remove code-evolve, keep everything it built
+```
+
+GitHub Actions cycles stop with `gh workflow disable evolve.yml`; a schedule in your agent stops where you made it. See [Upgrading](#upgrading) and [Ejecting](#ejecting).
+
+### Without an agent session: step by step
+
+#### 1. Initialize
 
 ```bash
 npx code-evolve init
 ```
 
-This creates `.evolve/` with templates for your vision and spec.
+This creates `.evolve/` with templates for your vision and spec. `init` never prompts; flags choose the agent (`--agent`), the auth (`--auth-mode`), where cycles run (`--mode`) and how often (`--every`).
 
-### 2. Define your vision and spec
+#### 2. Define your vision and spec
 
 **Option A: Let your agent draft them** (recommended)
 
@@ -95,7 +138,7 @@ Invoke the `evolve-setup` skill in your agent (`/evolve-setup` in Claude Code, `
 
 Edit `.evolve/vision.md` and `.evolve/spec.md` using the templates as a guide. The templates include examples and comments explaining what each section needs.
 
-### 3. Start building
+#### 3. Start building
 
 ```bash
 export ANTHROPIC_API_KEY=sk-...    # or the key for your chosen agent
@@ -112,7 +155,9 @@ The engine runs on a schedule (every 4 hours by default) and starts building you
 
 ## Getting Started: Existing Project
 
-Already have a codebase and docs? code-evolve can adopt your project.
+Already have a codebase and docs? code-evolve can adopt your project. Any door in the
+[Quickstart](#quickstart) works: `evolve-setup` surveys the repository, converts a PRD or design doc
+it finds, and lists only the features that are not built yet. To do it by hand:
 
 ### 1. Initialize
 
@@ -498,11 +543,11 @@ Issue content is treated as untrusted input. The agent analyzes intent but write
 
 The agent is powerful but constrained:
 
-- **Protected files** — `IDENTITY.md`, `scripts/`, `workflows/` cannot be modified by the agent
+- **Protected files** — `IDENTITY.md`, the engine (`.evolve/scripts/`, `.evolve/skills/`) and the evolve workflows are restored by the engine after every agent call, whatever the agent did to them; the list is `.evolve/scripts/protected-paths.txt`. The plugins' hook also stops edits to them earlier, in Claude Code and Codex
 - **Build verification** — every change must pass build + tests or it gets reverted
 - **Automatic rollback** — 3 failed fix attempts = full revert to pre-session state (the lessons the session wrote to `LEARNINGS.md` are kept)
 - **Prompt injection defense** — random boundary markers, HTML comment stripping, body truncation on all issue content
-- **Honest journaling** — the agent can't hide failures; the journal is append-only
+- **A journal entry every session** — the engine asks the agent for one and writes a short one itself if none appears, and each cycle's verification result goes to `.evolve/LAST_VERIFY.md` for the next session. The journal is not write-protected: the agent's constitution tells it never to delete entries, and git keeps every version
 
 **Protected directories you keep as symlinks.** A protected directory may be a symlink of yours (`.evolve/skills` pointing at a shared store, say); the engine follows it, restores the files behind it and puts the link back if the agent repoints it. Two limits:
 
@@ -545,8 +590,8 @@ Stops the engine, removes `.evolve/` and workflows. Your `vision.md` and `spec.m
 - Node.js >= 18
 - Python 3
 - Git 2.25 or later
-- An AI coding agent: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode), or [Ollama](https://ollama.ai)
-- API key for your chosen agent (not needed for Ollama)
+- An AI coding agent: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode), [Ollama](https://ollama.ai), or any headless CLI through `--agent custom`
+- An API key for your chosen agent, or its login: a Claude subscription (`--auth-mode oauth`) or a ChatGPT login for Codex (`--auth-mode chatgpt`). Ollama needs neither
 
 ## The Story
 
@@ -554,7 +599,7 @@ Why I built this: [I Built a Codebase That Builds Itself](https://lab.frankbria.
 
 ## Roadmap
 
-- **Skill/plugin format** — install as a Claude Code skill, Codex plugin, etc.
+- **OpenAI's public plugin directory** — list the Codex plugin there ([#100](https://github.com/frankbria/code-evolve/issues/100))
 - **GitHub Action** — `uses: frankbria/code-evolve@v1` for zero-install cloud evolution
 - **AI video demos** — auto-generate video walkthroughs of each evolution session ([#8](https://github.com/frankbria/code-evolve/issues/8))
 
