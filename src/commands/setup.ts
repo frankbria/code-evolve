@@ -3,14 +3,13 @@ import { isInitialized } from '../utils/paths';
 import { runInit, InitOptions } from './init';
 
 /**
- * `code-evolve setup` — the guided front door to onboarding. It runs the same
- * flow as `init` (agent/auth picker → execution mode → schedule → vision+spec
- * interview → summary), but is **re-runnable**: on an already-initialized repo
- * it auto-enables --force so a second run reconfigures instead of erroring.
- * init preserves history/state files on --force, so re-running is safe (#26).
+ * `code-evolve setup` — `init` that is **re-runnable**: on an already-initialized repo it
+ * auto-enables --force so a second run reconfigures instead of erroring. init preserves
+ * history/state files on --force, so re-running is safe (#26). Guided onboarding (vision,
+ * spec, schedule) is the evolve-setup skill's job since its TTY wizard was retired (#97).
  */
 export const setupCommand = new Command('setup')
-  .description('Guided onboarding wizard: agent → interview → mode → schedule → ready')
+  .description('Install or reconfigure code-evolve from flags (re-runnable init); the evolve-setup skill onboards')
   .option('--with-ci', 'Install GitHub Actions workflows')
   .option('--force', 'Reconfigure even if .evolve/ already exists')
   .option('--agent <name>', 'Agent backend to use (claude, codex, opencode, ollama, custom)', 'claude')
@@ -21,7 +20,8 @@ export const setupCommand = new Command('setup')
   .option('--mode <mode>', 'Execution mode: local, ci, both, or native (the agent\'s own scheduler)')
   .option('--every <hours>', 'Evolution cadence in hours (1–24)')
   .action(async (options: InitOptions) => {
-    console.log('🌱 code-evolve setup — one guided flow from nothing to a ready-to-evolve repo.\n');
+    console.log('🌱 code-evolve setup — installs or reconfigures code-evolve from your flags.');
+    console.log('   To have your agent draft the vision and spec and pick a schedule, run `npx code-evolve`.\n');
     // Re-runnable: a second setup on an existing repo reconfigures rather than
     // aborting. init preserves JOURNAL/LEARNINGS/etc. under --force.
     if (isInitialized()) options.force = true;

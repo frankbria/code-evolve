@@ -16,6 +16,7 @@ run_agent() {
     local timeout_cmd="$3"
     local timeout="$4"
 
+    # A draft (code-evolve migrate --ai) sets EVOLVE_AGENT_REPLY_FILE for the bare reply; cycles do not.
     # NOTE: --sandbox workspace-write lets the agent edit the repo + run most
     # build/test steps, but blocks network and out-of-workspace writes. Upgrade path:
     # swap for --dangerously-bypass-approvals-and-sandbox in externally-sandboxed CI.
@@ -23,5 +24,6 @@ run_agent() {
         --model "$model" \
         --sandbox workspace-write \
         --skip-git-repo-check \
+        ${EVOLVE_AGENT_REPLY_FILE:+--output-last-message "$EVOLVE_AGENT_REPLY_FILE"} \
         < "$prompt_file" 2>&1
 }

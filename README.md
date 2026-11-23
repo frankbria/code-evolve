@@ -87,16 +87,9 @@ This creates `.evolve/` with templates for your vision and spec.
 
 ### 2. Define your vision and spec
 
-You have three options — pick the one that fits:
+**Option A: Let your agent draft them** (recommended)
 
-**Option A: Guided interview** (recommended for first-timers)
-
-```bash
-code-evolve vision
-code-evolve spec
-```
-
-`vision` runs five rounds of Socratic questions — what you're building, who it's for, what problem it solves, and what success looks like. `spec` then interviews you on tech stack, architecture, and a prioritized feature checklist. When an agent is configured (see [Multi-Agent Support](#multi-agent-support)), your configured LLM drafts the `.evolve/vision.md` / `.evolve/spec.md` from your answers and you can accept it or ask for a refinement; with no agent configured it falls back to a built-in template. Re-run either with `--refine` to revisit prior answers.
+Invoke the `evolve-setup` skill in your agent (`/evolve-setup` in Claude Code, `$evolve-setup` in Codex). It reads the repository, drafts both files, and asks at most five questions. (The old `code-evolve vision` and `code-evolve spec` interviews are retired; they now print this pointer.)
 
 **Option B: Write both files directly**
 
@@ -136,22 +129,16 @@ If you already have a PRD, technical spec, or README with features listed:
 # Convert an existing spec document into code-evolve format
 code-evolve migrate spec ./docs/technical-spec.md
 
-# AI-powered conversion (deeper analysis, cross-references your codebase)
+# Drafted by your configured agent (deeper analysis, cross-references your codebase)
 code-evolve migrate spec ./PRD.md --ai
 
 # Convert an existing overview into vision format
 code-evolve migrate vision ./docs/overview.md
 ```
 
-The `migrate` command extracts features, tech stack, and architecture from your existing docs and formats them for code-evolve. Use `--ai` for smarter conversion that checks which features are already implemented.
+The `migrate` command extracts features, tech stack, and architecture from your existing docs and formats them for code-evolve. Use `--ai` for smarter conversion that checks which features are already implemented: it runs the agent the project is set up for (`.evolve/config.json`), through the same adapter as a cycle, so that agent's CLI and key (or login) must be ready.
 
-You can also run the guided interview to refine an existing vision:
-
-```bash
-code-evolve vision --refine
-```
-
-This loads your current `.evolve/vision.md` and walks you through each section, showing your previous answers so you can update or keep them.
+To refine an existing vision or spec, run the `evolve-setup` skill again: it keeps what you wrote and fills in what is missing.
 
 ### 3. Review and start
 
@@ -203,10 +190,9 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 
 | Command | What it does |
 |---------|-------------|
-| `code-evolve setup` | Guided wizard: agent → interview → mode → schedule → ready (re-runnable) |
+| `code-evolve setup` | `init` that is safe to re-run: reconfigures an existing install from flags |
 | `code-evolve init` | Scaffold `.evolve/` with vision and spec templates |
-| `code-evolve vision` | Guided Socratic interview to generate `.evolve/vision.md` |
-| `code-evolve spec` | Guided interview to generate `.evolve/spec.md` |
+| `code-evolve vision`, `code-evolve spec` | Retired: print a pointer to the `evolve-setup` skill (removed in a later release) |
 | `code-evolve migrate` | Convert an existing spec/vision document into code-evolve format |
 | `code-evolve start` | Turn on the evolution engine (local cron) |
 | `code-evolve stop` | Pause evolution |
@@ -218,22 +204,20 @@ All commands are available as both `code-evolve <cmd>` and `ce <cmd>`.
 
 ### `setup`
 
-The one-command front door for new projects. On a terminal it chains the whole
-onboarding flow — agent + auth picker, vision + spec interview, execution mode
-(local/ci/both/native), and schedule — then installs everything and tells you you're
-live. Re-run it any time to reconfigure; it honors your existing config and
-preserves evolution history.
+`init` that you can re-run: on an existing install it reconfigures from the flags you
+pass, honours the rest of your config, and preserves evolution history. It asks nothing;
+for guided onboarding (vision, spec, schedule), run `npx code-evolve`, which opens your
+agent on the `evolve-setup` skill.
 
 ```bash
-code-evolve setup            # guided: nothing → fully configured, ready to evolve
-code-evolve setup --agent codex --mode ci --every 6   # same flags as init, non-interactive
+code-evolve setup --agent codex --mode ci --every 6   # same flags as init
 ```
 
 ### `init`
 
 ```bash
-code-evolve init                          # on a terminal, prompts for agent + auth (Claude/api-key by default)
-code-evolve init --agent codex            # skip the prompt; use Codex CLI
+code-evolve init                          # Claude with an API key unless flags say otherwise; never prompts
+code-evolve init --agent codex            # use Codex CLI
 code-evolve init --auth-mode oauth        # use Claude subscription (claude login) instead of API key
 code-evolve init --with-ci               # also install GitHub Actions for cloud evolution
 code-evolve init --mode both             # choose where evolution runs: local | ci | both | native (persisted in config)
@@ -241,32 +225,15 @@ code-evolve init --mode ci --every 6     # run every 6 hours (applies to both th
 code-evolve init --force                 # upgrade framework files (preserves journal + learnings)
 ```
 
-`--mode` is the unified execution-mode selector (also offered as an interactive prompt on a terminal). `local` installs a local cron job, `ci` installs the GitHub Actions workflows, `both` does both, and `native` installs neither because [your agent's own scheduler](#local-vs-cloud) runs the cycles; the choice is persisted in `.evolve/config.json` and shown by `code-evolve status`. `--with-ci` remains as an alias for `--mode ci`. When `local`/`both` is chosen but the agent's API key isn't set yet, the cron job is deferred — set the key and run `code-evolve start`.
+`--mode` is the unified execution-mode selector. `local` installs a local cron job, `ci` installs the GitHub Actions workflows, `both` does both, and `native` installs neither because [your agent's own scheduler](#local-vs-cloud) runs the cycles; the choice is persisted in `.evolve/config.json` and shown by `code-evolve status`. `--with-ci` remains as an alias for `--mode ci`. When `local`/`both` is chosen but the agent's API key isn't set yet, the cron job is deferred — set the key and run `code-evolve start`.
 
-`--every <hours>` (1–24, default 4) sets the evolution cadence and is applied to **both** targets: the installed GitHub Actions `cron:` and the local cron entry. On a terminal it's also offered as a prompt when a schedule is being installed.
-
-### `vision`
-
-```bash
-code-evolve vision           # guided interview to create .evolve/vision.md
-code-evolve vision --refine  # revisit and improve an existing vision.md
-```
-
-### `spec`
-
-```bash
-code-evolve spec           # guided interview to create .evolve/spec.md
-code-evolve spec --refine  # revisit and improve an existing spec.md
-```
-
-On a terminal, `code-evolve init` offers to run the `vision` and `spec`
-interviews for you right after install — decline to edit the files by hand instead.
+`--every <hours>` (1–24, default 4) sets the evolution cadence and is applied to **both** targets: the installed GitHub Actions `cron:` and the local cron entry.
 
 ### `migrate`
 
 ```bash
 code-evolve migrate spec ./docs/technical-spec.md     # regex extraction (no API key needed)
-code-evolve migrate spec ./PRD.md --ai                # AI-powered conversion via claude CLI
+code-evolve migrate spec ./PRD.md --ai                # drafted by the agent in .evolve/config.json
 code-evolve migrate vision ./docs/overview.md         # convert to vision.md format
 code-evolve migrate spec ./README.md --ai --yes       # skip confirmation prompt
 ```
@@ -285,7 +252,7 @@ code-evolve start --model claude-opus-4-6  # use a different model
 ```
 my-project/
 ├── .evolve/
-│   ├── vision.md          ← you write this (or use `code-evolve vision`)
+│   ├── vision.md          ← you write this (or the evolve-setup skill drafts it)
 │   ├── spec.md            ← you write this (or use `code-evolve migrate`)
 │   ├── config.json        ← agent and model settings
 │   ├── nested-projects.txt ← optional: nested projects to verify next to a root project

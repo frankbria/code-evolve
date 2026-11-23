@@ -1,4 +1,3 @@
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -115,24 +114,6 @@ ${sections.users || '<!-- Who is this for? -->'}
 ## Success Criteria
 ${sections.success || '<!-- What does success look like? -->'}
 `;
-}
-
-/**
- * Spawn the claude CLI binary with a prompt and return the output.
- */
-export function generateWithClaude(prompt: string): string {
-  try {
-    const result = execSync('claude -p --output-format text', {
-      input: prompt,
-      encoding: 'utf8',
-      timeout: 120_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return result.trim();
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Claude CLI failed: ${message}`);
-  }
 }
 
 /**
