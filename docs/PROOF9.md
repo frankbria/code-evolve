@@ -1,6 +1,6 @@
 # PROOF9: A Quality Memory System for Agentic Coding
 
-Last updated: 2026-04-03
+Last updated: 2026-11-22
 
 ---
 
@@ -26,21 +26,23 @@ The result is **quality compounding interest**. Over time, the system becomes ha
 
 PROOF9 defines nine categories of evidence that code must produce. Not every change triggers all nine -- the system uses scope selectors to determine which gates are relevant.
 
-| Gate | What It Proves |
-|------|----------------|
-| **UNIT** | Logic correctness |
-| **CONTRACT** | API and integration contracts hold |
-| **E2E** | User journeys work end-to-end |
-| **VISUAL** | UI renders correctly |
-| **A11Y** | Accessible to all users |
-| **PERF** | Performance within budget |
-| **SEC** | No security vulnerabilities |
-| **DEMO** | Feature demonstrably works |
-| **MANUAL** | Human-verified (tracked waiver with expiry) |
+| Gate | What It Proves | How `proof run` checks it |
+|------|----------------|---------------------------|
+| **UNIT** | Logic correctness | The first that exists of `npm test`, `pytest`, `cargo test`, `go test ./...` |
+| **BUILD** | The project builds | `npm run build`, `tsc --noEmit`, `python -m build`, `cargo build` or `go build ./...` |
+| **LINT** | Lint and format rules hold | `npm run lint`, `ruff check .`, `eslint .` or `golangci-lint run` |
+| **CONTRACT** | API and integration contracts hold | No automated check yet: recorded, not run |
+| **E2E** | User journeys work end-to-end | No automated check yet |
+| **SEC** | No known vulnerable dependencies | `npm audit --audit-level=high`, `pip-audit` or `cargo audit` |
+| **PERF** | Performance within budget | No automated check yet |
+| **DEMO** | Feature demonstrably works | No automated check yet |
+| **MANUAL** | Human-verified (tracked waiver with expiry) | Waived with `code-evolve proof waive` |
+
+When UNIT, BUILD, LINT or SEC finds none of its tools on the machine, the gate is reported as not evaluated (exit 2), not as passed.
 
 ### Scope Selectors
 
-Not every task triggers all nine gates. The system uses **scope selectors** -- routes, components, APIs, files -- to determine which requirements intersect with the current change and runs only the relevant obligations. A backend API change does not trigger VISUAL or A11Y gates; a CSS-only change does not trigger CONTRACT.
+Not every task triggers all nine gates. The system uses **scope selectors** -- routes, components, APIs, files -- to determine which requirements intersect with the current change and runs only the relevant obligations. A change to an API route adds CONTRACT; a change that touches no API file does not.
 
 ---
 

@@ -23,6 +23,7 @@ code-evolve/                  # npm package source
 ├── package.json              # npm package config (bin: code-evolve, ce)
 ├── tsconfig.json             # TypeScript config
 ├── jest.config.js            # Jest (ts-jest) config
+├── README.md, INSTALL.md     # User docs (quickstart, install and troubleshooting); CHANGELOG.md
 ├── src/                      # CLI source (TypeScript)
 │   ├── cli.ts                # Entrypoint (commander)
 │   ├── commands/             # One file per subcommand (see Commands below)
@@ -100,13 +101,39 @@ Installation and publishing are documented in [INSTALL.md](INSTALL.md).
 
 ## How It Works (User Perspective)
 
-1. User runs `code-evolve init` in their project
-2. Creates `.evolve/` with scripts, skills, state files
-3. Creates `vision.md` and `spec.md` templates in `.evolve/`
-4. User fills in vision and spec
-5. `code-evolve run` executes one evolution cycle via `.evolve/scripts/evolve.sh`
-6. `evolve.sh` invokes the configured agent CLI to read vision/spec, build features, verify, commit
-7. Optionally: `--with-ci` (or `--mode ci`) installs GitHub Actions for auto-evolution
+1. The user starts from one of four doors: `npx code-evolve` in a terminal, the Claude Code plugin,
+   the Codex (Agent Plugins) plugin, or `npx skills add frankbria/code-evolve` for any other agent.
+2. Every door ends in the `evolve-setup` operator skill. It runs `init --yes` (the materializer),
+   drafts `.evolve/vision.md` and `.evolve/spec.md` from the repository, asks at most five
+   questions, and sets up how cycles run: cron (`start`), GitHub Actions (`--mode ci`), the agent's
+   own scheduler (`--mode native` + the `evolve-run` skill), in-session, or `code-evolve run`.
+3. Each cycle runs `.evolve/scripts/evolve.sh`: the agent reads the vision and spec, builds the
+   next feature, the engine verifies it (reverting on failure), journals, commits, tags and pushes.
+
+## Architecture
+
+- **One engine, thin shells.** `.evolve/` (engine + state) is vendored into the user's repository,
+  so CI, collaborators and headless agents work with no plugin installed. Plugins and skills are
+  entry points to it, not a second engine.
+- **Materializer.** `init` (which `setup` and `upgrade` call) is the only code that writes the install: `.evolve/` from `templates/`,
+  the operator skills into `.claude/skills/` and `.agents/skills/`, a managed section in the
+  project's `AGENTS.md`/`CLAUDE.md`, `.gitignore` lines, and optionally the workflows or a cron job.
+  `init` never prompts (#97); `upgrade` replaces only the managed files (#88).
+- **Engine phases.** `evolve.sh cycle` (the default) is the headless run through an adapter in
+  `templates/scripts/agents/` (claude, codex, opencode, ollama, custom). `prepare` / `verify` /
+  `finalize --no-agent` let an agent drive a cycle from inside its own session (`evolve-run`),
+  with state in `.evolve/run/`.
+- **Two kinds of skills.** Operator skills (`plugins/code-evolve/skills/`: `evolve-setup`,
+  `evolve-run`, `evolve-status`) are for the user's agent; init copies them into the project.
+  Runtime skills (`templates/skills/`) are for the cycle's agent and are indexed into the cycle prompt.
+- **Manifests.** `plugins/code-evolve/.claude-plugin/plugin.json` (Claude Code) and
+  `plugins/code-evolve/plugin.json` (Agent Plugins 1.0, with OpenAI listing metadata under
+  `extensions["com.openai"]`) describe the same plugin folder; `.claude-plugin/marketplace.json` at
+  the root makes the repository its own marketplace. `npm version` keeps both manifest versions in
+  step with `package.json` (`scripts/sync-plugin-version.js`; CI runs it with `--check`).
+- **Hooks** (`plugins/code-evolve/hooks/`): a PreToolUse guard for protected files and a
+  SessionStart nudge (set up, or upgrade on version drift). The engine's restore after every agent
+  call is the enforcement; the hook only stops edits earlier.
 
 ## Key Design Decisions
 

@@ -1,8 +1,9 @@
 # Installing code-evolve
 
 This guide covers installing the `code-evolve` CLI, wiring up an AI agent, and
-verifying it works. For what the tool does and how the evolution loop runs, see
-the [README](README.md).
+verifying it works. For what the tool does, the plugin installs for Claude Code and Codex, and how
+the evolution loop runs, see the [README](README.md) (start with its Quickstart). You do not need to
+install anything globally to use the plugins: their `evolve-setup` skill runs `npx code-evolve init`.
 
 ---
 
@@ -14,7 +15,7 @@ the [README](README.md).
 | **Git** | The engine commits each cycle | `git --version` |
 | **Python 3** | `format_issues.py` sanitizes GitHub issue input | `python3 --version` |
 | **An AI coding agent CLI** | Does the actual building (see below) | `claude --version` |
-| **An API key** | Auth for your agent (not needed for Ollama, or for Claude in OAuth mode) | — |
+| **An API key or a login** | Auth for your agent: an API key, a Claude subscription (`--auth-mode oauth`) or a ChatGPT login for Codex (`--auth-mode chatgpt`); Ollama needs neither | — |
 
 ### Supported agents
 
@@ -38,8 +39,8 @@ Pick the method that fits how you'll use it.
 Run it on demand; npm fetches the latest published version each time:
 
 ```bash
-npx code-evolve init
-npx code-evolve setup
+npx code-evolve          # install .evolve/, then open your agent on the evolve-setup skill
+npx code-evolve init     # or only install .evolve/ (never prompts; flags choose the agent and schedule)
 ```
 
 ### Option B — Global install
@@ -57,7 +58,7 @@ Upgrade later with:
 
 ```bash
 npm update -g code-evolve
-ce init --force          # refresh framework files, preserves journal + learnings
+ce upgrade               # replace the managed engine files, keep your vision, spec, journal and config
 ```
 
 ### Option C — From source (contributors)
@@ -94,9 +95,11 @@ Two auth modes:
 ### Codex / OpenCode
 
 ```bash
-export OPENAI_API_KEY=sk-...        # Codex
-# OpenCode: set the provider key your OpenCode config expects
-code-evolve init --agent codex      # or --agent opencode
+export OPENAI_API_KEY=sk-...        # Codex with an API key
+code-evolve init --agent codex      # or --agent opencode (set the provider key your OpenCode config expects)
+
+code-evolve init --agent codex --auth-mode chatgpt   # Codex with your ChatGPT login instead
+codex login
 ```
 
 ### Ollama (no API key)

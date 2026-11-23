@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Docs for the plugin-first story** (#96): the README opens with a Quickstart (four doors that all
+  end in `evolve-setup`, how cycles run, and stop / upgrade / eject); its Safety section says what
+  the engine enforces (protected files are restored after every agent call; a journal entry every
+  session) instead of claiming an append-only journal. PROOF9's gate list matches the code (BUILD
+  and LINT, not VISUAL and A11Y) and says which gates `proof run` checks. AGENTS.md gains an
+  Architecture section; INSTALL.md and docs/STATUS.md describe the current flow.
 - **The TTY wizard is retired** (#97): `init` and `setup` never prompt (no agent, auth, mode or
   interval pickers, no interview offer); their flags are unchanged and choose what the pickers did.
   `code-evolve vision` and `code-evolve spec` print a pointer to the `evolve-setup` skill and change
