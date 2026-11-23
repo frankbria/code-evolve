@@ -267,7 +267,7 @@ code-evolve init --auth-mode oauth        # use Claude subscription (claude logi
 code-evolve init --with-ci               # also install GitHub Actions for cloud evolution
 code-evolve init --mode both             # choose where evolution runs: local | ci | both | native (persisted in config)
 code-evolve init --mode ci --every 6     # run every 6 hours (applies to both the CI cron and the local job)
-code-evolve init --force                 # upgrade framework files (preserves journal + learnings)
+code-evolve init --force                 # reinstall over .evolve/ with new flags (keeps vision, spec, journal, learnings); `upgrade` updates the engine
 ```
 
 `--mode` is the unified execution-mode selector. `local` installs a local cron job, `ci` installs the GitHub Actions workflows, `both` does both, and `native` installs neither because [your agent's own scheduler](#local-vs-cloud) runs the cycles; the choice is persisted in `.evolve/config.json` and shown by `code-evolve status`. `--with-ci` remains as an alias for `--mode ci`. When `local`/`both` is chosen but the agent's API key isn't set yet, the cron job is deferred — set the key and run `code-evolve start`.

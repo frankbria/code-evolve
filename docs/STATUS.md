@@ -37,6 +37,9 @@ to a committed first cycle ([#85](https://github.com/frankbria/code-evolve/issue
 ## Open work
 
 See the [open issues](https://github.com/frankbria/code-evolve/issues). At this update:
-[#100](https://github.com/frankbria/code-evolve/issues/100) (prepare the Codex plugin for OpenAI's
-public plugin directory) and [#8](https://github.com/frankbria/code-evolve/issues/8) (AI video
-demos of evolution sessions, future).
+[#187](https://github.com/frankbria/code-evolve/issues/187) (headless Codex on a ChatGPT login
+fails on the default model), [#100](https://github.com/frankbria/code-evolve/issues/100) (prepare
+the Codex plugin for OpenAI's public plugin directory), which the epic
+[#99](https://github.com/frankbria/code-evolve/issues/99) still lists, and
+[#8](https://github.com/frankbria/code-evolve/issues/8) (AI video demos of evolution sessions,
+future).
