@@ -543,7 +543,7 @@ Issue content is treated as untrusted input. The agent analyzes intent but write
 
 The agent is powerful but constrained:
 
-- **Protected files** — `IDENTITY.md`, the engine (`.evolve/scripts/`, `.evolve/skills/`) and the evolve workflows are restored by the engine after every agent call, whatever the agent did to them; the list is `.evolve/scripts/protected-paths.txt`. The plugins' hook also stops edits to them earlier, in Claude Code and Codex
+- **Protected files** — `IDENTITY.md`, the engine (`.evolve/scripts/`, `.evolve/skills/`) and the evolve workflows are restored by the engine after every agent call, whatever the agent did to them; the list is `.evolve/scripts/protected-paths.txt`. The plugins' hook also stops edits to them earlier: in Claude Code, and in Codex once you have approved the hook in `/hooks`
 - **Build verification** — every change must pass build + tests or it gets reverted
 - **Automatic rollback** — 3 failed fix attempts = full revert to pre-session state (the lessons the session wrote to `LEARNINGS.md` are kept)
 - **Prompt injection defense** — random boundary markers, HTML comment stripping, body truncation on all issue content

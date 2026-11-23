@@ -38,7 +38,7 @@ PROOF9 defines nine categories of evidence that code must produce. Not every cha
 | **DEMO** | Feature demonstrably works | No automated check yet |
 | **MANUAL** | Human-verified (tracked waiver with expiry) | Waived with `code-evolve proof waive` |
 
-A gate with no tool on the machine is reported as not evaluated (exit 2), not as passed.
+When UNIT, BUILD, LINT or SEC finds none of its tools on the machine, the gate is reported as not evaluated (exit 2), not as passed.
 
 ### Scope Selectors
 
