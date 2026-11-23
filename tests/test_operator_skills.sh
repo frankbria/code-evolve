@@ -145,7 +145,8 @@ grep -qF 'npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm"' <<<"$basics_sectio
     || bad "evolve-setup's basics do not cover Codex's read-only ~/.npm and offline npx hang"
 status_skill="$ROOT/plugins/code-evolve/skills/evolve-status/SKILL.md"
 grep -qF 'npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm"' "$status_skill" && grep -qF 'CODEX_SANDBOX_NETWORK_DISABLED' "$status_skill" \
-    && grep -qF '.evolve/config.json' "$status_skill" \
+    && grep -qF '.evolve/config.json' "$status_skill" && grep -qF 'every command of this skill' "$status_skill" \
+    && grep -qF '.evolve/REQUIREMENTS.md' "$status_skill" \
     && ok "evolve-status runs status the same way under Codex and falls back to the files offline" \
     || bad "evolve-status runs npx code-evolve status as-is, which hangs in Codex's offline sandbox"
 grep -qF 'npm_config_cache=' "$ROOT/README.md" && grep -qF '/.npm"]' "$ROOT/README.md" \
