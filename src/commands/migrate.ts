@@ -64,8 +64,9 @@ export const migrateCommand = new Command('migrate')
       const drafted = draftWithAgent(prompt);
       if (drafted === null) {
         console.error(
-          `AI conversion failed: the ${agent} agent could not draft it (its adapter is missing, ` +
-            'its API key is not set, or the call failed). Run `code-evolve init` first, or drop --ai for regex extraction.',
+          `AI conversion failed: the ${agent} agent could not draft it (its adapter is missing or older than this ` +
+            'code-evolve, its API key is not set, or the call failed). Run `code-evolve init` (or `code-evolve upgrade`) ' +
+            'first, or drop --ai for regex extraction.',
         );
         process.exit(3);
       }

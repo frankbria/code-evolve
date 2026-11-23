@@ -81,6 +81,42 @@ project="$(new_project claude-project claude)"
     && ok "vision.md holds claude's result and none of the rendered log" \
     || bad "vision.md is not claude's bare result: $(head -4 "$project/.evolve/vision.md" | tr '\n' '|')"
 
+# ── A failed draft is never written as the document ──
+draft_fails() {  # <label> <project> <env assignment> : migrate must fail and leave vision.md alone
+    local before; before="$(cat "$2/.evolve/vision.md")"
+    if ( cd "$2" && env $3 node "$CLI" migrate vision doc.md --ai --yes </dev/null >"$work/out.txt" 2>&1 ); then
+        bad "$1: migrate --ai succeeded"
+    elif [ "$(cat "$2/.evolve/vision.md")" != "$before" ]; then
+        bad "$1: vision.md was changed"
+    else
+        ok "$1: migrate --ai fails and leaves vision.md alone"
+    fi
+}
+# claude dies with only an error on stderr: the stream renderer exits 0 on it, so pipefail must carry claude's status.
+cat > "$stubs/claude-dies" <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "claude 0.0.0-stub"; exit 0; }
+cat >/dev/null; echo "Error: overloaded" >&2; exit 1
+EOF
+chmod +x "$stubs/claude-dies"
+ln -sf "$stubs/claude-dies" "$work/claude"
+draft_fails "claude exits non-zero" "$project" "PATH=$work:$PATH ANTHROPIC_API_KEY=stub-key"
+# An adapter from before the reply file (or a reply it never wrote) must not hand back its log instead.
+cat > "$work/codex" <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "codex-cli 0.0.0-stub"; exit 0; }
+cat >/dev/null; echo "OpenAI Codex (stub) transcript line"; exit 0
+EOF
+chmod +x "$work/codex"
+codex_project="$work/codex-project"
+draft_fails "codex writes no reply" "$codex_project" "PATH=$work:$PATH OPENAI_API_KEY=stub-key"
+# A custom agent that prints its configured error pattern but exits 0.
+custom_project="$work/custom-project"; mkdir -p "$custom_project"
+printf '#!/bin/bash\ncat >/dev/null\necho "QUOTA_EXCEEDED for today"\n' > "$stubs/mycli"; chmod +x "$stubs/mycli"
+( cd "$custom_project" && git init -q && node "$CLI" init --yes --agent custom --agent-command "mycli" --agent-error-pattern "QUOTA_EXCEEDED" </dev/null >/dev/null 2>&1 )
+printf '# Notes\n' > "$custom_project/doc.md"
+draft_fails "a custom agent's error pattern matches" "$custom_project" "PATH=$PATH"
+
 # ── The retired interviews point to evolve-setup and change nothing ──
 for command in vision "spec --refine"; do
     before="$(cat "$project/.evolve/vision.md" "$project/.evolve/spec.md")"
