@@ -115,7 +115,7 @@ Installation and publishing are documented in [INSTALL.md](INSTALL.md).
 - **One engine, thin shells.** `.evolve/` (engine + state) is vendored into the user's repository,
   so CI, collaborators and headless agents work with no plugin installed. Plugins and skills are
   entry points to it, not a second engine.
-- **Materializer.** `init` is the only thing that writes the install: `.evolve/` from `templates/`,
+- **Materializer.** `init` (which `setup` and `upgrade` call) is the only code that writes the install: `.evolve/` from `templates/`,
   the operator skills into `.claude/skills/` and `.agents/skills/`, a managed section in the
   project's `AGENTS.md`/`CLAUDE.md`, `.gitignore` lines, and optionally the workflows or a cron job.
   `init` never prompts (#97); `upgrade` replaces only the managed files (#88).

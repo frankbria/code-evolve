@@ -99,7 +99,7 @@ Then ask it to use the `evolve-setup` skill. Setup runs `npx code-evolve init`, 
 
 ### How cycles run
 
-`evolve-setup` offers these and installs the one you pick (details in [Local vs. Cloud](#local-vs-cloud)):
+`evolve-setup` offers these and sets up the one you pick; the last two need nothing installed (details in [Local vs. Cloud](#local-vs-cloud)):
 
 - **A local schedule:** `npx code-evolve start --every <hours>` adds a cron job on your machine.
 - **GitHub Actions:** `npx code-evolve init --yes --mode ci --every <hours>` adds the workflows; the repository needs your agent's API key as a secret.
@@ -112,7 +112,7 @@ Then ask it to use the `evolve-setup` skill. Setup runs `npx code-evolve init`, 
 ```bash
 npx code-evolve status           # day, spec progress, schedule, open requirements
 npx code-evolve stop             # remove the local schedule
-npx code-evolve@latest upgrade   # replace the engine with the latest version, keep your files
+npx code-evolve@latest upgrade   # replace the engine with the latest version, keep your files (needs a clean git tree)
 npx code-evolve eject --yes      # remove code-evolve, keep everything it built
 ```
 
