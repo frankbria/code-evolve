@@ -15,7 +15,8 @@ metadata:
    `npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm"` in front (the sandbox keeps `~/.npm`
    read-only), and add `--offline` after `npx` when `echo "$CODEX_SANDBOX_NETWORK_DISABLED"` prints
    `1` (without it, npx waits until the command times out). If status still cannot run, say so and
-   report from the files it reads: `.evolve/config.json` (mode, `engineVersion`), the checkboxes in
+   report from the files it reads: `.evolve/DAY_COUNT` and `.evolve/.birth_date` (day), `.evolve/schedule.json`
+   (the local schedule), `.evolve/config.json` (mode, `engineVersion`), the checkboxes in
    `.evolve/spec.md`, the `## REQ-` entries and their status in `.evolve/REQUIREMENTS.md`,
    `.evolve/run/` (a cycle prepared and not finalized), and `.evolve/JOURNAL.md`.
 2. Summarize in a few sentences: the day count and spec progress, how cycles run (`schedule` is the
