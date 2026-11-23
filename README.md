@@ -65,7 +65,7 @@ Then start Codex in your project and run `$code-evolve:evolve-setup` (Codex name
 
 **Codex sandbox notes.** Under `codex exec -s workspace-write` (and the default interactive sandbox):
 - Setup needs network once for `npx`: start Codex with `-c sandbox_workspace_write.network_access=true`, or run `npx code-evolve init --yes --agent codex` in a terminal first.
-- The sandbox also keeps `~/.npm` read-only, so `npx` fails with `EROFS` even with network access. `evolve-setup` moves npm's cache to `$TMPDIR` on its own. To run `npx` yourself inside Codex, do the same (`npm_config_cache="$TMPDIR/npm" npx code-evolve ...`), or make `~/.npm` writable too: `-c 'sandbox_workspace_write.writable_roots=["'"$HOME"'/.npm"]'`.
+- The sandbox also keeps `~/.npm` read-only, so `npx` fails with `EROFS` even with network access. `evolve-setup` moves npm's cache under `${TMPDIR:-/tmp}` on its own. To run `npx` yourself inside Codex, do the same (`npm_config_cache="${TMPDIR:-/tmp}/npm" npx code-evolve ...`), or make `~/.npm` writable too: `-c 'sandbox_workspace_write.writable_roots=["'"$HOME"'/.npm"]'`.
 - Without network, `npx` waits until the command times out rather than failing; `npx --offline` fails at once instead.
 - `.agents/` is read-only, so init reports the project skill copies there as left alone; the plugin's skills still work.
 - A cycle commits and tags, so grant write access to the repository's git directory only: `-c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]'` (the engine prints the exact line if it is missing).
