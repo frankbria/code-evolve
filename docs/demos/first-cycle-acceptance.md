@@ -616,6 +616,36 @@ directories behind (the sandbox's mount points for paths it keeps read-only). Re
 running this repository's tests: `test_session_nudge.sh` creates its non-repository under `/tmp`
 and then finds `/tmp/.git`.
 
+## Codex: npx inside the sandbox (2026-11-22)
+
+For [#182](https://github.com/frankbria/code-evolve/issues/182), on codex-cli 0.169.0 (ChatGPT
+login) and npm 9.2.0. One probe script ran inside `codex exec -s workspace-write`, with and without
+`-c sandbox_workspace_write.network_access=true`:
+
+| Command | No network | Network |
+|---|---|---|
+| `npx code-evolve --version` (cache in `~/.npm`) | waits until killed | fails: `~/.npm` is read-only |
+| `npm_config_cache=$TMPDIR/... npx -y code-evolve@0.3.1 --version` | waits until killed, even with that cache warm | `0.3.1` in 1 s |
+| `npx --offline code-evolve --version`, nothing cached | `ENOTCACHED` at once | |
+| `npm_config_cache=<warm cache> npx --offline code-evolve --version` | `0.3.1` in 1 s | |
+
+`CODEX_SANDBOX_NETWORK_DISABLED` is `1` without network access and unset with it. So
+`evolve-setup` now runs `npx` with npm's cache under `$TMPDIR` under Codex, and adds `--offline`
+when that variable is `1`.
+
+The issue's repro, with the plugin installed from a build of the #182 branch (in a separate
+`CODEX_HOME`, so the user's own Codex config was not touched), on an empty `git init` repository
+with no `.evolve/` and **only** network access, no `~/.npm` writable root:
+
+```
+codex exec -s workspace-write -c sandbox_workspace_write.network_access=true --json '$code-evolve:evolve-setup <the uconv idea>. This run is unattended; nobody will reply.' </dev/null
+```
+
+The agent ran `npm_config_cache=/tmp/code-evolve-npm npx -y code-evolve@0.3.1 init --yes --agent codex`,
+and init succeeded. Its later `npx code-evolve status` printed the JSON status instead of hanging.
+Setup finished in on-demand mode with no question. The idea began "Build uconv", and the agent
+read that as a request to build it: it wrote `uconv.py` and tests during setup, outside a cycle.
+
 ## Defects found
 
 | Issue | What |
