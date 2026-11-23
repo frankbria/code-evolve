@@ -129,7 +129,7 @@ done
     && ok "evolve-setup names checkable signs of a run nobody can answer" || bad "evolve-setup's headless section lacks:${missing_signs:- the section itself}"
 # Codex (#183): its sandbox hides the parent process, and exec and the TUI set the same variables,
 # so the ps hint must not be offered to Codex, and a documented `codex exec` setup must say it is unattended.
-ps_hint_line=$(grep -F 'ps -o args= -p $PPID' <<<"$headless_section")
+ps_hint_line=$(grep -F 'ps -o args= -p $PPID' <<<"$headless_section" || true)
 grep -qF 'Claude Code or OpenCode' <<<"$ps_hint_line" && grep -qF 'codex-linux-sandbox' <<<"$headless_section" \
     && ok "evolve-setup keeps the ps hint to Claude Code and OpenCode and says why Codex cannot use it" \
     || bad "evolve-setup offers Codex the ps hint, which shows codex-linux-sandbox under codex exec"
