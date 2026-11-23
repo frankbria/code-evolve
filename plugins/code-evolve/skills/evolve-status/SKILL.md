@@ -10,6 +10,15 @@ metadata:
 1. Run `npx code-evolve status`. When its output is not a terminal it prints JSON with `day`,
    `features` (total, done, partial, remaining), `mode`, `schedule`, `requirements` (open, regressed,
    satisfied, waived), `pendingSession`, `abandonedSession`, `engineVersion`, `engineDrift` and `lastEntry`.
+   If `command -v code-evolve` finds an installed CLI, run `code-evolve` instead of `npx code-evolve`
+   in every command of this skill. Otherwise, under Codex, run each `npx` command here with
+   `npm_config_cache="${TMPDIR:-/tmp}/code-evolve-npm"` in front (the sandbox keeps `~/.npm`
+   read-only), and add `--offline` after `npx` when `echo "$CODEX_SANDBOX_NETWORK_DISABLED"` prints
+   `1` (without it, npx waits until the command times out). If status still cannot run, say so and
+   report from the files it reads: `.evolve/DAY_COUNT` and `.evolve/.birth_date` (day), `.evolve/schedule.json`
+   (the local schedule), `.evolve/config.json` (mode, `engineVersion`), the checkboxes in
+   `.evolve/spec.md`, the `## REQ-` entries and their status in `.evolve/REQUIREMENTS.md`,
+   `.evolve/run/` (a cycle prepared and not finalized), and `.evolve/JOURNAL.md`.
 2. Summarize in a few sentences: the day count and spec progress, how cycles run (`schedule` is the
    local cron; `mode` `ci` or `both` means GitHub Actions also runs them; `mode` `native` means the
    user set up the agent's own scheduler, which code-evolve cannot see, so judge whether it is
