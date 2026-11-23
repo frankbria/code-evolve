@@ -127,6 +127,15 @@ for sign in 'claude -p' 'codex exec' 'opencode run' 'CLAUDE_CODE_ENTRYPOINT' 'ps
 done
 [ -n "$headless_section" ] && [ -z "$missing_signs" ] \
     && ok "evolve-setup names checkable signs of a run nobody can answer" || bad "evolve-setup's headless section lacks:${missing_signs:- the section itself}"
+# Codex (#183): its sandbox hides the parent process, and exec and the TUI set the same variables,
+# so the ps hint must not be offered to Codex, and a documented `codex exec` setup must say it is unattended.
+ps_hint_line=$(grep -F 'ps -o args= -p $PPID' <<<"$headless_section")
+grep -qF 'Claude Code or OpenCode' <<<"$ps_hint_line" && grep -qF 'codex-linux-sandbox' <<<"$headless_section" \
+    && ok "evolve-setup keeps the ps hint to Claude Code and OpenCode and says why Codex cannot use it" \
+    || bad "evolve-setup offers Codex the ps hint, which shows codex-linux-sandbox under codex exec"
+grep -qF "evolve-setup This run is unattended; nobody will reply." "$ROOT/README.md" \
+    && ok "README's codex exec setup command tells the skill nobody will reply" \
+    || bad "README gives no codex exec setup command that says the run is unattended"
 grep -qF 'inside an agent session, or manually' <<<"$headless_section" && grep -qiF 'do not end with a question' <<<"$headless_section" \
     && ok "a headless setup settles on in-session or manual cycles and ends without a question" \
     || bad "evolve-setup does not say what a headless setup settles on, or that it must not end with a question"
