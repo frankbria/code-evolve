@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- **Publisher: Noatak Enterprises, LLC** (#191): the plugin's `author` and `developerName`, the
+  Claude plugin's `author` and the marketplace `owner` name Noatak Enterprises, LLC. Support,
+  privacy and terms pages for the OpenAI directory listing are in `docs/` (`support.md`,
+  `privacy.md`, `terms.md`), for GitHub Pages to serve from the `main` branch's `/docs` folder.
+  Support is through GitHub issues. The npm `author` and the LICENSE copyright are unchanged.
 - **Docs for the plugin-first story** (#96): the README opens with a Quickstart (four doors that all
   end in `evolve-setup`, how cycles run, and stop / upgrade / eject); its Safety section says what
   the engine enforces (protected files are restored after every agent call; a journal entry every

@@ -4,7 +4,7 @@
   "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status.",
   "icon": "./assets/logo.png",
   "author": {
-    "name": "Frank Bria"
+    "name": "Noatak Enterprises, LLC"
   },
   "homepage": "https://github.com/frankbria/code-evolve",
   "repository": "https://github.com/frankbria/code-evolve",

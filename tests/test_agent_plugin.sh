@@ -2,6 +2,7 @@
 # Test (#84): plugins/code-evolve/plugin.json is a valid Agent Plugins 1.0 manifest for Codex and other
 # clients, within OpenAI's listing limits, and scripts/pack-codex-plugin zips exactly the plugin directory.
 # Test (#100): `pack-codex-plugin --directory` builds the copy for OpenAI's public directory, without hooks.
+# Test (#191): every manifest names the publisher, Noatak Enterprises, LLC.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,6 +23,9 @@ check "displayName is at most 30 characters" "$(manifest 'ui.displayName.length 
 check "shortDescription is at most 30 characters" "$(manifest 'ui.shortDescription.length <= 30')" "true"
 check "longDescription is at most 4000 characters" "$(manifest 'ui.longDescription.length <= 4000')" "true"
 check "developerName is at most 80 characters" "$(manifest 'ui.developerName.length >= 1 && ui.developerName.length <= 80')" "true"
+check "every manifest names Noatak Enterprises, LLC as the publisher (#191)" \
+    "$(node -e "const r='$ROOT/';const a=require(r+'plugins/code-evolve/plugin.json'),c=require(r+'plugins/code-evolve/.claude-plugin/plugin.json'),k=require(r+'.claude-plugin/marketplace.json');console.log(JSON.stringify([a.author.name,a.extensions['com.openai'].interface.developerName,c.author.name,k.owner.name]))")" \
+    '["Noatak Enterprises, LLC","Noatak Enterprises, LLC","Noatak Enterprises, LLC","Noatak Enterprises, LLC"]'
 check "every listing URL is HTTPS, at most 1024 characters, without credentials" \
     "$(manifest '["websiteURL","supportURL","privacyPolicyURL","termsOfServiceURL"].filter(k => k in ui && !(ui[k].length <= 1024 && new URL(ui[k]).protocol === "https:" && !new URL(ui[k]).username))')" "[]"
 check "defaultPrompt has 1 to 3 single-line prompts of at most 128 characters" \
