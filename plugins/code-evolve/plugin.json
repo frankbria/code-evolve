@@ -4,7 +4,7 @@
   "version": "0.3.1",
   "description": "Set up, run and check a self-evolving codebase from inside your agent: evolve-setup, evolve-run and evolve-status.",
   "author": {
-    "name": "Frank Bria",
+    "name": "Noatak Enterprises, LLC",
     "url": "https://github.com/frankbria"
   },
   "homepage": "https://github.com/frankbria/code-evolve",
@@ -25,7 +25,7 @@
         "displayName": "code-evolve",
         "shortDescription": "Let your codebase evolve",
         "longDescription": "Turn a project into a self-evolving codebase. evolve-setup installs code-evolve and drafts the vision and spec with you; evolve-run drives one build-verify-commit cycle from your session; evolve-status reports progress, open requirements and anything that needs attention. Cycles run local shell scripts and git in your repository.",
-        "developerName": "Frank Bria",
+        "developerName": "Noatak Enterprises, LLC",
         "category": "Developer Tools",
         "capabilities": [
           "Interactive",

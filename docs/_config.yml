@@ -1,0 +1,3 @@
+# GitHub Pages (main branch, /docs) publishes only the support, privacy and terms pages.
+# The rest of docs/ stays on github.com; demos/ also holds `${{ }}` that Jekyll would mangle.
+exclude: [demos, STATUS.md, PROOF9.md]

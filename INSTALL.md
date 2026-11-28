@@ -237,12 +237,26 @@ protected-files hook and no setup reminder at session start. The engine still re
 protected files after every agent call, and the plugin installed from this repository's marketplace
 keeps both hooks. Delete the ZIP from `dist/` afterwards: the npm package ships that directory.
 
+The publisher is **Noatak Enterprises, LLC**: it is `developerName` and the author or owner in all
+three manifests (`tests/test_agent_plugin.sh` checks this). The support, privacy and terms pages
+are `docs/support.md`, `docs/privacy.md` and `docs/terms.md`, served by GitHub Pages from the `main`
+branch's `/docs` folder (`docs/_config.yml` keeps the rest of `docs/` off the site). Support is
+GitHub issues only.
+
 The command names any listing page (`websiteURL`, `supportURL`, `privacyPolicyURL`,
 `termsOfServiceURL`) that `plugins/code-evolve/plugin.json` does not have yet. Add each one, as a
 published HTTPS page, under `extensions["com.openai"].interface` before building the copy to
 upload. Release notes and the countries the plugin is offered in can be set in the same file, under
 `extensions["com.openai"].publication` (`release_notes`, `countries`), or in the portal.
 
-The upload itself is manual and needs a verified developer identity: in the plugin submission
-portal choose **Upload new or existing plugin**, pick the identity, and upload the ZIP. That creates
-a draft. Submitting the draft for review and publishing the approved version are separate steps.
+The remaining steps, in order:
+
+1. Turn on GitHub Pages: repository **Settings → Pages → Source: Deploy from a branch**, branch
+   `main`, folder `/docs`. The pages are then at `https://frankbria.github.io/code-evolve/support`,
+   `/privacy` and `/terms`. Open each one to check that it is published.
+2. Add those three URLs as `supportURL`, `privacyPolicyURL` and `termsOfServiceURL`, then build and
+   inspect the upload copy as above.
+3. Verify Noatak Enterprises, LLC as a business in the OpenAI organization settings.
+4. In the plugin submission portal choose **Upload new or existing plugin**, pick Noatak
+   Enterprises, LLC, and upload the ZIP. That creates a draft. Submitting the draft for review and
+   publishing the approved version are separate steps.
