@@ -19,23 +19,24 @@ files there (the `.evolve/` folder, skills folders, a section in `AGENTS.md` or 
 commits its changes to your repository. The plugin's hooks run locally and read only files in your
 repository and in the plugin.
 
-## Services you choose
+## Other services
 
-code-evolve connects only to services you set up, and each one handles your data under its own terms
-and privacy policy:
+code-evolve itself runs no service. It works through tools you install and sign in to, and each
+service below handles your data under its own terms and privacy policy:
 
 - **Your AI agent.** The agent you choose (Claude Code, Codex, OpenCode, Ollama or a custom command)
   reads your repository and the prompts code-evolve gives it, as it does when you use it directly.
-  What that agent's provider receives and keeps is governed by the provider's terms and privacy
-  policy.
+  Those prompts point it at your vision, spec and journal and, when `gh` is available, include the
+  text of your repository's open issues and excerpts of failed CI logs. What the agent's provider receives and keeps is
+  governed by the provider's terms and privacy policy.
 - **Your git remote.** Cycles fetch from and push commits and tags to the remote your repository
   already uses.
 - **GitHub, through your `gh` CLI.** If `gh` is installed and signed in, cycles read your repository's
   issues and CI results and comment on or close the issues they work on. If you set
   `ENABLE_SPONSORS=true`, they also read your own GitHub Sponsors list.
 - **npm.** Installing or upgrading with `npx` downloads the package from the npm registry.
-- **The web.** The cycle agent may search the web and read public pages when it researches
-  something unfamiliar.
+- **The web.** When it researches something unfamiliar, the cycle agent may send search queries of
+  its own choosing to DuckDuckGo and download public web pages.
 - **GitHub Actions.** In GitHub Actions mode, cycles run in your own GitHub account with the secrets
   you store there.
 
